@@ -51,7 +51,7 @@ if (-not $pythonw) {
         "$env:USERPROFILE\AppData\Local\Programs\Python\Python*",
         "C:\ProgramData\miniconda3",
         "C:\ProgramData\anaconda3",
-        "C:\Python*",
+        "C:\Python*"
     )
     foreach ($root in $roots) {
         foreach ($expanded in (Resolve-Path $root -ErrorAction SilentlyContinue)) {
