@@ -1,5 +1,6 @@
 #Requires -Version 3.0
-Set-Location $PSScriptRoot
+$_root = if ($PSScriptRoot) { $PSScriptRoot } else { $env:_CRYPTO_ROOT }
+Set-Location $_root
 
 Write-Host ""
 Write-Host " ===================================="
@@ -60,9 +61,15 @@ if ($useService) {
     }
     Write-Host "       서비스로 시작됨 (백그라운드, CMD 창 없음)"
 } else {
-    $pythonwCmd = Get-Command pythonw -ErrorAction SilentlyContinue
-    $pythonwPath = if ($pythonwCmd) { $pythonwCmd.Source } else { "pythonw" }
-    Start-Process $pythonwPath -ArgumentList "main.py" -WorkingDirectory $PSScriptRoot
+    $pythonwCmd = Get-Command pythonw.exe -ErrorAction SilentlyContinue
+    if ($pythonwCmd -and $pythonwCmd.Source) {
+        $pythonwPath = $pythonwCmd.Source
+    } else {
+        $pyCmd = Get-Command python.exe -ErrorAction SilentlyContinue
+        $candidate = if ($pyCmd) { Join-Path (Split-Path $pyCmd.Source) "pythonw.exe" } else { $null }
+        $pythonwPath = if ($candidate -and (Test-Path $candidate)) { $candidate } else { "pythonw" }
+    }
+    Start-Process $pythonwPath -ArgumentList "main.py" -WorkingDirectory $_root
     Write-Host "       백그라운드로 시작됨"
     Write-Host "       (서비스 등록은 install_service.bat 으로 가능)"
 }
