@@ -19,14 +19,14 @@ if (-not $isAdmin) {
 
 $ProjectDir = if ($PSScriptRoot) { $PSScriptRoot } else { $env:_CRYPTO_ROOT }
 
-# ── pythonw.exe 경로 자동 감지 ────────────────────────────
+# ── Python 실행파일 경로 자동 감지 ───────────────────────
 $pythonw = $null
 
 # 1) pythonw.exe 직접 탐색
 $cmd = Get-Command pythonw.exe -ErrorAction SilentlyContinue
 if ($cmd -and $cmd.Source) { $pythonw = $cmd.Source }
 
-# 2) python.exe 위치에서 유추 (conda 환경 대응)
+# 2) python.exe 옆에 pythonw.exe 유추 (일반 Python 설치)
 if (-not $pythonw) {
     $pyCmd = Get-Command python.exe -ErrorAction SilentlyContinue
     if ($pyCmd -and $pyCmd.Source) {
@@ -35,8 +35,18 @@ if (-not $pythonw) {
     }
 }
 
+# 3) pythonw.exe 없으면 python.exe 사용 (conda 환경)
+#    Task Scheduler (SYSTEM) 실행 시 어차피 콘솔 창 없음
 if (-not $pythonw) {
-    Write-Host "[오류] pythonw.exe 를 찾을 수 없습니다. Python 설치를 확인하세요."
+    $pyCmd = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($pyCmd -and $pyCmd.Source) {
+        $pythonw = $pyCmd.Source
+        Write-Host "   [참고] pythonw.exe 없음 — python.exe 사용"
+    }
+}
+
+if (-not $pythonw) {
+    Write-Host "[오류] python.exe 를 찾을 수 없습니다. Python 설치를 확인하세요."
     Read-Host "`n계속하려면 Enter"
     exit 1
 }
