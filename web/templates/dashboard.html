@@ -1,0 +1,403 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- JS에 심볼 목록 전달 -->
+<div id="cs-symbols" data-symbols="{{ symbols | join(',') }}" hidden></div>
+
+<!-- ═══ 홈 페이지 ═══════════════════════════════════════════════════════════ -->
+<section id="page-home" class="cs-page active">
+
+  <header class="cs-page-header">
+    <span class="cs-page-title"><img src="/images/CryptoSplit.jpg" class="cs-logo-img" alt="CryptoSplit"> CryptoSplit</span>
+    <span id="last-updated" class="cs-last-updated"></span>
+  </header>
+
+  <!-- 서브탭 바 -->
+  <div class="cs-home-tabs">
+    <button class="cs-home-tab active" data-tab="realtime">실시간</button>
+    <button class="cs-home-tab" data-tab="status">투자현황</button>
+    <button class="cs-home-tab" data-tab="pnl">누적손익</button>
+    <button class="cs-home-tab" data-tab="assets">거래소자산</button>
+  </div>
+
+  <!-- ── 탭 1: 실시간 시세 ── -->
+  <div id="home-tab-realtime" class="cs-tab-panel active">
+    <div id="market-price-list" class="cs-coin-list"></div>
+  </div>
+
+  <!-- ── 탭 2: 투자현황 ── -->
+  <div id="home-tab-status" class="cs-tab-panel">
+
+    <div class="cs-summary-section">
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">총 매수금액</span>
+        <span class="cs-summary-value" id="inv-total-buy">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">총 평가금액</span>
+        <span class="cs-summary-value" id="inv-total-eval">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">평가손익/수익률</span>
+        <span class="cs-summary-value cs-neutral" id="inv-total-pnl">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">남은종목수/최대종목수</span>
+        <span class="cs-summary-value" id="inv-counts">-</span>
+      </div>
+    </div>
+
+    <div class="cs-sort-bar">
+      <select class="cs-sort-select" id="inv-sort">
+        <option value="default">기본정렬</option>
+        <option value="buy">매수금액순</option>
+        <option value="eval">평가금액순</option>
+        <option value="pnl">평가손익순</option>
+      </select>
+    </div>
+
+    <div class="cs-symbol-list" id="investment-symbol-list"></div>
+  </div>
+
+  <!-- ── 탭 3: 누적손익 ── -->
+  <div id="home-tab-pnl" class="cs-tab-panel">
+
+    <div class="cs-summary-section">
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">총 매수금액</span>
+        <span class="cs-summary-value" id="pnl-total-buy">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">총 매도금액</span>
+        <span class="cs-summary-value" id="pnl-total-sell">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">누적손익/수익률</span>
+        <span class="cs-summary-value cs-neutral" id="pnl-total-pnl">-</span>
+      </div>
+    </div>
+
+    <div class="cs-sort-bar">
+      <select class="cs-sort-select" id="pnl-sort">
+        <option value="default">기본정렬</option>
+      </select>
+    </div>
+
+    <div class="cs-symbol-list" id="pnl-symbol-list"></div>
+  </div>
+
+  <!-- ── 탭 4: 거래소자산 ── -->
+  <div id="home-tab-assets" class="cs-tab-panel">
+
+    <div class="cs-info-banner">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      해당 화면은 거래소별 보유자산을 보여주는 화면입니다.
+    </div>
+
+    <div class="cs-refresh-row">
+      <span class="cs-exchange-label">빗썸</span>
+      <button class="cs-refresh-btn" id="assets-refresh-btn" title="새로고침">↺</button>
+    </div>
+
+    <div class="cs-asset-summary">
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">총보유자산</span>
+        <span class="cs-summary-value" id="assets-total">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">보유원화</span>
+        <span class="cs-summary-value" id="assets-krw-total">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">주문가능원화</span>
+        <span class="cs-summary-value" id="assets-krw-avail">-</span>
+      </div>
+      <div class="cs-summary-row" id="assets-points-row" style="display:none">
+        <span class="cs-summary-label">빗썸 포인트</span>
+        <span class="cs-summary-value cs-points-value" id="assets-points">-</span>
+      </div>
+    </div>
+
+    <div class="cs-asset-coin-list" id="asset-coin-list"></div>
+  </div>
+
+</section>
+
+<!-- ═══ 전략현황 페이지 ═══════════════════════════════════════════════════ -->
+<section id="page-strategy" class="cs-page">
+  <header class="cs-page-header">
+    <span class="cs-page-title">전략현황</span>
+  </header>
+
+  <!-- ─── 전략 설정 ─── -->
+  <div class="cs-strat-section">
+    <div class="cs-strat-section-title">전략 설정</div>
+    <div class="cs-strat-sym-tabs" id="strat-sym-tabs"></div>
+
+    <div class="cs-strat-settings-card">
+      <div class="cs-strat-row">
+        <span class="cs-strat-label">시작가</span>
+        <div class="cs-strat-input-wrap">
+          <input type="number" class="cs-strat-input" id="strat-input-start-price" step="1" min="0" placeholder="미설정">
+          <span class="cs-strat-unit">원</span>
+        </div>
+      </div>
+      <div class="cs-strat-row">
+        <span class="cs-strat-label">1회 주문금액</span>
+        <div class="cs-strat-input-wrap">
+          <input type="number" class="cs-strat-input" id="strat-input-amount" step="1000" min="1000">
+          <span class="cs-strat-unit">원</span>
+        </div>
+      </div>
+      <div class="cs-strat-row">
+        <span class="cs-strat-label">트리거 간격</span>
+        <div class="cs-strat-trigger-wrap">
+          <div class="cs-mode-toggle" id="strat-mode-toggle">
+            <button class="cs-mode-btn active" data-mode="pct">% 비율</button>
+            <button class="cs-mode-btn" data-mode="krw">원 단위</button>
+          </div>
+          <div class="cs-strat-input-wrap">
+            <input type="number" class="cs-strat-input" id="strat-input-trigger" step="0.1" min="0.1" max="10">
+            <span class="cs-strat-unit" id="strat-trigger-unit">%</span>
+          </div>
+        </div>
+      </div>
+      <div class="cs-strat-row">
+        <span class="cs-strat-label">최대 차수</span>
+        <div class="cs-strat-input-wrap">
+          <input type="number" class="cs-strat-input" id="strat-input-rounds" step="1" min="1" max="200">
+          <span class="cs-strat-unit">차</span>
+        </div>
+      </div>
+      <div class="cs-strat-calc">
+        <div class="cs-strat-calc-row">
+          <span class="cs-strat-calc-label">총 필요자금</span>
+          <span class="cs-strat-calc-val" id="strat-calc-capital">-</span>
+        </div>
+        <div class="cs-strat-calc-row">
+          <span class="cs-strat-calc-label">최대 하락커버</span>
+          <span class="cs-strat-calc-val" id="strat-calc-cover">-</span>
+        </div>
+      </div>
+      <div class="cs-strat-actions">
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="strat-save-btn">저장</button>
+        <button class="cs-btn cs-btn-secondary cs-btn-sm" id="strat-table-btn">차수별 예상가 ▼</button>
+      </div>
+    </div>
+
+    <div class="cs-price-table-wrap" id="strat-price-table-wrap" style="display:none">
+      <div class="cs-price-table-info">기준가: <span id="strat-ref-label">-</span></div>
+      <div class="cs-price-table-scroll">
+        <table class="cs-price-table">
+          <thead>
+            <tr><th>차수</th><th>매수가</th><th>매도가</th><th>하락률</th></tr>
+          </thead>
+          <tbody id="strat-price-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 전략 모니터링 ─── -->
+  <div class="cs-strat-section">
+    <div class="cs-strat-section-title">전략 모니터링</div>
+    <div id="strat-monitor-list"></div>
+  </div>
+
+</section>
+
+<!-- ═══ 투자내역 페이지 ═══════════════════════════════════════════════════ -->
+<section id="page-trades" class="cs-page">
+  <header class="cs-page-header">
+    <span class="cs-page-title">투자내역</span>
+  </header>
+
+  <!-- 서브탭 -->
+  <div class="cs-home-tabs" id="trades-sub-tabs">
+    <button class="cs-home-tab active" data-trades-tab="fills">주문체결 내역</button>
+    <button class="cs-home-tab"        data-trades-tab="pnl">실현손익 내역</button>
+  </div>
+
+  <!-- 공유 필터바 -->
+  <div class="cs-trades-filter-bar">
+    <div class="cs-trades-filter-row">
+      <input type="date" class="cs-trades-date-input" id="trades-start">
+      <span class="cs-trades-date-sep">~</span>
+      <input type="date" class="cs-trades-date-input" id="trades-end">
+      <select class="cs-trades-sym-select" id="trades-sym-select">
+        <option value="all">전체</option>
+      </select>
+      <button class="cs-btn cs-btn-primary cs-btn-sm" id="trades-search-btn">조회</button>
+    </div>
+  </div>
+
+  <!-- 탭 패널 -->
+  <div id="trades-tab-fills" class="cs-trades-panel active">
+    <div id="trades-fills-list"></div>
+  </div>
+  <div id="trades-tab-pnl" class="cs-trades-panel">
+    <div id="trades-pnl-list"></div>
+  </div>
+</section>
+
+<!-- ═══ 설정 페이지 ══════════════════════════════════════════════════════ -->
+<section id="page-settings" class="cs-page">
+  <header class="cs-page-header">
+    <span class="cs-page-title">설정</span>
+  </header>
+
+  <!-- ─── 서버 접속 정보 ─── -->
+  <div class="cs-settings-server-banner">
+    <span class="cs-settings-server-label">IPv4 주소</span>
+    <a class="cs-settings-server-url" id="settings-server-url" href="#" target="_blank">-</a>
+  </div>
+
+  <!-- ─── 섹션 1: 빗썸 멤버십 ─── -->
+  <div class="cs-settings-section">
+    <div class="cs-settings-title">
+      빗썸 멤버십
+      <span class="tier-badge" id="tier-badge-settings"></span>
+    </div>
+    <div class="cs-settings-card" id="membership-settings-card">
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">멤버십 등급</span>
+        <div class="cs-settings-input-wrap">
+          <select class="cs-settings-input" id="settings-membership">
+            <option value="화이트">화이트 — 0.003%</option>
+            <option value="블루">블루 — 0.005%</option>
+            <option value="그린">그린 — 0.008%</option>
+            <option value="퍼플">퍼플 — 0.01%</option>
+            <option value="오렌지">오렌지 — 0.01%</option>
+            <option value="블랙">블랙 — 0.01%</option>
+          </select>
+        </div>
+      </div>
+      <div class="cs-settings-notice">빗썸 사이트에서 본인 등급 확인 후 선택하세요</div>
+      <div class="cs-settings-actions">
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-membership-save">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 섹션 2: 거래소 API ─── -->
+  <div class="cs-settings-section">
+    <div class="cs-settings-title">거래소 API 연결</div>
+    <div class="cs-settings-card">
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">Access Key</span>
+        <div class="cs-settings-input-wrap">
+          <input type="password" class="cs-settings-input" id="settings-access-key" autocomplete="off" placeholder="미설정">
+          <button class="cs-pwd-toggle" data-target="settings-access-key" title="표시/숨기기">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">Secret Key</span>
+        <div class="cs-settings-input-wrap">
+          <input type="password" class="cs-settings-input" id="settings-secret-key" autocomplete="off" placeholder="미설정">
+          <button class="cs-pwd-toggle" data-target="settings-secret-key" title="표시/숨기기">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="cs-settings-notice">변경 후 앱을 재시작해야 적용됩니다</div>
+      <div class="cs-settings-actions">
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-exchange-save">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 섹션 3: 텔레그램 ─── -->
+  <div class="cs-settings-section">
+    <div class="cs-settings-title">텔레그램 알림</div>
+    <div class="cs-settings-card">
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">Bot Token</span>
+        <div class="cs-settings-input-wrap">
+          <input type="password" class="cs-settings-input" id="settings-tg-token" autocomplete="off" placeholder="미설정">
+          <button class="cs-pwd-toggle" data-target="settings-tg-token" title="표시/숨기기">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">Chat ID</span>
+        <div class="cs-settings-input-wrap">
+          <input type="text" class="cs-settings-input" id="settings-tg-chat-id" autocomplete="off" placeholder="미설정">
+        </div>
+      </div>
+      <div class="cs-settings-notice">변경 후 앱을 재시작해야 적용됩니다</div>
+      <div class="cs-settings-actions">
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-telegram-save">저장</button>
+        <button class="cs-btn cs-btn-secondary cs-btn-sm" id="settings-telegram-test">테스트 전송</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 섹션 4: 매매 공통 설정 ─── -->
+  <div class="cs-settings-section">
+    <div class="cs-settings-title">매매 공통 설정</div>
+    <div class="cs-settings-card">
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">미체결 자동취소</span>
+        <div class="cs-settings-input-wrap cs-settings-unit-wrap">
+          <input type="number" class="cs-settings-input cs-settings-input-sm" id="settings-order-timeout" min="30" max="3600" step="10">
+          <span class="cs-settings-unit">초</span>
+        </div>
+      </div>
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">시세 조회 간격</span>
+        <div class="cs-settings-input-wrap cs-settings-unit-wrap">
+          <input type="number" class="cs-settings-input cs-settings-input-sm" id="settings-poll-interval" min="1" max="10" step="1">
+          <span class="cs-settings-unit">초</span>
+        </div>
+      </div>
+      <div class="cs-settings-actions">
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-strategy-save">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 섹션 5: 일일 리포트 시각 ─── -->
+  <div class="cs-settings-section">
+    <div class="cs-settings-title">일일 리포트</div>
+    <div class="cs-settings-card">
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">발송 시각</span>
+        <div class="cs-settings-input-wrap cs-settings-unit-wrap">
+          <input type="number" class="cs-settings-input cs-settings-input-sm" id="settings-report-hour" min="0" max="23" step="1">
+          <span class="cs-settings-unit">시</span>
+          <input type="number" class="cs-settings-input cs-settings-input-sm" id="settings-report-minute" min="0" max="59" step="1">
+          <span class="cs-settings-unit">분</span>
+        </div>
+      </div>
+      <div class="cs-settings-actions">
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-report-save">저장</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 확인 모달 ════════════════════════════════════════════════════════ -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content cs-modal-content">
+      <div class="modal-header cs-modal-header">
+        <h5 class="modal-title" id="modalTitle">확인</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body" id="modalBody">계속 진행하시겠습니까?</div>
+      <div class="modal-footer cs-modal-footer">
+        <button class="cs-btn cs-btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button class="cs-btn cs-btn-primary" id="confirmBtn">확인</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

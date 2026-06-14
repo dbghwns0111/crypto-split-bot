@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\USER\\\\crypto-split-bot\" -Recurse -Name)",
+      "Bash(Sort-Object)",
+      "Bash(Select-Object -First 100)",
+      "PowerShell(python --version; python -m pip --version)",
+      "PowerShell(python -m pip index versions python-bithumb 2>&1 | Select-Object -First 5)",
+      "PowerShell(python -c \"import pybithumb; print\\(dir\\(pybithumb.Bithumb\\)\\)\" 2>&1)",
+      "PowerShell(python -c \"import pybithumb; import inspect; print\\(inspect.getsource\\(pybithumb.Bithumb.get_balance\\)\\)\" 2>&1)",
+      "PowerShell(python -m pip show python-bithumb 2>&1; python -c \"import bithumb; print\\(dir\\(bithumb\\)\\)\" 2>&1)",
+      "Bash(python *)",
+      "WebSearch",
+      "WebFetch(domain:apidocs.bithumb.com)",
+      "WebFetch(domain:api.bithumb.com)"
+    ]
+  }
+}

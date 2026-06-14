@@ -1,0 +1,39 @@
+# 환경 변수 (API 키 포함 — 절대 커밋 금지)
+.env
+.env.local
+
+# 데이터베이스
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# 로그
+logs/
+*.log
+
+# Python 빌드 산출물
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 테스트 캐시
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 배포 패키지
+*.zip
+*.tar.gz

@@ -1,0 +1,343 @@
+"""주문 CRUD 레포지토리."""
+
+import sqlite3
+from typing import Optional
+
+from database.connection import get_connection
+from utils.time_utils import now_kst_str
+
+
+def _conn() -> sqlite3.Connection:
+    return get_connection()
+
+
+def save_order(
+    symbol: str,
+    order_id: str,
+    side: str,
+    price: float,
+    quantity: float,
+    amount: float,
+    round_no: int,
+) -> int:
+    """신규 주문을 저장하고 row id를 반환한다."""
+    now = now_kst_str()
+    cur = _conn().execute(
+        """
+        INSERT INTO orders
+            (symbol, order_id, side, price, quantity, amount,
+             status, round_no, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+        """,
+        (symbol, order_id, side, price, quantity, amount, round_no, now, now),
+    )
+    _conn().commit()
+    return cur.lastrowid
+
+
+def update_order(
+    order_id: str,
+    status: str,
+    filled_price: Optional[float] = None,
+    filled_at: Optional[str] = None,
+) -> None:
+    """주문 상태를 업데이트한다."""
+    now = now_kst_str()
+    _conn().execute(
+        """
+        UPDATE orders
+        SET status = ?, filled_price = ?, filled_at = ?, updated_at = ?
+        WHERE order_id = ?
+        """,
+        (status, filled_price, filled_at, now, order_id),
+    )
+    _conn().commit()
+
+
+def get_order(order_id: str) -> Optional[dict]:
+    """order_id로 단건 조회. 없으면 None."""
+    row = _conn().execute(
+        "SELECT * FROM orders WHERE order_id = ?", (order_id,)
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_open_orders(symbol: str) -> list[dict]:
+    """symbol의 미체결 주문 목록을 반환한다."""
+    rows = _conn().execute(
+        "SELECT * FROM orders WHERE symbol = ? AND status = 'open' ORDER BY created_at",
+        (symbol,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_active_buy_count(symbol: str) -> int:
+    """symbol의 체결된 매수 주문 수(= 현재 차수)를 반환한다."""
+    row = _conn().execute(
+        """
+        SELECT COUNT(*) AS cnt FROM orders
+        WHERE symbol = ? AND side = 'buy' AND status = 'filled'
+        """,
+        (symbol,),
+    ).fetchone()
+    return row["cnt"] if row else 0
+
+
+def get_latest_filled_buy(symbol: str) -> Optional[dict]:
+    """가장 최근 체결된 매수 주문을 반환한다."""
+    row = _conn().execute(
+        """
+        SELECT * FROM orders
+        WHERE symbol = ? AND side = 'buy' AND status = 'filled'
+        ORDER BY filled_at DESC
+        LIMIT 1
+        """,
+        (symbol,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_today_trade_counts(symbol: str, date: Optional[str] = None) -> dict:
+    """오늘 날짜의 매수/매도 체결 횟수를 반환한다."""
+    from utils.time_utils import today_kst_str
+    d = date or today_kst_str()
+    row = _conn().execute(
+        """
+        SELECT
+            SUM(CASE WHEN side = 'buy'  THEN 1 ELSE 0 END) AS buy_count,
+            SUM(CASE WHEN side = 'sell' THEN 1 ELSE 0 END) AS sell_count
+        FROM orders
+        WHERE symbol = ? AND status = 'filled'
+          AND DATE(filled_at) = ?
+        """,
+        (symbol, d),
+    ).fetchone()
+    return {
+        "buy":  int(row["buy_count"]  or 0) if row else 0,
+        "sell": int(row["sell_count"] or 0) if row else 0,
+    }
+
+
+def get_filled_orders(symbol: str, date: str) -> list[dict]:
+    """특정 날짜(YYYY-MM-DD)의 체결 완료 주문 목록을 반환한다."""
+    rows = _conn().execute(
+        """
+        SELECT * FROM orders
+        WHERE symbol = ? AND status = 'filled'
+          AND filled_at LIKE ?
+        ORDER BY filled_at
+        """,
+        (symbol, f"{date}%"),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_orders(symbol: str, limit: int = 100) -> list[dict]:
+    """symbol의 최근 주문 목록을 반환한다."""
+    rows = _conn().execute(
+        "SELECT * FROM orders WHERE symbol = ? ORDER BY created_at DESC LIMIT ?",
+        (symbol, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_cumulative_totals() -> list[dict]:
+    """심볼별 전체 체결 매수/매도 금액 합계를 반환한다."""
+    rows = _conn().execute(
+        """
+        SELECT symbol,
+               SUM(CASE WHEN side = 'buy'  THEN amount ELSE 0 END) AS total_buy,
+               SUM(CASE WHEN side = 'sell' THEN amount ELSE 0 END) AS total_sell,
+               COUNT(CASE WHEN side = 'buy'  THEN 1 END) AS buy_count,
+               COUNT(CASE WHEN side = 'sell' THEN 1 END) AS sell_count
+        FROM orders
+        WHERE status = 'filled'
+        GROUP BY symbol
+        """
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_position_cost(symbol: str) -> float:
+    """현재 포지션 순 투입금 (총 매수금액 - 총 매도금액)을 반환한다."""
+    row = _conn().execute(
+        """
+        SELECT
+            SUM(CASE WHEN side = 'buy'  THEN amount ELSE 0 END) -
+            SUM(CASE WHEN side = 'sell' THEN amount ELSE 0 END) AS net_cost
+        FROM orders
+        WHERE symbol = ? AND status = 'filled'
+        """,
+        (symbol,),
+    ).fetchone()
+    if row and row["net_cost"] is not None:
+        return max(0.0, float(row["net_cost"]))
+    return 0.0
+
+
+def get_avg_buy_price(symbol: str) -> float:
+    """체결된 매수 주문 기반 가중평균 매수가를 반환한다."""
+    row = _conn().execute(
+        """
+        SELECT
+            SUM(filled_price * quantity) AS weighted_sum,
+            SUM(quantity) AS total_qty
+        FROM orders
+        WHERE symbol = ? AND side = 'buy' AND status = 'filled'
+          AND filled_price IS NOT NULL AND quantity > 0
+        """,
+        (symbol,),
+    ).fetchone()
+    if row and row["total_qty"] and row["total_qty"] > 0:
+        return float(row["weighted_sum"]) / float(row["total_qty"])
+    return 0.0
+
+
+def get_manual_avg_buy_price(symbol: str) -> float:
+    """수동 입력된 평균매수가를 반환한다."""
+    row = _conn().execute(
+        "SELECT avg_buy_price FROM manual_avg_prices WHERE symbol = ?",
+        (symbol,),
+    ).fetchone()
+    return float(row["avg_buy_price"]) if row else 0.0
+
+
+def get_recent_filled_orders(symbols: list, limit: int = 20) -> list:
+    """복수 심볼의 최근 체결 주문 목록을 반환한다."""
+    if not symbols:
+        return []
+    ph = ",".join("?" * len(symbols))
+    rows = _conn().execute(
+        f"""
+        SELECT * FROM orders
+        WHERE symbol IN ({ph}) AND status = 'filled'
+        ORDER BY filled_at DESC
+        LIMIT ?
+        """,
+        (*symbols, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_filled_orders_range(
+    symbols: list,
+    start: str,
+    end: str,
+    symbol_filter: Optional[str] = None,
+    limit: int = 500,
+) -> list[dict]:
+    """기간(start~end, YYYY-MM-DD) 내 체결 주문 목록을 반환한다."""
+    if not symbols:
+        return []
+    if symbol_filter and symbol_filter in symbols:
+        where = "symbol = ?"
+        params: list = [symbol_filter, start, end, limit]
+    else:
+        ph = ",".join("?" * len(symbols))
+        where = f"symbol IN ({ph})"
+        params = [*symbols, start, end, limit]
+    rows = _conn().execute(
+        f"SELECT * FROM orders WHERE {where} AND status = 'filled'"
+        " AND DATE(filled_at) BETWEEN ? AND ? ORDER BY filled_at DESC LIMIT ?",
+        params,
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_pnl_rounds(
+    symbols: list,
+    start: str,
+    end: str,
+    symbol_filter: Optional[str] = None,
+    limit: int = 200,
+) -> list[dict]:
+    """기간 내 완료된 차수별 실현손익을 반환한다 (매도-매수 LEFT JOIN)."""
+    if not symbols:
+        return []
+    if symbol_filter and symbol_filter in symbols:
+        sym_clause = "s.symbol = ?"
+        params: list = [symbol_filter, start, end, limit]
+    else:
+        ph = ",".join("?" * len(symbols))
+        sym_clause = f"s.symbol IN ({ph})"
+        params = [*symbols, start, end, limit]
+    rows = _conn().execute(
+        f"""
+        SELECT s.symbol, s.round_no,
+               b.filled_price AS buy_price,  s.filled_price AS sell_price,
+               s.quantity,
+               b.amount AS buy_amount, s.amount AS sell_amount,
+               s.filled_at
+        FROM orders s
+        LEFT JOIN orders b
+            ON  b.symbol   = s.symbol
+            AND b.round_no = s.round_no
+            AND b.side     = 'buy'
+            AND b.status   = 'filled'
+        WHERE s.side   = 'sell'
+          AND s.status = 'filled'
+          AND {sym_clause}
+          AND DATE(s.filled_at) BETWEEN ? AND ?
+        ORDER BY s.filled_at DESC
+        LIMIT ?
+        """,
+        params,
+    ).fetchall()
+    result = []
+    for r in [dict(x) for x in rows]:
+        buy_a  = float(r.get("buy_amount")  or 0)
+        sell_a = float(r.get("sell_amount") or 0)
+        buy_p  = float(r.get("buy_price")   or 0)
+        sell_p = float(r.get("sell_price")  or 0)
+        qty    = float(r.get("quantity")    or 0)
+        fee    = (buy_a + sell_a) * 0.0005
+        r["pnl"] = round((sell_p - buy_p) * qty - fee, 0) if buy_p > 0 else None
+        result.append(r)
+    return result
+
+
+def save_catchup_order(
+    symbol: str,
+    order_id: str,
+    side: str,
+    grid_price: float,
+    filled_price: float,
+    quantity: float,
+    amount: float,
+    round_no: int,
+) -> int:
+    """캐치업 매수 주문을 즉시 체결 상태로 저장한다.
+
+    grid_price: 차수 테이블 표시용 의도 그리드 가격
+    filled_price: 실제 체결가 (PnL 계산 기준)
+    """
+    now = now_kst_str()
+    cur = _conn().execute(
+        """
+        INSERT INTO orders
+            (symbol, order_id, side, price, quantity, amount,
+             status, round_no, filled_price, filled_at,
+             created_at, updated_at, is_catchup)
+        VALUES (?, ?, ?, ?, ?, ?, 'filled', ?, ?, ?, ?, ?, 1)
+        """,
+        (symbol, order_id, side, grid_price, quantity, amount,
+         round_no, filled_price, now, now, now),
+    )
+    _conn().commit()
+    return cur.lastrowid
+
+
+def set_manual_avg_buy_price(symbol: str, price: float) -> None:
+    """수동 평균매수가를 저장(UPSERT)한다."""
+    now = now_kst_str()
+    _conn().execute(
+        """
+        INSERT INTO manual_avg_prices (symbol, avg_buy_price, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(symbol) DO UPDATE SET
+            avg_buy_price = excluded.avg_buy_price,
+            updated_at    = excluded.updated_at
+        """,
+        (symbol, price, now),
+    )
+    _conn().commit()

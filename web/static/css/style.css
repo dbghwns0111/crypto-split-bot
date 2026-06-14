@@ -1,0 +1,965 @@
+/* ── CSS 변수 ─────────────────────────────────────────────────────────────── */
+:root {
+  --cs-outer:   #030508;
+  --cs-bg:      #0d1220;
+  --cs-card:    #182035;
+  --cs-card2:   #1f2a42;
+  --cs-border:  #263354;
+  --cs-accent:  #4f8ef7;
+  --cs-green:   #00c896;
+  --cs-red:     #ff4d6d;
+  --cs-text:    #e8edf5;
+  --cs-muted:   #7a8aaa;
+  --cs-nav-h:   68px;
+
+  /* 멤버십 티어 색상 (JS에서 동적으로 갱신) */
+  --tier-color:     #9E9E9E;
+  --tier-color-dim: rgba(158,158,158,0.12);
+  --tier-color-mid: rgba(158,158,158,0.35);
+}
+
+/* ── 리셋 & 기본 ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--cs-outer);
+  color: var(--cs-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ── 알림 컨테이너 ───────────────────────────────────────────────────────── */
+.cs-alert-container {
+  position: fixed;
+  top: 0;
+  right: 0;
+  padding: 12px;
+  z-index: 9999;
+  min-width: 280px;
+  pointer-events: none;
+}
+.cs-alert-container > * { pointer-events: auto; }
+
+/* ── 메인 콘텐츠 ─────────────────────────────────────────────────────────── */
+#cs-main {
+  max-width: 100%;
+  margin: 0 auto;
+  height: calc(100vh - var(--cs-nav-h));
+  height: calc(100dvh - var(--cs-nav-h));
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--cs-bg);
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+}
+
+/* ── 페이지 섹션 ─────────────────────────────────────────────────────────── */
+.cs-page { display: none; width: 100%; }
+.cs-page.active { display: block; }
+
+/* ── 페이지 헤더 ─────────────────────────────────────────────────────────── */
+.cs-page-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 19px 16px 12px;  /* 16px + 3px for tier line */
+  border-bottom: 1px solid var(--cs-border);
+}
+/* [Design A] 헤더 최상단 멤버십 티어 컬러 라인 */
+.cs-page-header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--tier-color);
+  box-shadow: 0 0 10px var(--tier-color);
+}
+.cs-page-title {
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cs-logo-img {
+  height: 24px;
+  width: auto;
+  vertical-align: middle;
+}
+.cs-last-updated {
+  font-size: 12px;
+  color: var(--cs-muted);
+}
+
+/* ── 하단 네비게이션 ─────────────────────────────────────────────────────── */
+.cs-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--cs-nav-h);
+  background: var(--cs-card);
+  border-top: 1px solid var(--cs-border);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  z-index: 1000;
+}
+.cs-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cs-muted);
+  transition: color 0.15s;
+  padding: 0 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.cs-nav-item.active { color: var(--cs-accent); }
+.cs-nav-icon { width: 24px; height: 24px; }
+.cs-nav-label { font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+/* ── 홈 서브탭 ───────────────────────────────────────────────────────────── */
+.cs-home-tabs {
+  display: flex;
+  padding: 0;
+  border-bottom: 1px solid var(--cs-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.cs-home-tabs::-webkit-scrollbar { display: none; }
+
+.cs-home-tab {
+  flex-shrink: 0;
+  padding: 13px 22px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--cs-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.cs-home-tab.active {
+  color: var(--cs-accent);
+  border-bottom-color: var(--cs-accent);
+}
+
+/* ── 탭 패널 ─────────────────────────────────────────────────────────────── */
+.cs-tab-panel { display: none; }
+.cs-tab-panel.active {
+  display: block;
+  animation: cs-fade-in 0.15s ease;
+}
+@keyframes cs-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 코인 아이콘 ─────────────────────────────────────────────────────────── */
+.cs-coin-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 13px;
+  color: #fff;
+  flex-shrink: 0;
+  letter-spacing: -0.5px;
+}
+.cs-coin-BTC   { background: #f7931a; }
+.cs-coin-ETH   { background: #627eea; }
+.cs-coin-XRP   { background: #346aa9; }
+.cs-coin-USDT  { background: #26a17b; }
+.cs-coin-BNB   { background: #f3ba2f; }
+.cs-coin-SOL   { background: #9945ff; }
+.cs-coin-DOGE  { background: #c3a634; }
+.cs-coin-ADA   { background: #0d52e8; }
+.cs-coin-MATIC { background: #8247e5; }
+.cs-coin-DOT   { background: #e6007a; }
+.cs-coin-KRW   { background: #2563eb; }
+
+/* ── [탭 1] 실시간: 코인 행 ─────────────────────────────────────────────── */
+.cs-coin-list { padding: 0; }
+.cs-coin-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--cs-border);
+  transition: background 0.1s;
+}
+.cs-coin-row:active { background: var(--cs-card); }
+.cs-coin-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cs-coin-name   { font-size: 15px; font-weight: 600; }
+.cs-coin-symbol { font-size: 13px; color: var(--cs-muted); }
+.cs-coin-price  { text-align: right; }
+.cs-coin-price-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── [탭 2/3] 투자현황/누적손익: 요약 섹션 ─────────────────────────────── */
+.cs-summary-section {
+  background: var(--cs-card);
+  border-bottom: 1px solid var(--cs-border);
+  padding: 4px 0;
+}
+.cs-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--cs-border);
+  font-size: 15px;
+}
+.cs-summary-row:last-child { border-bottom: none; }
+.cs-summary-label { color: var(--cs-muted); }
+.cs-summary-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+.cs-points-value  { color: #fbbf24; }
+
+/* ── 정렬순서 바 ─────────────────────────────────────────────────────────── */
+.cs-sort-bar {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-sort-select {
+  background: var(--cs-card2);
+  color: var(--cs-text);
+  border: 1px solid var(--cs-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  width: 120px;
+}
+
+/* ── 종목 카드 리스트 ─────────────────────────────────────────────────────── */
+.cs-symbol-list {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cs-symbol-card {
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.cs-symbol-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-symbol-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+}
+.cs-symbol-card-body { padding: 4px 0; }
+.cs-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  font-size: 15px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-card-row:last-child { border-bottom: none; }
+.cs-card-label { color: var(--cs-muted); }
+.cs-card-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── [탭 4] 거래소자산 ───────────────────────────────────────────────────── */
+.cs-info-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 12px;
+  color: var(--cs-muted);
+  background: var(--cs-card);
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-refresh-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-exchange-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cs-text);
+}
+.cs-refresh-btn {
+  background: none;
+  border: 1px solid var(--cs-border);
+  color: var(--cs-muted);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: color 0.15s;
+  line-height: 1;
+}
+.cs-refresh-btn:active { color: var(--cs-accent); }
+
+.cs-asset-summary {
+  background: var(--cs-card);
+  border-bottom: 1px solid var(--cs-border);
+  padding: 4px 0;
+}
+
+.cs-asset-coin-list {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cs-asset-coin-card {
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.cs-asset-coin-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-asset-coin-title { font-size: 15px; font-weight: 700; }
+.cs-asset-coin-body { padding: 4px 0; }
+
+.cs-avg-price-wrapper { display: flex; align-items: center; gap: 4px; }
+.cs-edit-price-btn {
+  background: none; border: none; color: var(--cs-muted);
+  cursor: pointer; font-size: 12px; padding: 0; line-height: 1;
+  transition: color 0.15s;
+}
+.cs-edit-price-btn:hover { color: var(--cs-accent); }
+.cs-inline-edit {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-bottom: 1px solid var(--cs-border);
+}
+.cs-inline-edit input {
+  flex: 1; background: var(--cs-card2); border: 1px solid var(--cs-border);
+  border-radius: 6px; color: var(--cs-text); padding: 4px 8px;
+  font-size: 13px;
+}
+.cs-save-price-btn, .cs-cancel-price-btn {
+  padding: 4px 10px; border-radius: 6px; border: none;
+  font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.cs-save-price-btn   { background: var(--cs-accent); color: #fff; }
+.cs-cancel-price-btn { background: var(--cs-card2); color: var(--cs-muted); border: 1px solid var(--cs-border); }
+
+/* ── 상태 배지 ───────────────────────────────────────────────────────────── */
+.cs-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.cs-badge-running {
+  background: rgba(0, 200, 150, 0.15);
+  color: var(--cs-green);
+}
+.cs-badge-stopped {
+  background: rgba(100, 116, 139, 0.15);
+  color: var(--cs-muted);
+}
+
+/* ── 색상 유틸 ───────────────────────────────────────────────────────────── */
+.cs-positive { color: var(--cs-green); }
+.cs-negative { color: var(--cs-red); }
+.cs-neutral  { color: var(--cs-text); }
+
+/* ── 버튼 ─────────────────────────────────────────────────────────────────── */
+.cs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.cs-btn:active { opacity: 0.8; transform: scale(0.97); }
+.cs-btn-sm { padding: 5px 11px; font-size: 12px; border-radius: 6px; }
+.cs-btn-primary   { background: var(--cs-accent); color: #fff; }
+.cs-btn-success   { background: var(--cs-green);  color: #fff; }
+.cs-btn-danger    { background: var(--cs-red);    color: #fff; }
+.cs-btn-secondary { background: rgba(100,116,139,0.2); color: var(--cs-text); }
+
+/* ── 모달 ─────────────────────────────────────────────────────────────────── */
+.cs-modal-content {
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 16px;
+}
+.cs-modal-header {
+  border-bottom: 1px solid var(--cs-border);
+  padding: 16px 20px;
+}
+.cs-modal-footer {
+  border-top: 1px solid var(--cs-border);
+  padding: 12px 20px;
+  gap: 8px;
+}
+
+/* ── 준비중 플레이스홀더 ─────────────────────────────────────────────────── */
+.cs-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  gap: 12px;
+}
+.cs-placeholder-icon { font-size: 48px; }
+.cs-placeholder-text { color: var(--cs-muted); font-size: 15px; }
+.cs-inv-empty { color: var(--cs-muted); font-size: 14px; text-align: center; padding: 32px 16px; margin: 0; }
+
+/* ── 반응형 (데스크톱 중앙 정렬) ────────────────────────────────────────── */
+@media (min-width: 1024px) {
+  #cs-main { max-width: 1100px; }
+  .cs-bottom-nav {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 1100px;
+  }
+}
+
+@media (min-width: 1440px) {
+  #cs-main { max-width: 1280px; }
+  .cs-bottom-nav {
+    width: 1280px;
+  }
+}
+
+/* ── 전략현황 페이지 ──────────────────────────────────────────────────────── */
+
+.cs-strat-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-strat-section:last-child { border-bottom: none; }
+.cs-strat-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cs-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 10px;
+}
+
+/* 심볼 탭 */
+.cs-strat-sym-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.cs-strat-tab {
+  background: var(--cs-card2);
+  color: var(--cs-muted);
+  border: 1px solid var(--cs-border);
+  border-radius: 6px;
+  padding: 5px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cs-strat-tab.active {
+  background: var(--cs-accent);
+  color: #fff;
+  border-color: var(--cs-accent);
+}
+
+/* 설정 카드 */
+.cs-strat-settings-card {
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  padding: 4px 14px 12px;
+  margin-bottom: 10px;
+}
+.cs-strat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(38,51,84,0.5);
+  gap: 8px;
+}
+.cs-strat-row:last-of-type { border-bottom: none; }
+.cs-strat-label { font-size: 14px; color: var(--cs-text); flex-shrink: 0; }
+
+/* 트리거 방식 토글 */
+.cs-mode-toggle {
+  display: flex;
+  gap: 3px;
+  background: var(--cs-card2);
+  border-radius: 6px;
+  padding: 3px;
+}
+.cs-mode-btn {
+  background: transparent;
+  color: var(--cs-muted);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cs-mode-btn.active { background: var(--cs-accent); color: #fff; }
+
+/* 트리거 통합 행 — 토글이 입력칸 왼쪽에 위치 */
+.cs-strat-trigger-wrap { display: flex; align-items: center; gap: 10px; }
+
+/* 입력 */
+.cs-strat-input-wrap { display: flex; align-items: center; gap: 6px; }
+.cs-strat-input {
+  background: var(--cs-card2);
+  color: var(--cs-text);
+  border: 1px solid var(--cs-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 14px;
+  width: 110px;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+.cs-strat-input::-webkit-outer-spin-button,
+.cs-strat-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.cs-strat-input:focus { outline: none; border-color: var(--cs-accent); }
+.cs-strat-unit { font-size: 13px; color: var(--cs-muted); width: 22px; }
+
+/* 자동 계산 */
+.cs-strat-calc {
+  background: var(--cs-card2);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 10px 0 0;
+}
+.cs-strat-calc-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.cs-strat-calc-label { color: var(--cs-muted); }
+.cs-strat-calc-val   { color: var(--cs-text); font-weight: 600; }
+
+/* 액션 버튼 */
+.cs-strat-actions { display: flex; gap: 8px; margin-top: 12px; }
+
+/* 차수별 예상가 테이블 */
+.cs-price-table-wrap {
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.cs-price-table-info {
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--cs-muted);
+  background: var(--cs-card2);
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-price-table-scroll { overflow-y: auto; max-height: 280px; }
+.cs-price-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+.cs-price-table th:nth-child(1) { width: 14%; }
+.cs-price-table th:nth-child(2) { width: 31%; }
+.cs-price-table th:nth-child(3) { width: 31%; }
+.cs-price-table th:nth-child(4) { width: 24%; }
+.cs-price-table th {
+  background: var(--cs-card2);
+  color: var(--cs-muted);
+  font-weight: 600;
+  padding: 7px 10px;
+  text-align: right;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.cs-price-table th:first-child { text-align: center; }
+.cs-price-table td {
+  padding: 6px 10px;
+  text-align: right;
+  border-bottom: 1px solid rgba(38,51,84,0.35);
+  color: var(--cs-text);
+}
+.cs-price-table td:first-child { text-align: center; color: var(--cs-muted); }
+.cs-price-table tbody tr:hover { background: var(--cs-card2); }
+
+/* 전략 모니터링 카드 */
+.cs-strat-card {
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.cs-cb-banner {
+  background: var(--cs-red);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  text-align: center;
+}
+.cs-strat-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px 9px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-strat-card-title { font-size: 15px; font-weight: 700; flex: 1; }
+.cs-strat-card-body  { padding: 4px 14px; }
+.cs-strat-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(38,51,84,0.35);
+  font-size: 14px;
+}
+.cs-strat-price-row:last-child { border-bottom: none; }
+.cs-strat-price-label { color: var(--cs-muted); }
+.cs-strat-price-val   { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* 차수 진행 바 */
+.cs-strat-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--cs-border);
+  border-top: 1px solid var(--cs-border);
+}
+.cs-strat-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--cs-card2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cs-strat-progress-fill {
+  height: 100%;
+  background: var(--cs-accent);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.cs-strat-progress-label { font-size: 12px; color: var(--cs-muted); white-space: nowrap; }
+
+/* 트리거 가격 */
+.cs-strat-triggers { background: rgba(255,255,255,0.02); }
+.cs-strat-trigger-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 0;
+  font-size: 13px;
+}
+.cs-strat-trigger-row:not(:last-child) { border-bottom: 1px solid rgba(38,51,84,0.35); }
+.cs-strat-trigger-label { font-size: 12px; }
+.cs-strat-trigger-val   { font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
+
+/* 미체결 주문 행 */
+.cs-pending-order {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: rgba(79,142,247,0.06);
+  border-top: 1px solid var(--cs-border);
+  font-size: 13px;
+}
+.cs-pending-icon { font-size: 13px; }
+.cs-pending-text { color: var(--cs-text); flex: 1; }
+.cs-pending-time { color: var(--cs-muted); font-size: 11px; }
+
+/* 카드 하단 손익 */
+.cs-strat-card-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--cs-border);
+  background: rgba(255,255,255,0.02);
+  font-size: 13px;
+}
+.cs-strat-pnl-label  { color: var(--cs-muted); }
+.cs-strat-pnl-val    { font-weight: 700; flex: 1; font-variant-numeric: tabular-nums; }
+.cs-strat-trades-val { color: var(--cs-muted); font-size: 12px; }
+
+/* 봇 시작/중지 버튼 영역 */
+.cs-strat-card-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--cs-border);
+}
+.cs-strat-card-actions .cs-btn { flex: 1; }
+.cs-strat-card-actions .cs-btn.cs-btn-start-main   { flex: 4; }
+.cs-strat-card-actions .cs-btn.cs-btn-start-resume { flex: 1; font-size: 0.78rem; padding: 6px 8px; }
+.cs-strat-card-point {
+  padding: 0 14px 8px;
+  font-size: 0.72rem;
+  color: var(--cs-green);
+  min-height: 0;
+}
+
+/* 체결 내역 테이블 */
+.cs-trade-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.cs-trade-table th {
+  background: var(--cs-card2);
+  color: var(--cs-muted);
+  font-weight: 600;
+  padding: 7px 8px;
+  text-align: right;
+  position: sticky;
+  top: 0;
+}
+.cs-trade-table th:first-child { text-align: left; }
+.cs-trade-table td {
+  padding: 6px 8px;
+  text-align: right;
+  border-bottom: 1px solid rgba(38,51,84,0.3);
+  font-variant-numeric: tabular-nums;
+}
+.cs-trade-table td:first-child { text-align: left; }
+.cs-trade-table tbody tr:hover { background: var(--cs-card2); }
+.cs-trade-empty {
+  color: var(--cs-muted);
+  text-align: center;
+  padding: 24px 16px;
+  font-size: 13px;
+}
+.cs-trade-side-buy  { color: var(--cs-red);   font-weight: 700; }
+.cs-trade-side-sell { color: var(--cs-green);  font-weight: 700; }
+
+/* ── 투자내역 페이지 ──────────────────────────────────────────────────────── */
+.cs-trades-filter-bar {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--cs-border);
+  background: var(--cs-card);
+}
+.cs-trades-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cs-trades-date-input {
+  background: var(--cs-card2);
+  color: var(--cs-text);
+  border: 1px solid var(--cs-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  flex: 1 1 110px;
+  min-width: 0;
+  color-scheme: dark;
+}
+.cs-trades-date-input:focus { outline: none; border-color: var(--cs-accent); }
+.cs-trades-date-sep  { color: var(--cs-muted); font-size: 13px; flex-shrink: 0; }
+.cs-trades-sym-select {
+  background: var(--cs-card2);
+  color: var(--cs-text);
+  border: 1px solid var(--cs-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 72px;
+}
+.cs-trades-panel { display: none; }
+.cs-trades-panel.active { display: block; animation: cs-fade-in 0.15s ease; }
+.cs-trades-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.cs-pnl-positive { color: var(--cs-green); font-weight: 700; }
+.cs-pnl-negative { color: var(--cs-red);   font-weight: 700; }
+.cs-pnl-zero     { color: var(--cs-muted); }
+
+/* ── 설정 페이지 ──────────────────────────────────────────────────────────── */
+.cs-settings-server-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  gap: 10px;
+}
+.cs-settings-server-label {
+  font-size: 12px;
+  color: var(--cs-muted);
+  flex-shrink: 0;
+}
+.cs-settings-server-url {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cs-accent);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+  text-align: right;
+}
+.cs-settings-server-url:hover { text-decoration: underline; }
+.cs-settings-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-settings-section:last-child { border-bottom: none; }
+.cs-settings-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cs-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* [Design D] 멤버십 티어 뱃지 */
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  border: 1px solid var(--tier-color);
+  color: var(--tier-color);
+  background: var(--tier-color-dim);
+  white-space: nowrap;
+  text-transform: none;
+}
+/* [Design C] 멤버십 설정 카드 왼쪽 컬러 라인 + 배경 그라디언트 */
+#membership-settings-card {
+  border-left: 3px solid var(--tier-color);
+  background: linear-gradient(90deg, var(--tier-color-dim) 0%, var(--cs-card) 40%);
+}
+/* [Design C] 멤버십 드롭다운 티어 색상 */
+#settings-membership {
+  border-color: var(--tier-color);
+  color: var(--tier-color);
+  font-weight: 600;
+}
+.cs-settings-card {
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  padding: 4px 14px 12px;
+}
+.cs-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(38,51,84,0.5);
+  gap: 10px;
+}
+.cs-settings-row:last-of-type { border-bottom: none; }
+.cs-settings-label {
+  font-size: 14px;
+  color: var(--cs-text);
+  flex-shrink: 0;
+  min-width: 110px;
+}
+.cs-settings-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: flex-end;
+}
+.cs-settings-unit-wrap { gap: 4px; }
+.cs-settings-input {
+  background: var(--cs-card2);
+  color: var(--cs-text);
+  border: 1px solid var(--cs-border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 13px;
+  width: 190px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cs-settings-input:focus { outline: none; border-color: var(--cs-accent); }
+.cs-settings-input-sm { width: 70px; text-align: right; }
+.cs-settings-unit { font-size: 13px; color: var(--cs-muted); width: 22px; }
+.cs-pwd-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--cs-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.cs-pwd-toggle:hover      { color: var(--cs-text); }
+.cs-pwd-active            { color: var(--cs-accent); }
+.cs-settings-notice {
+  font-size: 12px;
+  color: #f0a940;
+  margin-top: 8px;
+  margin-bottom: 2px;
+}
+.cs-settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
