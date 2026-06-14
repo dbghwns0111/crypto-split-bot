@@ -20,35 +20,63 @@ if (-not $isAdmin) {
 $ProjectDir = if ($PSScriptRoot) { $PSScriptRoot } else { $env:_CRYPTO_ROOT }
 
 # ── Python 실행파일 경로 자동 감지 ───────────────────────
+# 관리자 CMD는 conda PATH가 없으므로 디스크에서 직접 탐색
 $pythonw = $null
 
-# 1) pythonw.exe 직접 탐색
-$cmd = Get-Command pythonw.exe -ErrorAction SilentlyContinue
-if ($cmd -and $cmd.Source) { $pythonw = $cmd.Source }
-
-# 2) python.exe 옆에 pythonw.exe 유추 (일반 Python 설치)
-if (-not $pythonw) {
-    $pyCmd = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($pyCmd -and $pyCmd.Source) {
-        $candidate = Join-Path (Split-Path $pyCmd.Source) "pythonw.exe"
-        if (Test-Path $candidate) { $pythonw = $candidate }
+# 1) PATH에서 탐색 (일반 CMD 실행 시)
+foreach ($exe in @("pythonw.exe", "python.exe")) {
+    $c = Get-Command $exe -ErrorAction SilentlyContinue
+    if ($c -and $c.Source -and (Test-Path $c.Source)) {
+        $src = $c.Source
+        # Windows Store 더미 제외
+        if ($src -notlike "*WindowsApps*") {
+            $pythonw = $src; break
+        }
     }
 }
 
-# 3) pythonw.exe 없으면 python.exe 사용 (conda 환경)
-#    Task Scheduler (SYSTEM) 실행 시 어차피 콘솔 창 없음
+# python.exe 옆에 pythonw.exe 있으면 우선 사용
+if ($pythonw -and $pythonw -like "*python.exe") {
+    $pw = Join-Path (Split-Path $pythonw) "pythonw.exe"
+    if (Test-Path $pw) { $pythonw = $pw }
+}
+
+# 2) conda/Python 일반 설치 경로 직접 탐색 (관리자 CMD 대응)
 if (-not $pythonw) {
-    $pyCmd = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($pyCmd -and $pyCmd.Source) {
-        $pythonw = $pyCmd.Source
-        Write-Host "   [참고] pythonw.exe 없음 — python.exe 사용"
+    $roots = @(
+        "$env:USERPROFILE\miniconda3",
+        "$env:USERPROFILE\miniconda",
+        "$env:USERPROFILE\anaconda3",
+        "$env:USERPROFILE\anaconda",
+        "$env:USERPROFILE\AppData\Local\Programs\Python\Python*",
+        "C:\ProgramData\miniconda3",
+        "C:\ProgramData\anaconda3",
+        "C:\Python*",
+    )
+    foreach ($root in $roots) {
+        foreach ($expanded in (Resolve-Path $root -ErrorAction SilentlyContinue)) {
+            foreach ($exe in @("pythonw.exe", "python.exe")) {
+                $candidate = Join-Path $expanded.Path $exe
+                if (Test-Path $candidate) { $pythonw = $candidate; break }
+            }
+            if ($pythonw) { break }
+        }
+        if ($pythonw) { break }
     }
 }
 
+# 3) 자동 탐색 실패 — 수동 입력
 if (-not $pythonw) {
-    Write-Host "[오류] python.exe 를 찾을 수 없습니다. Python 설치를 확인하세요."
-    Read-Host "`n계속하려면 Enter"
-    exit 1
+    Write-Host "[경고] Python 을 자동으로 찾지 못했습니다."
+    Write-Host "       (예: C:\Users\awesome\miniconda3\python.exe)"
+    $manualPath = Read-Host "   python.exe 전체 경로를 직접 입력하세요"
+    $manualPath = $manualPath.Trim('"').Trim("'")
+    if (-not $manualPath -or -not (Test-Path $manualPath)) {
+        Write-Host "[오류] 경로가 없거나 유효하지 않습니다."
+        Read-Host "`n계속하려면 Enter"
+        exit 1
+    }
+    $pythonw = $manualPath
 }
 
 Write-Host "   프로젝트: $ProjectDir"
