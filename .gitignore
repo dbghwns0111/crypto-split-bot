@@ -37,3 +37,6 @@ htmlcov/
 # 배포 패키지
 *.zip
 *.tar.gz
+
+# 서비스 설치 시 자동 생성 (머신별 절대 경로 포함)
+run_service.bat
