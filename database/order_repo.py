@@ -97,6 +97,20 @@ def get_latest_filled_buy(symbol: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def get_filled_buy_for_round(symbol: str, round_no: int) -> Optional[dict]:
+    """특정 차수의 가장 최근 체결된 매수 주문을 반환한다."""
+    row = _conn().execute(
+        """
+        SELECT * FROM orders
+        WHERE symbol = ? AND side = 'buy' AND status = 'filled' AND round_no = ?
+        ORDER BY filled_at DESC
+        LIMIT 1
+        """,
+        (symbol, round_no),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def get_today_trade_counts(symbol: str, date: Optional[str] = None) -> dict:
     """오늘 날짜의 매수/매도 체결 횟수를 반환한다."""
     from utils.time_utils import today_kst_str

@@ -7,6 +7,7 @@ from typing import Optional
 from database.connection import configure as db_configure, get_connection
 from database.models import create_tables
 from database.order_repo import (
+    get_filled_buy_for_round,
     get_latest_filled_buy,
     get_open_orders,
     save_catchup_order,
@@ -186,8 +187,8 @@ class MagicSplit:
         # ── 매도 (서킷브레이커 발동 시에도 매도는 허용) ─────────────────────
         if self._pending_sell is None and self._current_round > 0:
             if trigger_mode == "krw":
-                fee_krw = self._reference_price * self._sell_extra_pct / 100
-                do_sell = should_sell_krw(current_price, self._reference_price, trigger_krw + fee_krw)
+                # KRW 모드: 매도가 = 기준가 + 트리거 (그리드 정렬 유지)
+                do_sell = should_sell_krw(current_price, self._reference_price, trigger_krw)
             else:
                 do_sell = should_sell(current_price, self._reference_price,
                                       trigger_pct, self._sell_extra_pct)
@@ -198,6 +199,10 @@ class MagicSplit:
         if not cb_active and self._pending_buy is None:
             if self._current_round >= self._max_rounds:
                 self._notify_max_round()
+            elif self._current_round == 0 and self._start_price > 0:
+                # 0차: 시작가 이하 도달 시 시작가에서 즉시 매수
+                if current_price <= self._start_price:
+                    self._place_buy_at_start()
             else:
                 if trigger_mode == "krw":
                     do_buy = should_buy_krw(current_price, self._reference_price, trigger_krw)
@@ -224,12 +229,28 @@ class MagicSplit:
         try:
             result = self._exchange.buy_limit(self._ticker, price, quantity)
             oid = result["order_id"]
-            self._pending_buy = {"order_id": oid, "placed_at": time.monotonic()}
+            self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
             save_order(self._symbol, oid, "buy", price, quantity,
                        round(price * quantity, 2), self._current_round + 1)
             _log.info("매수 주문 전송: %s 가격=%d 수량=%s", self._symbol, price, quantity)
         except Exception as exc:
             _log.error("매수 주문 실패 (%s): %s", self._symbol, exc)
+
+    def _place_buy_at_start(self) -> None:
+        """0차 시작: 시작가에서 즉시 1차 매수 주문."""
+        price = round_price(self._start_price)
+        quantity = calc_quantity(self._order_amount, price)
+        if quantity <= 0:
+            return
+        try:
+            result = self._exchange.buy_limit(self._ticker, price, quantity)
+            oid = result["order_id"]
+            self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
+            save_order(self._symbol, oid, "buy", price, quantity,
+                       round(price * quantity, 2), 1)
+            _log.info("시작가 매수 주문: %s 가격=%d 수량=%s", self._symbol, price, quantity)
+        except Exception as exc:
+            _log.error("시작가 매수 실패 (%s): %s", self._symbol, exc)
 
     def _place_sell(self, trigger_pct: float, trigger_mode: str = "pct", trigger_krw: float = 0.0) -> None:
         latest_buy = get_latest_filled_buy(self._symbol)
@@ -237,8 +258,8 @@ class MagicSplit:
             return
         quantity = latest_buy["quantity"]
         if trigger_mode == "krw":
-            fee_krw = self._reference_price * self._sell_extra_pct / 100
-            price = round_price(sell_order_price_krw(self._reference_price, trigger_krw + fee_krw))
+            # KRW 모드: 매도가 = 기준가 + 트리거 (그리드 정렬 유지)
+            price = round_price(sell_order_price_krw(self._reference_price, trigger_krw))
         else:
             price = round_price(sell_order_price(self._reference_price,
                                                  trigger_pct, self._sell_extra_pct))
@@ -277,7 +298,8 @@ class MagicSplit:
             update_order(order_id, "filled",
                          filled_price=filled_price, filled_at=now_kst_str())
             if side == "buy":
-                self._on_buy_filled(filled_price, info.get("filled_quantity", 0))
+                order_price = (self._pending_buy or {}).get("order_price") or info.get("price", filled_price)
+                self._on_buy_filled(filled_price, order_price, info.get("filled_quantity", 0))
             else:
                 self._on_sell_filled(filled_price, info.get("filled_quantity", 0))
 
@@ -288,14 +310,14 @@ class MagicSplit:
             else:
                 self._pending_sell = None
 
-    def _on_buy_filled(self, filled_price: float, qty: float) -> None:
+    def _on_buy_filled(self, filled_price: float, order_price: float, qty: float) -> None:
         self._current_round += 1
-        self._reference_price = filled_price
+        self._reference_price = float(order_price)  # 주문가 기준 (fill_price 드리프트 방지)
         self._pending_buy = None
         increment_round(self._symbol)
-        set_reference_price(self._symbol, filled_price)
-        _log.info("매수 체결: %s 가격=%s 차수=%d",
-                  self._symbol, filled_price, self._current_round)
+        set_reference_price(self._symbol, self._reference_price)
+        _log.info("매수 체결: %s 체결가=%s 주문가=%s 차수=%d",
+                  self._symbol, filled_price, order_price, self._current_round)
         self._notify("buy_filled", price=filled_price, qty=qty, round_no=self._current_round)
         if self._current_round >= self._max_rounds:
             self._notify_max_round()
@@ -311,12 +333,19 @@ class MagicSplit:
             add_trade_pnl(self._symbol, pnl["net"], pnl["fee"], pnl["points"])
 
         self._current_round = max(0, self._current_round - 1)
-        self._reference_price = filled_price
         self._pending_sell = None
         decrement_round(self._symbol)
-        set_reference_price(self._symbol, filled_price)
-        _log.info("매도 체결: %s 가격=%s 차수=%d",
-                  self._symbol, filled_price, self._current_round)
+
+        # 이전 차수 매수 주문가로 기준가 복원 (그리드 정렬 유지)
+        if self._current_round > 0:
+            prev_buy = get_filled_buy_for_round(self._symbol, self._current_round)
+            self._reference_price = float(prev_buy["price"]) if prev_buy else float(round_price(filled_price))
+        else:
+            self._reference_price = 0.0  # 0차 복귀 → 다음 tick에서 start_price로 재초기화
+        set_reference_price(self._symbol, self._reference_price)
+
+        _log.info("매도 체결: %s 가격=%s 차수=%d 복원기준가=%s",
+                  self._symbol, filled_price, self._current_round, self._reference_price)
         self._notify("sell_filled", price=filled_price, qty=qty,
                      round_no=self._current_round, net_pnl=net_pnl, buy_price=buy_price)
 
@@ -402,9 +431,9 @@ class MagicSplit:
 
                     if side == "buy":
                         self._current_round  += 1
-                        self._reference_price = filled_price
-                        _log.info("매수 체결 복구: %s 가격=%s 차수=%d",
-                                  self._symbol, filled_price, self._current_round)
+                        self._reference_price = float(order["price"])  # 주문가 기준
+                        _log.info("매수 체결 복구: %s 주문가=%s 차수=%d",
+                                  self._symbol, order["price"], self._current_round)
                     else:  # sell
                         latest_buy = get_latest_filled_buy(self._symbol)
                         if latest_buy and latest_buy.get("filled_price"):
@@ -414,10 +443,14 @@ class MagicSplit:
                                 self._fee_rate, self._point_rate,
                             )
                             add_trade_pnl(self._symbol, pnl["net"], pnl["fee"], pnl["points"])
-                        self._current_round   = max(0, self._current_round - 1)
-                        self._reference_price = filled_price
-                        _log.info("매도 체결 복구: %s 가격=%s 차수=%d",
-                                  self._symbol, filled_price, self._current_round)
+                        self._current_round = max(0, self._current_round - 1)
+                        if self._current_round > 0:
+                            prev_buy = get_filled_buy_for_round(self._symbol, self._current_round)
+                            self._reference_price = float(prev_buy["price"]) if prev_buy else float(round_price(filled_price))
+                        else:
+                            self._reference_price = 0.0
+                        _log.info("매도 체결 복구: %s 가격=%s 차수=%d 복원기준가=%s",
+                                  self._symbol, filled_price, self._current_round, self._reference_price)
                     changed = True
 
                 elif status == "open":
