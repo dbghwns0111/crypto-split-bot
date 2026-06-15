@@ -80,6 +80,9 @@ class MagicSplit:
         self._pending_buy:  Optional[dict] = None   # {order_id, placed_at}
         self._pending_sell: Optional[dict] = None
 
+        # 최대 차수 알림 중복 방지
+        self._max_round_notified = False
+
         self._volatility      = VolatilityMeter(exchange, symbol, self._ticker, cfg)
         self._circuit_breaker = CircuitBreaker(symbol, cfg)
 
@@ -104,11 +107,12 @@ class MagicSplit:
 
     def reset_state(self) -> None:
         """런타임 상태와 DB를 초기화한다 (전략 첫 시작 전 호출)."""
-        self._reference_price = 0.0
-        self._current_round   = 0
-        self._is_resume       = False
-        self._pending_buy     = None
-        self._pending_sell    = None
+        self._reference_price    = 0.0
+        self._current_round      = 0
+        self._is_resume          = False
+        self._pending_buy        = None
+        self._pending_sell       = None
+        self._max_round_notified = False
         upsert_state(self._symbol, reference_price=0.0, current_round=0, is_running=False)
         _log.info("상태 초기화: %s", self._symbol)
 
@@ -338,6 +342,8 @@ class MagicSplit:
 
         self._current_round = max(0, self._current_round - 1)
         self._pending_sell = None
+        if self._current_round < self._max_rounds:
+            self._max_round_notified = False
         decrement_round(self._symbol)
 
         # 이전 차수 매수 주문가로 기준가 복원 (그리드 정렬 유지)
@@ -382,8 +388,11 @@ class MagicSplit:
             _log.debug("텔레그램 알림 실패 (%s): %s", event, exc)
 
     def _notify_max_round(self) -> None:
+        if self._max_round_notified:
+            return
         _log.warning("최대 차수 도달: %s (%d차)", self._symbol, self._current_round)
-        self._notify("max_round", round_no=self._current_round)
+        self._notify("max_round", round_no=self._current_round, max_rounds=self._max_rounds)
+        self._max_round_notified = True
 
     # ── 상태 복구 ─────────────────────────────────────────────────────────────
 

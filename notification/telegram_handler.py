@@ -81,7 +81,7 @@ class TelegramCommandHandler:
     # ── 메시지 처리 ───────────────────────────────────────────────────────────
 
     def _handle_update(self, update: dict) -> None:
-        msg = update.get("message") or update.get("edited_message")
+        msg = update.get("message")
         if not msg:
             return
 
