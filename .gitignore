@@ -40,3 +40,6 @@ htmlcov/
 
 # 서비스 설치 시 자동 생성 (머신별 절대 경로 포함)
 run_service.bat
+
+# 런타임 설정 (웹 UI에서 변경 — 머신별로 다를 수 있음)
+config/settings.yaml
