@@ -72,14 +72,7 @@ class BotManager:
                             trigger_krw=trigger_krw, order_amount=order_amount,
                         )
                     else:
-                        start_price = 0.0
-                        if self._exchange:
-                            try:
-                                start_price = self._exchange.get_current_price(
-                                    pair.get("ticker", "")
-                                )
-                            except Exception:
-                                pass
+                        start_price = float(pair.get("start_price", 0) or 0)
                         self._notifier.send_bot_started(
                             symbol,
                             trigger_mode=trigger_mode, trigger_pct=trigger_pct,
