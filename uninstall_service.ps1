@@ -1,5 +1,16 @@
 #Requires -Version 3.0
 
+# ── 관리자 권한 확인 ──────────────────────────────────────
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator
+)
+if (-not $isAdmin) {
+    Write-Output "[오류] 관리자 권한이 필요합니다."
+    Write-Output "       uninstall_service.bat 을 우클릭 -> 관리자로 실행 하세요."
+    Read-Host "`n계속하려면 Enter"
+    exit 1
+}
+
 Write-Output ""
 Write-Output " ===================================="
 Write-Output "   CryptoSplit - 서비스 제거"
