@@ -814,40 +814,39 @@ function _calcAndRenderPriceTable() {
     const tbody  = document.getElementById('strat-price-tbody');
     if (!tbody) return;
 
-    const mode   = document.querySelector('#strat-mode-toggle .cs-mode-btn.active')?.dataset.mode || 'pct';
-    const rounds = parseInt(document.getElementById('strat-input-rounds')?.value) || 50;
+    const mode       = document.querySelector('#strat-mode-toggle .cs-mode-btn.active')?.dataset.mode || 'pct';
+    const rounds     = parseInt(document.getElementById('strat-input-rounds')?.value) || 50;
     const triggerVal = parseFloat(document.getElementById('strat-input-trigger')?.value);
     const pct        = mode === 'pct' ? (triggerVal || 0.5) : 0;
     const krw        = mode === 'krw' ? (triggerVal || 10000) : 0;
 
-    const symData  = _stratData?.symbols?.find(s => s.symbol === _stratActiveSym);
-    const basePrice = symData?.reference_price || symData?.current_price || 0;
-    _setEl('strat-ref-label', basePrice > 0 ? `${basePrice.toLocaleString()}원` : '-');
+    const startPrice = parseFloat(document.getElementById('strat-input-start-price')?.value) || 0;
+    _setEl('strat-ref-label', startPrice > 0 ? `${Math.round(startPrice).toLocaleString()}원` : '-');
 
-    if (!basePrice || basePrice <= 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="cs-trade-empty">기준가 없음</td></tr>';
+    if (!startPrice || startPrice <= 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="cs-trade-empty">시작가를 입력하세요</td></tr>';
         return;
     }
 
+    // 1차: buy = startPrice, sell = startPrice + trigger
+    // n차: buy = startPrice - (n-1)*trigger, sell = buy + trigger
     const rows = [];
-    let prev = basePrice;
     for (let n = 1; n <= rounds; n++) {
         let buy, sell;
         if (mode === 'krw') {
-            buy  = prev - krw;
-            sell = prev + krw;
+            buy  = startPrice - (n - 1) * krw;
+            sell = buy + krw;
         } else {
-            buy  = prev * (1 - pct / 100);
-            sell = prev * (1 + pct / 100);
+            buy  = startPrice * Math.pow(1 - pct / 100, n - 1);
+            sell = buy * (1 + pct / 100);
         }
-        const dropPct = ((buy - basePrice) / basePrice * 100).toFixed(1);
+        const dropPct = ((buy - startPrice) / startPrice * 100).toFixed(1);
         rows.push(`<tr>
             <td>${n}차</td>
             <td>${Math.round(buy).toLocaleString()}원</td>
             <td>${Math.round(sell).toLocaleString()}원</td>
             <td style="color:var(--cs-red)">${dropPct}%</td>
         </tr>`);
-        prev = buy;
     }
     tbody.innerHTML = rows.join('');
 }
