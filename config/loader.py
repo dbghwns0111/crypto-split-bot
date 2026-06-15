@@ -14,7 +14,19 @@ _ROOT = Path(__file__).parent.parent
 def load_config(yaml_path: str | Path | None = None) -> dict:
     """yaml 파일을 읽고 .env 환경변수를 오버라이드한 설정 dict를 반환한다."""
     if yaml_path is None:
-        yaml_path = _ROOT / "config" / "settings.yaml"
+        yaml_path = Path(_ROOT / "config" / "settings.yaml")
+
+    yaml_path = Path(yaml_path)
+    if not yaml_path.exists():
+        default = yaml_path.parent / "settings.default.yaml"
+        if default.exists():
+            import shutil
+            shutil.copy(default, yaml_path)
+        else:
+            raise FileNotFoundError(
+                f"설정 파일을 찾을 수 없습니다: {yaml_path}\n"
+                "config/settings.default.yaml 도 없습니다. 저장소를 다시 확인하세요."
+            )
 
     # .env 로드 (이미 설정된 환경변수는 덮어쓰지 않음)
     env_path = _ROOT / ".env"
