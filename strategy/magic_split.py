@@ -147,6 +147,10 @@ class MagicSplit:
     def ticker(self) -> str:
         return self._ticker
 
+    @property
+    def start_price(self) -> float:
+        return self._start_price
+
     # ── 루프 ─────────────────────────────────────────────────────────────────
 
     def _loop(self) -> None:

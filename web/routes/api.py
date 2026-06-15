@@ -415,7 +415,14 @@ def get_strategy():
         order_amount = int(pair_cfg.get("order_amount", 50000))
 
         ref = reference_price
-        if ref > 0:
+        if current_round == 0 and start_price > 0:
+            # 0차: 시작가 이하 도달 시 매수 — buy_trig = start_price 그대로
+            buy_trig = round(start_price)
+            if trigger_mode == "krw":
+                sell_trig = round(start_price + trigger_krw)
+            else:
+                sell_trig = round(start_price * (1 + trigger_pct / 100))
+        elif ref > 0:
             if trigger_mode == "krw":
                 buy_trig  = round(ref - trigger_krw)
                 sell_trig = round(ref + trigger_krw)

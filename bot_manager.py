@@ -72,7 +72,7 @@ class BotManager:
                             trigger_krw=trigger_krw, order_amount=order_amount,
                         )
                     else:
-                        start_price = float(pair.get("start_price", 0) or 0)
+                        start_price = bot.start_price
                         self._notifier.send_bot_started(
                             symbol,
                             trigger_mode=trigger_mode, trigger_pct=trigger_pct,
