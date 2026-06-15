@@ -72,11 +72,19 @@ class BotManager:
                             trigger_krw=trigger_krw, order_amount=order_amount,
                         )
                     else:
+                        start_price = 0.0
+                        if self._exchange:
+                            try:
+                                start_price = self._exchange.get_current_price(
+                                    pair.get("ticker", "")
+                                )
+                            except Exception:
+                                pass
                         self._notifier.send_bot_started(
                             symbol,
                             trigger_mode=trigger_mode, trigger_pct=trigger_pct,
                             trigger_krw=trigger_krw, order_amount=order_amount,
-                            max_rounds=max_rounds,
+                            max_rounds=max_rounds, start_price=start_price,
                         )
                 return True, f"{symbol} 봇을 시작했습니다."
             except Exception as exc:
