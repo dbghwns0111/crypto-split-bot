@@ -155,6 +155,14 @@ class MagicSplit:
     def start_price(self) -> float:
         return self._start_price
 
+    @property
+    def pending_buy_price(self) -> float:
+        return float((self._pending_buy or {}).get("order_price", 0))
+
+    @property
+    def pending_sell_price(self) -> float:
+        return float((self._pending_sell or {}).get("order_price", 0))
+
     # ── 루프 ─────────────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
@@ -279,7 +287,7 @@ class MagicSplit:
         try:
             result = self._exchange.sell_limit(self._ticker, price, quantity)
             oid = result["order_id"]
-            self._pending_sell = {"order_id": oid, "placed_at": time.monotonic()}
+            self._pending_sell = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
             save_order(self._symbol, oid, "sell", price, quantity,
                        round(price * quantity, 2), self._current_round)
             _log.info("매도 주문 전송: %s 가격=%d 수량=%s", self._symbol, price, quantity)

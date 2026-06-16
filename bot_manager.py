@@ -137,11 +137,14 @@ class BotManager:
             return {"symbol": symbol, "running": False, "error": "알 수 없는 심볼"}
         bot = self._bots[symbol]
         return {
-            "symbol":          symbol,
-            "running":         bot.is_running,
-            "current_round":   bot.current_round,
-            "reference_price": bot.reference_price,
-            "ticker":          bot.ticker,
+            "symbol":            symbol,
+            "running":           bot.is_running,
+            "current_round":     bot.current_round,
+            "reference_price":   bot.reference_price,
+            "start_price":       bot.start_price,
+            "pending_buy_price": bot.pending_buy_price,
+            "pending_sell_price": bot.pending_sell_price,
+            "ticker":            bot.ticker,
         }
 
     def get_all_status(self) -> dict[str, dict]:

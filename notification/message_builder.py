@@ -185,7 +185,9 @@ def build_hourly_status(hour: int, statuses: list[dict]) -> str:
 
     statuses 각 원소:
         {"symbol": str, "running": bool,
-         "current_price": float, "current_round": int,
+         "current_price": float, "current_round": int, "max_rounds": int,
+         "start_price": float, "reference_price": float,
+         "pending_buy_price": float, "pending_sell_price": float,
          "today_pnl": float, "buy_count": int, "sell_count": int}
     """
     any_running = any(s.get("running") for s in statuses)
@@ -196,18 +198,34 @@ def build_hourly_status(hour: int, statuses: list[dict]) -> str:
         sym = s["symbol"]
         lines.append(_DIV)
         if s.get("running"):
-            price = s.get("current_price", 0)
-            rnd   = s.get("current_round", 0)
-            pnl   = s.get("today_pnl", 0)
-            buys  = s.get("buy_count", 0)
-            sells = s.get("sell_count", 0)
-            sign  = "+" if pnl >= 0 else ""
-            pnl_icon = "📈" if pnl >= 0 else "📉"
-            lines += [
-                f"📊 {sym}  실행중 · {rnd}차",
-                f"💲 현재가  {price:,.0f}원",
-                f"{pnl_icon} 오늘수익  {sign}{pnl:,.0f}원  (매수 {buys} / 매도 {sells})",
-            ]
+            rnd        = s.get("current_round", 0)
+            max_rnd    = s.get("max_rounds", 50)
+            price      = s.get("current_price", 0)
+            start_p    = s.get("start_price", 0)
+            ref_p      = s.get("reference_price", 0)
+            buy_p      = s.get("pending_buy_price", 0)
+            sell_p     = s.get("pending_sell_price", 0)
+            pnl        = s.get("today_pnl", 0)
+            buys       = s.get("buy_count", 0)
+            sells      = s.get("sell_count", 0)
+            sign       = "+" if pnl >= 0 else ""
+            pnl_icon   = "📈" if pnl >= 0 else "📉"
+
+            lines.append(f"📊 {sym}  실행중 · {rnd}/{max_rnd}차")
+            if start_p > 0:
+                lines.append(f"🚀 시작가   {start_p:,.0f}원")
+            if ref_p > 0:
+                lines.append(f"📌 기준가   {ref_p:,.0f}원")
+            lines.append(f"💲 현재가   {price:,.0f}원")
+            if buy_p > 0:
+                lines.append(f"🟢 매수대기  {buy_p:,.0f}원")
+            else:
+                lines.append(f"🟢 매수대기  -")
+            if sell_p > 0:
+                lines.append(f"🔴 매도대기  {sell_p:,.0f}원")
+            else:
+                lines.append(f"🔴 매도대기  -")
+            lines.append(f"{pnl_icon} 일일수익   {sign}{pnl:,.0f}원  (매수 {buys} / 매도 {sells})")
         else:
             lines.append(f"📊 {sym}  중지됨")
 

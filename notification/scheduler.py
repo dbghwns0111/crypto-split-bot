@@ -109,7 +109,12 @@ class NotificationScheduler:
                         entry["current_price"] = self._exchange.get_current_price(ticker)
                     except Exception:
                         entry["current_price"] = 0
-                    entry["current_round"] = bot_status.get("current_round", 0)
+                    entry["current_round"]     = bot_status.get("current_round", 0)
+                    entry["reference_price"]   = bot_status.get("reference_price", 0)
+                    entry["start_price"]       = bot_status.get("start_price", 0)
+                    entry["pending_buy_price"] = bot_status.get("pending_buy_price", 0)
+                    entry["pending_sell_price"] = bot_status.get("pending_sell_price", 0)
+                    entry["max_rounds"]        = self._cfg["pairs"][sym].get("max_rounds", 50)
                     try:
                         pnl = get_daily_pnl(sym) or {}
                         entry["today_pnl"] = float(pnl.get("realized_pnl", 0))
