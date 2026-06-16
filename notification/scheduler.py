@@ -52,12 +52,14 @@ class NotificationScheduler:
             CronTrigger(minute=0),
             id="hourly_status",
             replace_existing=True,
+            misfire_grace_time=300,  # 최대 5분까지 지연 허용
         )
         self._scheduler.add_job(
             self._job_daily_report,
             CronTrigger(hour=r_hour, minute=r_minute),
             id="daily_report",
             replace_existing=True,
+            misfire_grace_time=300,
         )
 
     # ── 잡 콜백 ───────────────────────────────────────────────────────────────
@@ -91,29 +93,40 @@ class NotificationScheduler:
     # ── 헬퍼 ──────────────────────────────────────────────────────────────────
 
     def _collect_statuses(self) -> list[dict]:
-        """각 봇의 현재 상태를 수집한다."""
+        """각 봇의 현재 상태를 수집한다. 심볼별 오류를 격리해 부분 실패를 허용한다."""
         from database.order_repo import get_today_trade_counts
         from database.pnl_repo import get_daily_pnl
 
         statuses = []
         for sym in self._bot_manager.symbols:
-            bot_status = self._bot_manager.get_status(sym)
-            entry: dict = {"symbol": sym, "running": bot_status["running"]}
+            try:
+                bot_status = self._bot_manager.get_status(sym)
+                entry: dict = {"symbol": sym, "running": bot_status["running"]}
 
-            if bot_status["running"]:
-                ticker = self._cfg["pairs"][sym]["ticker"]
-                try:
-                    entry["current_price"] = self._exchange.get_current_price(ticker)
-                except Exception:
-                    entry["current_price"] = 0
-                entry["current_round"] = bot_status.get("current_round", 0)
-                pnl    = get_daily_pnl(sym) or {}
-                counts = get_today_trade_counts(sym)
-                entry["today_pnl"]   = float(pnl.get("realized_pnl", 0))
-                entry["buy_count"]   = counts["buy"]
-                entry["sell_count"]  = counts["sell"]
+                if bot_status["running"]:
+                    ticker = self._cfg["pairs"][sym]["ticker"]
+                    try:
+                        entry["current_price"] = self._exchange.get_current_price(ticker)
+                    except Exception:
+                        entry["current_price"] = 0
+                    entry["current_round"] = bot_status.get("current_round", 0)
+                    try:
+                        pnl = get_daily_pnl(sym) or {}
+                        entry["today_pnl"] = float(pnl.get("realized_pnl", 0))
+                    except Exception:
+                        entry["today_pnl"] = 0
+                    try:
+                        counts = get_today_trade_counts(sym)
+                        entry["buy_count"]  = counts["buy"]
+                        entry["sell_count"] = counts["sell"]
+                    except Exception:
+                        entry["buy_count"]  = 0
+                        entry["sell_count"] = 0
 
-            statuses.append(entry)
+                statuses.append(entry)
+            except Exception as exc:
+                _log.warning("현황 수집 실패 (%s): %s — 중지 상태로 표시", sym, exc)
+                statuses.append({"symbol": sym, "running": False})
         return statuses
 
     def _collect_balances(self) -> tuple[float, dict[str, float]]:

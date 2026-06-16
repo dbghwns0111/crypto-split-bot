@@ -385,7 +385,7 @@ class MagicSplit:
             if fn:
                 fn(symbol=self._symbol, **kwargs)
         except Exception as exc:
-            _log.debug("텔레그램 알림 실패 (%s): %s", event, exc)
+            _log.warning("텔레그램 알림 실패 (%s): %s", event, exc)
 
     def _notify_max_round(self) -> None:
         if self._max_round_notified:

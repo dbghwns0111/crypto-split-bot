@@ -1,8 +1,13 @@
-"""TelegramNotifier — 메시지 전송, rate limit, 3회 재시도."""
+"""TelegramNotifier — 큐 기반 비동기 메시지 전송.
 
+send() 는 즉시 리턴 (큐에 적재) — 트레이딩 루프를 절대 블로킹하지 않는다.
+별도 sender 스레드가 rate-limit 및 3회 재시도를 처리한다.
+"""
+
+import queue
+import threading
 import time
-from threading import Lock
-from typing import Any
+from typing import Any, Optional
 
 import requests
 
@@ -23,38 +28,49 @@ from utils.logger import get_logger
 
 _log = get_logger("notification.telegram")
 
-_API_URL  = "https://api.telegram.org/bot{token}/sendMessage"
-_TIMEOUT  = 10      # HTTP 요청 타임아웃 (초)
-_RATE_GAP = 1.0     # 전송 최소 간격 (초)
+_API_URL   = "https://api.telegram.org/bot{token}/sendMessage"
+_TIMEOUT   = 10      # HTTP 요청 타임아웃 (초)
+_RATE_GAP  = 1.0     # 전송 최소 간격 (초)
 _MAX_RETRY = 3
+_QUEUE_MAX = 100     # 큐 최대 크기 (초과 시 오래된 메시지 폐기)
 
 
 class TelegramNotifier:
-    """Telegram Bot API 래퍼."""
+    """Telegram Bot API 래퍼 — 비동기 큐 기반."""
 
     def __init__(self, bot_token: str, chat_id: str):
         self._token   = bot_token
         self._chat_id = str(chat_id)
         self._enabled = bool(bot_token and chat_id)
-        self._lock     = Lock()
+        self._queue: queue.Queue[Optional[str]] = queue.Queue(maxsize=_QUEUE_MAX)
         self._last_sent: float = 0.0
 
-        if not self._enabled:
+        if self._enabled:
+            self._sender_thread = threading.Thread(
+                target=self._sender_loop,
+                name="TelegramSender",
+                daemon=True,
+            )
+            self._sender_thread.start()
+            _log.info("텔레그램 비동기 sender 시작 (큐 용량=%d)", _QUEUE_MAX)
+        else:
             _log.warning("텔레그램 비활성 (토큰 또는 CHAT_ID 미설정)")
 
     # ── 핵심 전송 ─────────────────────────────────────────────────────────────
 
     def send(self, text: str) -> bool:
-        """텍스트 메시지를 전송한다. 비활성 상태면 False를 반환한다."""
+        """메시지를 큐에 적재한다. 즉시 리턴 (블로킹 없음).
+
+        큐가 가득 찬 경우에만 False 반환.
+        """
         if not self._enabled:
             return False
-
-        with self._lock:
-            self._rate_wait()
-            success = self._send_with_retry(text)
-            if success:
-                self._last_sent = time.monotonic()
-            return success
+        try:
+            self._queue.put_nowait(text)
+            return True
+        except queue.Full:
+            _log.warning("텔레그램 큐 가득 참 — 메시지 폐기 (%.40s...)", text.replace("\n", " "))
+            return False
 
     # ── 편의 메서드 ───────────────────────────────────────────────────────────
 
@@ -128,13 +144,31 @@ class TelegramNotifier:
 
     # ── 내부 ─────────────────────────────────────────────────────────────────
 
-    def _rate_wait(self) -> None:
-        elapsed = time.monotonic() - self._last_sent
-        if elapsed < _RATE_GAP:
-            time.sleep(_RATE_GAP - elapsed)
+    def _sender_loop(self) -> None:
+        """백그라운드 스레드: 큐에서 메시지를 꺼내 rate-limit + 재시도 전송."""
+        while True:
+            try:
+                text = self._queue.get(timeout=60)
+            except queue.Empty:
+                continue
+
+            if text is None:  # stop sentinel
+                break
+
+            elapsed = time.monotonic() - self._last_sent
+            if elapsed < _RATE_GAP:
+                time.sleep(_RATE_GAP - elapsed)
+
+            if self._send_with_retry(text):
+                self._last_sent = time.monotonic()
+            else:
+                _log.warning(
+                    "텔레그램 최종 전송 실패 — 메시지 폐기: %.60s",
+                    text.replace("\n", " "),
+                )
 
     def _send_with_retry(self, text: str) -> bool:
-        url = _API_URL.format(token=self._token)
+        url     = _API_URL.format(token=self._token)
         payload = {"chat_id": self._chat_id, "text": text}
 
         for attempt in range(_MAX_RETRY):
@@ -142,6 +176,11 @@ class TelegramNotifier:
                 resp = requests.post(url, json=payload, timeout=_TIMEOUT)
                 if resp.status_code == 200:
                     return True
+                if resp.status_code == 429:
+                    retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
+                    _log.warning("텔레그램 rate limit — %d초 대기 (시도 %d/%d)", retry_after, attempt + 1, _MAX_RETRY)
+                    time.sleep(retry_after)
+                    continue
                 _log.warning(
                     "텔레그램 전송 실패 (HTTP %d, 시도 %d/%d)",
                     resp.status_code, attempt + 1, _MAX_RETRY,
@@ -153,7 +192,7 @@ class TelegramNotifier:
                 )
 
             if attempt < _MAX_RETRY - 1:
-                time.sleep(2 ** attempt)   # 1 → 2 → (끝)
+                time.sleep(2 ** attempt)  # 1 → 2 → (끝)
 
         _log.error("텔레그램 전송 최종 실패 (3회 소진)")
         return False
