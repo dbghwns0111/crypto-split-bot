@@ -163,6 +163,11 @@ class MagicSplit:
     def pending_sell_price(self) -> float:
         return float((self._pending_sell or {}).get("order_price", 0))
 
+    @property
+    def _current_order_amount(self) -> float:
+        """cfg에서 현재 1회 주문금액을 동적으로 읽는다 (런타임 변경 즉시 반영)."""
+        return float(self._cfg["pairs"][self._symbol].get("order_amount", self._order_amount))
+
     # ── 루프 ─────────────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
@@ -239,7 +244,7 @@ class MagicSplit:
             _log.warning("매수 생략: 반올림 후 가격(%d) ≥ 기준가(%d) — trigger가 tick 단위보다 작음",
                          price, ref)
             return
-        quantity = calc_quantity(self._order_amount, price)
+        quantity = calc_quantity(self._current_order_amount, price)
         if quantity <= 0:
             return
         try:
@@ -248,14 +253,15 @@ class MagicSplit:
             self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
             save_order(self._symbol, oid, "buy", price, quantity,
                        round(price * quantity, 2), self._current_round + 1)
-            _log.info("매수 주문 전송: %s 가격=%d 수량=%s", self._symbol, price, quantity)
+            _log.info("매수 주문 전송: %s 가격=%d 수량=%s 금액=%d원",
+                      self._symbol, price, quantity, int(price * quantity))
         except Exception as exc:
             _log.error("매수 주문 실패 (%s): %s", self._symbol, exc)
 
     def _place_buy_at_start(self) -> None:
         """0차 시작: 시작가에서 즉시 1차 매수 주문."""
         price = round_price(self._start_price)
-        quantity = calc_quantity(self._order_amount, price)
+        quantity = calc_quantity(self._current_order_amount, price)
         if quantity <= 0:
             return
         try:
@@ -520,7 +526,7 @@ class MagicSplit:
         room = self._max_rounds - self._current_round
         try:
             balance_krw = self._exchange.get_balance("KRW")
-            affordable  = int(float(balance_krw) // self._order_amount)
+            affordable  = int(float(balance_krw) // self._current_order_amount)
         except Exception:
             affordable  = gap
 
@@ -549,7 +555,7 @@ class MagicSplit:
 
         done = 0
         for intended_price in grid_prices:
-            quantity = calc_quantity(self._order_amount, current_price)
+            quantity = calc_quantity(self._current_order_amount, current_price)
             if quantity <= 0:
                 break
             try:
