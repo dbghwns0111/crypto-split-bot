@@ -84,7 +84,7 @@ def build_buy_filled(
     """매수 체결 알림 메시지."""
     amount = int(price * quantity)
     return "\n".join([
-        f"🟢 {symbol} 매수 체결 · {round_no}차",
+        f"🔵 {symbol} 매수 체결 · {round_no}차",
         _DIV,
         f"💲 체결가     {price:,.0f}원",
         f"📦 수량       {quantity:.4f}개",
@@ -104,7 +104,7 @@ def build_sell_filled(
     amount = int(price * quantity)
     sign   = "+" if net_pnl >= 0 else ""
     lines  = [
-        f"🔴 {symbol} 매도 체결 · {round_no}차",
+        f"🟠 {symbol} 매도 체결 · {round_no}차",
         _DIV,
         f"💲 체결가     {price:,.0f}원",
         f"📦 수량       {quantity:.4f}개",
@@ -218,13 +218,13 @@ def build_hourly_status(hour: int, statuses: list[dict]) -> str:
                 lines.append(f"📌 기준가   {ref_p:,.0f}원")
             lines.append(f"💲 현재가   {price:,.0f}원")
             if buy_p > 0:
-                lines.append(f"🟢 매수대기  {buy_p:,.0f}원")
+                lines.append(f"🔵 매수대기  {buy_p:,.0f}원")
             else:
-                lines.append(f"🟢 매수대기  -")
+                lines.append(f"🔵 매수대기  -")
             if sell_p > 0:
-                lines.append(f"🔴 매도대기  {sell_p:,.0f}원")
+                lines.append(f"🟠 매도대기  {sell_p:,.0f}원")
             else:
-                lines.append(f"🔴 매도대기  -")
+                lines.append(f"🟠 매도대기  -")
             lines.append(f"{pnl_icon} 일일수익   {sign}{pnl:,.0f}원  (매수 {buys} / 매도 {sells})")
         else:
             lines.append(f"📊 {sym}  중지됨")
