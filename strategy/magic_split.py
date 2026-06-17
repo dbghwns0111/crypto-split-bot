@@ -157,11 +157,32 @@ class MagicSplit:
 
     @property
     def pending_buy_price(self) -> float:
-        return float((self._pending_buy or {}).get("order_price", 0))
+        if self._pending_buy:
+            return float(self._pending_buy.get("order_price", 0))
+        if self._reference_price <= 0:
+            return 0
+        pair = self._cfg["pairs"][self._symbol]
+        trigger_mode = pair.get("trigger_mode", "pct")
+        if trigger_mode == "krw":
+            return round_price(buy_order_price_krw(self._reference_price,
+                                                   float(pair.get("trigger_krw", 10000))))
+        return round_price(buy_order_price(self._reference_price,
+                                           self._volatility.get_trigger_pct()))
 
     @property
     def pending_sell_price(self) -> float:
-        return float((self._pending_sell or {}).get("order_price", 0))
+        if self._pending_sell:
+            return float(self._pending_sell.get("order_price", 0))
+        if self._reference_price <= 0 or self._current_round <= 0:
+            return 0
+        pair = self._cfg["pairs"][self._symbol]
+        trigger_mode = pair.get("trigger_mode", "pct")
+        if trigger_mode == "krw":
+            return round_price(sell_order_price_krw(self._reference_price,
+                                                    float(pair.get("trigger_krw", 10000))))
+        return round_price(sell_order_price(self._reference_price,
+                                            self._volatility.get_trigger_pct(),
+                                            self._sell_extra_pct))
 
     @property
     def _current_order_amount(self) -> float:

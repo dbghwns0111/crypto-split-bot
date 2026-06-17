@@ -75,10 +75,11 @@ class NotificationScheduler:
             _log.error("정각 현황 전송 실패: %s", exc)
 
     def _job_daily_report(self) -> None:
-        """매일 00시: 일일 결산 리포트 전송."""
+        """매일 00시: 일일 결산 리포트 전송 (전날 데이터 집계)."""
         try:
+            from datetime import timedelta
             from database.order_repo import get_today_trade_counts
-            date        = today_kst_str()
+            date        = (now_kst() - timedelta(days=1)).strftime("%Y-%m-%d")
             symbol_data = get_daily_summary(date)
             for row in symbol_data:
                 counts = get_today_trade_counts(row["symbol"], date)
