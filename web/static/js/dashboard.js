@@ -142,6 +142,34 @@ document.addEventListener('DOMContentLoaded', () => {
     _initHomeTabs();
     _initTradesPage();
     _initSettingsPage();
+
+    // F5 새로고침 후 이전 탭 상태 복원
+    const _savedPage      = sessionStorage.getItem('cs-page')       || 'home';
+    const _savedTab       = sessionStorage.getItem('cs-tab')        || 'realtime';
+    const _savedTradesTab = sessionStorage.getItem('cs-trades-tab') || 'fills';
+
+    if (_savedPage !== 'home') {
+        _activePage = _savedPage;
+        document.querySelectorAll('.cs-page').forEach(el =>
+            el.classList.toggle('active', el.id === `page-${_activePage}`));
+        document.querySelectorAll('.cs-nav-item').forEach(el =>
+            el.classList.toggle('active', el.dataset.page === _activePage));
+    } else if (_savedTab !== 'realtime') {
+        _activeTab = _savedTab;
+        document.querySelectorAll('.cs-home-tab[data-tab]').forEach(el =>
+            el.classList.toggle('active', el.dataset.tab === _savedTab));
+        document.querySelectorAll('.cs-tab-panel').forEach(el =>
+            el.classList.toggle('active', el.id === `home-tab-${_savedTab}`));
+    }
+
+    if (_activePage === 'trades' && _savedTradesTab !== 'fills') {
+        _tradesActiveSubTab = _savedTradesTab;
+        document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(b =>
+            b.classList.toggle('active', b.dataset.tradesTab === _savedTradesTab));
+        document.querySelectorAll('.cs-trades-panel').forEach(p =>
+            p.classList.toggle('active', p.id === `trades-tab-${_savedTradesTab}`));
+    }
+
     _startPolling();
 });
 
@@ -156,6 +184,7 @@ function _initBottomNav() {
 function _switchPage(page) {
     if (page === _activePage) return;
     _activePage = page;
+    sessionStorage.setItem('cs-page', page);
     document.querySelectorAll('.cs-page').forEach(el =>
         el.classList.toggle('active', el.id === `page-${page}`)
     );
@@ -168,7 +197,7 @@ function _switchPage(page) {
 // ── 홈 서브탭 ─────────────────────────────────────────────────────────────────
 
 function _initHomeTabs() {
-    document.querySelectorAll('.cs-home-tab').forEach(btn => {
+    document.querySelectorAll('.cs-home-tab[data-tab]').forEach(btn => {
         btn.addEventListener('click', () => _switchHomeTab(btn.dataset.tab));
     });
 }
@@ -176,7 +205,8 @@ function _initHomeTabs() {
 function _switchHomeTab(tab) {
     if (tab === _activeTab) return;
     _activeTab = tab;
-    document.querySelectorAll('.cs-home-tab').forEach(el =>
+    sessionStorage.setItem('cs-tab', tab);
+    document.querySelectorAll('.cs-home-tab[data-tab]').forEach(el =>
         el.classList.toggle('active', el.dataset.tab === tab)
     );
     document.querySelectorAll('.cs-tab-panel').forEach(el =>
@@ -1013,6 +1043,7 @@ function _initTradesPage() {
             const tab = btn.dataset.tradesTab;
             if (tab === _tradesActiveSubTab) return;
             _tradesActiveSubTab = tab;
+            sessionStorage.setItem('cs-trades-tab', tab);
             document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(b =>
                 b.classList.toggle('active', b.dataset.tradesTab === tab));
             document.querySelectorAll('.cs-trades-panel').forEach(p =>
@@ -1090,12 +1121,69 @@ function _renderTradeFills(fills) {
 }
 
 function _renderTradePnl(rounds) {
-    const list = document.getElementById('trades-pnl-list');
+    const list  = document.getElementById('trades-pnl-list');
+    const sumEl = document.getElementById('trades-pnl-summary');
     if (!list) return;
 
     if (rounds.length === 0) {
         list.innerHTML = '<p class="cs-trade-empty">조회된 손익 내역이 없습니다</p>';
+        if (sumEl) sumEl.style.display = 'none';
         return;
+    }
+
+    // ── 요약 통계 계산 ────────────────────────────────────────────────────────
+    const nd    = new Date();
+    const today = `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}-${String(nd.getDate()).padStart(2,'0')}`;
+    let periodPnl = 0, todayPnl = 0, periodPairs = 0, todayPairs = 0, totalAmount = 0;
+
+    for (const r of rounds) {
+        if (r.pnl != null) {
+            periodPnl   += r.pnl;
+            totalAmount += (r.buy_amount || 0) + (r.sell_amount || 0);
+            periodPairs++;
+            if ((r.filled_at || '').slice(0, 10) === today) {
+                todayPnl += r.pnl;
+                todayPairs++;
+            }
+        }
+    }
+
+    let hourlyAvg = 0;
+    if (_tradesStart && _tradesEnd) {
+        const hours = Math.max(1,
+            (new Date(_tradesEnd   + 'T23:59:59') -
+             new Date(_tradesStart + 'T00:00:00')) / 3600000);
+        hourlyAvg = periodPnl / hours;
+    }
+
+    if (sumEl) {
+        sumEl.style.display = '';
+        sumEl.innerHTML = `<div class="cs-summary-section">
+            <div class="cs-summary-row">
+                <span class="cs-summary-label">기간 누적 손익</span>
+                <span class="cs-summary-value ${_colorClass(periodPnl)}">${_sign(periodPnl)}${Math.round(periodPnl).toLocaleString()}원</span>
+            </div>
+            <div class="cs-summary-row">
+                <span class="cs-summary-label">오늘 손익</span>
+                <span class="cs-summary-value ${_colorClass(todayPnl)}">${_sign(todayPnl)}${Math.round(todayPnl).toLocaleString()}원</span>
+            </div>
+            <div class="cs-summary-row">
+                <span class="cs-summary-label">시간당 평균 손익</span>
+                <span class="cs-summary-value ${_colorClass(hourlyAvg)}">${_sign(hourlyAvg)}${Math.round(hourlyAvg).toLocaleString()}원</span>
+            </div>
+            <div class="cs-summary-row">
+                <span class="cs-summary-label">기간 완료 스플릿</span>
+                <span class="cs-summary-value">${periodPairs.toLocaleString()}회</span>
+            </div>
+            <div class="cs-summary-row">
+                <span class="cs-summary-label">오늘 완료 스플릿</span>
+                <span class="cs-summary-value">${todayPairs.toLocaleString()}회</span>
+            </div>
+            <div class="cs-summary-row">
+                <span class="cs-summary-label">누적 거래금액</span>
+                <span class="cs-summary-value">${Math.round(totalAmount).toLocaleString()}원</span>
+            </div>
+        </div>`;
     }
 
     const rows = rounds.map(r => {

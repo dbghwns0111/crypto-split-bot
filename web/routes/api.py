@@ -532,14 +532,15 @@ def get_trade_pnl():
     rounds = []
     for r in rows:
         rounds.append({
-            "symbol":     r["symbol"],
-            "round_no":   r["round_no"],
-            "buy_price":  float(r.get("buy_price")  or 0),
-            "sell_price": float(r.get("sell_price") or 0),
-            "quantity":   float(r.get("quantity")   or 0),
-            "buy_amount": float(r.get("buy_amount") or 0),
-            "pnl":        r.get("pnl"),
-            "filled_at":  r.get("filled_at", ""),
+            "symbol":      r["symbol"],
+            "round_no":    r["round_no"],
+            "buy_price":   float(r.get("buy_price")   or 0),
+            "sell_price":  float(r.get("sell_price")  or 0),
+            "quantity":    float(r.get("quantity")    or 0),
+            "buy_amount":  float(r.get("buy_amount")  or 0),
+            "sell_amount": float(r.get("sell_amount") or 0),
+            "pnl":         r.get("pnl"),
+            "filled_at":   r.get("filled_at", ""),
         })
     return jsonify({"rounds": rounds, "start": start, "end": end})
 

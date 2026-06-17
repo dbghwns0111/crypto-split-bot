@@ -284,10 +284,15 @@ def get_pnl_rounds(
                s.filled_at
         FROM orders s
         LEFT JOIN orders b
-            ON  b.symbol   = s.symbol
-            AND b.round_no = s.round_no
-            AND b.side     = 'buy'
-            AND b.status   = 'filled'
+            ON b.id = (
+                SELECT id FROM orders
+                WHERE symbol  = s.symbol
+                  AND round_no = s.round_no
+                  AND side    = 'buy'
+                  AND status  = 'filled'
+                ORDER BY filled_at DESC
+                LIMIT 1
+            )
         WHERE s.side   = 'sell'
           AND s.status = 'filled'
           AND {sym_clause}
