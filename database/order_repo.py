@@ -156,17 +156,32 @@ def get_orders(symbol: str, limit: int = 100) -> list[dict]:
 
 
 def get_cumulative_totals() -> list[dict]:
-    """심볼별 전체 체결 매수/매도 금액 합계를 반환한다."""
+    """심볼별 실현손익 합계 — 완료된 매도 주문과 매칭된 매수 금액만 집계한다.
+    미체결 포지션(아직 팔지 않은 매수)은 포함하지 않는다.
+    """
     rows = _conn().execute(
         """
-        SELECT symbol,
-               SUM(CASE WHEN side = 'buy'  THEN amount ELSE 0 END) AS total_buy,
-               SUM(CASE WHEN side = 'sell' THEN amount ELSE 0 END) AS total_sell,
-               COUNT(CASE WHEN side = 'buy'  THEN 1 END) AS buy_count,
-               COUNT(CASE WHEN side = 'sell' THEN 1 END) AS sell_count
-        FROM orders
-        WHERE status = 'filled'
-        GROUP BY symbol
+        SELECT s.symbol,
+               COALESCE(SUM(b.amount), 0) AS total_buy,
+               COALESCE(SUM(s.amount), 0) AS total_sell,
+               COUNT(s.id)                AS sell_count,
+               COUNT(b.id)                AS buy_count
+        FROM orders s
+        LEFT JOIN orders b ON (
+            b.symbol   = s.symbol
+            AND b.round_no = s.round_no
+            AND b.side     = 'buy'
+            AND b.status   = 'filled'
+            AND b.id = (
+                SELECT MAX(id) FROM orders b2
+                WHERE b2.symbol   = s.symbol
+                  AND b2.round_no = s.round_no
+                  AND b2.side     = 'buy'
+                  AND b2.status   = 'filled'
+            )
+        )
+        WHERE s.side = 'sell' AND s.status = 'filled'
+        GROUP BY s.symbol
         """
     ).fetchall()
     return [dict(r) for r in rows]

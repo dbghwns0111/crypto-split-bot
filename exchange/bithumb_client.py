@@ -87,11 +87,12 @@ class BithumbClient(ExchangeBase):
         raw = self._private.get_balances()
         return [
             {
-                "currency": b["currency"],
+                "currency": b.get("currency", ""),
                 "balance":  float(b.get("balance", 0) or 0),
                 "locked":   float(b.get("locked", 0) or 0),
             }
             for b in (raw or [])
+            if b.get("currency")
         ]
 
     @with_retry(max_retries=3, base_delay=1.0)

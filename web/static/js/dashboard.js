@@ -319,7 +319,7 @@ function _renderInvestment(data) {
 
     _setEl('inv-total-buy',  _fmt(s.total_buy));
     _setEl('inv-total-eval', _fmt(s.total_eval));
-    _setEl('inv-counts',     `${s.active_count ?? '-'}/${s.total_count ?? '-'}`);
+    _setEl('inv-counts',     `${s.active_count ?? '-'}/${s.total_count ?? '-'}종목`);
 
     const pnlEl = document.getElementById('inv-total-pnl');
     if (pnlEl) {
@@ -495,12 +495,24 @@ function _makePnlCard(sym) {
 // ── 탭 4: 거래소자산 ─────────────────────────────────────────────────────────
 
 async function _fetchAssets() {
-    const data = await _fetchJson(API.assets);
-    _renderAssets(data);
+    try {
+        const data = await _fetchJson(API.assets);
+        _renderAssets(data);
+    } catch (err) {
+        _setEl('assets-total',     '조회 실패');
+        _setEl('assets-krw-total', '—');
+        _setEl('assets-krw-avail', '—');
+        console.error('[CryptoSplit] assets fetch error:', err);
+    }
 }
 
 function _renderAssets(data) {
-    if (!data || data.error) return;
+    if (!data || data.error) {
+        _setEl('assets-total', data?.error ? `오류: ${data.error}` : '조회 실패');
+        _setEl('assets-krw-total', '—');
+        _setEl('assets-krw-avail', '—');
+        return;
+    }
 
     _setEl('assets-total',     _fmt(data.total_assets));
     _setEl('assets-krw-total', _fmt(data.krw_total));

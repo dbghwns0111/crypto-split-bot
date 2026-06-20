@@ -265,11 +265,14 @@ def get_investment():
     all_status = bot_manager.get_all_status()
     symbols    = list(all_status.keys())
 
-    # 포트폴리오 잔고 (코인 수량)
+    # 포트폴리오 잔고 (가용 + 잠금 합산 — 매도주문에 묶인 코인도 포함)
     portfolio = {}
     if exchange:
         try:
-            portfolio = take_snapshot(exchange, symbols)
+            for b in exchange.get_balances():
+                cur = b.get("currency", "")
+                if cur:
+                    portfolio[cur] = float(b.get("balance", 0) or 0) + float(b.get("locked", 0) or 0)
         except Exception as exc:
             _log.warning("포트폴리오 조회 오류: %s", exc)
 
@@ -416,41 +419,49 @@ def get_exchange_assets():
     coin_list = []
     total_coin_krw = 0.0
 
-    for cur, b in bal_map.items():
-        if cur in ("KRW", "P"):
-            continue
-        qty = float((b.get("balance") or 0)) + float((b.get("locked") or 0))
-        if qty <= 0:
-            continue
-
-        ticker = f"KRW-{cur}"
-        try:
-            current_price = _get_price_cached(ticker, exchange)
-        except Exception:
-            current_price = 0.0
-
+    try:
         from database.order_repo import get_avg_buy_price, get_manual_avg_buy_price
-        bot_avg    = get_avg_buy_price(cur)
-        manual_avg = get_manual_avg_buy_price(cur) if bot_avg == 0 else 0.0
-        avg_buy    = bot_avg if bot_avg > 0 else manual_avg
-        cost       = avg_buy * qty if avg_buy > 0 else 0.0
-        eval_amt   = qty * current_price
-        pnl        = eval_amt - cost if cost > 0 else 0.0
-        pct        = (pnl / cost * 100) if cost > 0 else 0.0
 
-        total_coin_krw += eval_amt
+        for cur, b in bal_map.items():
+            if cur in ("KRW", "P"):
+                continue
+            qty = float((b.get("balance") or 0)) + float((b.get("locked") or 0))
+            if qty <= 0:
+                continue
 
-        coin_list.append({
-            "symbol":           cur,
-            "quantity":         qty,
-            "avg_buy_price":    round(avg_buy),
-            "manual_avg_price": round(manual_avg),
-            "cost":             round(cost),
-            "eval":             round(eval_amt),
-            "unrealized_pnl":   round(pnl),
-            "pct":              round(pct, 2),
-            "editable":         bot_avg == 0,
-        })
+            ticker = f"KRW-{cur}"
+            try:
+                current_price = _get_price_cached(ticker, exchange)
+            except Exception:
+                current_price = 0.0
+
+            try:
+                bot_avg    = get_avg_buy_price(cur)
+                manual_avg = get_manual_avg_buy_price(cur) if bot_avg == 0 else 0.0
+            except Exception:
+                bot_avg = manual_avg = 0.0
+
+            avg_buy  = bot_avg if bot_avg > 0 else manual_avg
+            cost     = avg_buy * qty if avg_buy > 0 else 0.0
+            eval_amt = qty * current_price
+            pnl      = eval_amt - cost if cost > 0 else 0.0
+            pct      = (pnl / cost * 100) if cost > 0 else 0.0
+
+            total_coin_krw += eval_amt
+
+            coin_list.append({
+                "symbol":           cur,
+                "quantity":         qty,
+                "avg_buy_price":    round(avg_buy),
+                "manual_avg_price": round(manual_avg),
+                "cost":             round(cost),
+                "eval":             round(eval_amt),
+                "unrealized_pnl":   round(pnl),
+                "pct":              round(pct, 2),
+                "editable":         bot_avg == 0,
+            })
+    except Exception as exc:
+        _log.error("거래소자산 코인 목록 조회 오류: %s", exc)
 
     total_assets = krw_total + total_coin_krw
 

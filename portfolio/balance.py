@@ -18,10 +18,14 @@ def get_coin_balance(exchange: ExchangeBase, currency: str) -> float:
 
 
 def get_all_balances(exchange: ExchangeBase) -> dict[str, float]:
-    """전체 잔고를 {currency: available_balance} 형태로 반환한다."""
+    """전체 잔고를 {currency: total_balance} 형태로 반환한다. (가용 + 주문잠금 합산)"""
     try:
         raw = exchange.get_balances()
-        return {b["currency"]: float(b.get("balance", 0) or 0) for b in raw}
+        return {
+            b["currency"]: float(b.get("balance", 0) or 0) + float(b.get("locked", 0) or 0)
+            for b in raw
+            if b.get("currency")
+        }
     except Exception as exc:
         _log.error("잔고 조회 실패: %s", exc)
         return {}
