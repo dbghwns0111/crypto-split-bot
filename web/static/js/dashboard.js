@@ -715,6 +715,10 @@ function _showGapModal(symbol, data, isFresh = false) {
         ? `<tr><td colspan="4" class="cs-trade-empty">… 외 ${extraCnt}건 더</td></tr>`
         : '';
 
+    const totalQty    = levels.reduce((sum, l) => sum + parseFloat(l.quantity || 0), 0);
+    const totalQtyStr = parseFloat(totalQty.toFixed(8)).toString();
+    const totalEstKrw = Math.round(totalQty * (data.current_price || 0));
+
     document.getElementById('gapModalBody').innerHTML = `
         <div class="cs-gap-summary">
             <div class="cs-gap-row">
@@ -733,6 +737,11 @@ function _showGapModal(symbol, data, isFresh = false) {
                 <span>차수 변화</span>
                 <span>${data.current_round}차 → ${data.current_round + data.filled}차</span>
             </div>
+            ${levels.length > 0 ? `
+            <div class="cs-gap-row">
+                <span>가상채우기 필요 잔고</span>
+                <span class="cs-negative">${totalQtyStr} ${symbol}<small style="color:var(--cs-muted);font-weight:400"> ≈ ${totalEstKrw.toLocaleString()}원</small></span>
+            </div>` : ''}
         </div>
 
         <div class="cs-gap-mode-group">
@@ -743,7 +752,7 @@ function _showGapModal(symbol, data, isFresh = false) {
                     <div class="cs-gap-mode-desc">
                         그리드 가격 기준으로 ${data.filled}개 차수 기록을 생성합니다.<br>
                         실제 매수 없이 수량·수익 정합성을 유지합니다.<br>
-                        ${isFresh ? '⚠ 가상 차수 매도 시 실제 코인 잔고가 필요합니다.' : ''}
+                        ⚠ 위 필요 잔고만큼 코인이 지갑에 있어야 매도가 가능합니다.
                     </div>
                 </div>
             </label>
