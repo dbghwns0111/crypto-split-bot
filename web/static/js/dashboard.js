@@ -652,7 +652,7 @@ function _openConfirm(symbol, action) {
 }
 
 async function _openGapCheck(symbol, isFresh) {
-    const url = `${API.botGap}?symbol=${symbol}${isFresh ? '&fresh=true' : ''}`;
+    const url = `${API.botGap}?symbol=${symbol}`;
     try {
         const data = await _fetchJson(url);
         if (data.gap > 0 && _gapModal) {
@@ -718,8 +718,8 @@ function _showGapModal(symbol, data, isFresh = false) {
     document.getElementById('gapModalBody').innerHTML = `
         <div class="cs-gap-summary">
             <div class="cs-gap-row">
-                <span>마지막 기준가</span>
-                <span>${data.reference_price.toLocaleString()}원</span>
+                <span>전략 시작가</span>
+                <span>${data.start_price.toLocaleString()}원</span>
             </div>
             <div class="cs-gap-row">
                 <span>현재가</span>
