@@ -87,25 +87,40 @@ def start_bot():
 
 @api_bp.route("/bot/gap")
 def get_bot_gap():
-    """재시작 전 가격 갭 미리보기 (가상 캐치업 예상 내역 반환)."""
+    """재시작/신규 시작 전 가격 갭 미리보기 (가상 캐치업 예상 내역 반환).
+
+    Query params:
+        symbol: 심볼 (ETH, USDT, ...)
+        fresh:  true이면 신규 시작 기준 (start_price 사용)
+    """
     from database.state_repo import get_state
     from utils.math_utils import calc_quantity, round_price
 
-    symbol = request.args.get("symbol", "").upper().strip()
+    symbol    = request.args.get("symbol", "").upper().strip()
+    is_fresh  = request.args.get("fresh", "false").lower() == "true"
     if not symbol:
         return jsonify({"error": "symbol required"}), 400
 
     exchange = current_app.config.get("EXCHANGE")
     cfg      = current_app.config.get("CFG", {})
 
-    state           = get_state(symbol) or {}
-    reference_price = float(state.get("reference_price") or 0)
-    current_round   = int(state.get("current_round") or 0)
+    state         = get_state(symbol) or {}
+    current_round = int(state.get("current_round") or 0)
+
+    if is_fresh:
+        # 신규 시작: 시작가(start_price) 기준으로 갭 계산
+        reference_price  = float(state.get("start_price") or 0)
+        is_fresh_start   = True
+        display_from_key = "start_price"
+    else:
+        # 재시작: 마지막 기준가(reference_price) 기준
+        reference_price  = float(state.get("reference_price") or 0)
+        is_fresh_start   = False
+        display_from_key = "reference_price"
 
     if reference_price <= 0:
-        return jsonify({"gap": 0, "filled": 0, "levels": [],
-                        "current_price": 0, "reference_price": 0,
-                        "current_round": current_round})
+        return jsonify({"gap": 0, "filled": 0, "levels": [], "is_fresh_start": is_fresh_start,
+                        "current_price": 0, "reference_price": 0, "current_round": current_round})
 
     pair         = cfg.get("pairs", {}).get(symbol, {})
     trigger_mode = pair.get("trigger_mode", "pct")
@@ -123,7 +138,7 @@ def get_bot_gap():
             _log.warning("갭 미리보기 현재가 조회 실패 (%s): %s", symbol, exc)
 
     if current_price <= 0:
-        return jsonify({"gap": 0, "filled": 0, "levels": [],
+        return jsonify({"gap": 0, "filled": 0, "levels": [], "is_fresh_start": is_fresh_start,
                         "current_price": 0,
                         "reference_price": round(reference_price),
                         "current_round": current_round})
@@ -134,8 +149,11 @@ def get_bot_gap():
         step = reference_price * trigger_pct / 100
         gap  = int((reference_price - current_price) // step) if step > 0 else 0
 
+    if is_fresh_start:
+        gap += 1  # 시작가 레벨 자체 포함
+
     if gap <= 0:
-        return jsonify({"gap": 0, "filled": 0, "levels": [],
+        return jsonify({"gap": 0, "filled": 0, "levels": [], "is_fresh_start": is_fresh_start,
                         "current_price": round(current_price),
                         "reference_price": round(reference_price),
                         "current_round": current_round})
@@ -143,9 +161,23 @@ def get_bot_gap():
     room   = max_rounds - current_round
     filled = min(gap, room)
 
+    # 그리드 레벨 생성 (fresh_start이면 시작가 자체가 1번째)
     levels = []
-    g = reference_price
-    for i in range(filled):
+    g      = reference_price
+    if is_fresh_start and filled >= 1:
+        grid_price = float(round_price(g))
+        quantity   = calc_quantity(order_amount, grid_price)
+        levels.append({
+            "round_no":   current_round + 1,
+            "grid_price": round(grid_price),
+            "quantity":   quantity,
+            "amount":     round(grid_price * quantity),
+        })
+        remaining = filled - 1
+    else:
+        remaining = filled
+
+    for i in range(remaining):
         if trigger_mode == "krw":
             g = g - trigger_krw
         else:
@@ -153,7 +185,7 @@ def get_bot_gap():
         grid_price = float(round_price(g))
         quantity   = calc_quantity(order_amount, grid_price)
         levels.append({
-            "round_no":   current_round + i + 1,
+            "round_no":   current_round + len(levels) + 1,
             "grid_price": round(grid_price),
             "quantity":   quantity,
             "amount":     round(grid_price * quantity),
@@ -162,6 +194,7 @@ def get_bot_gap():
     return jsonify({
         "gap":             gap,
         "filled":          filled,
+        "is_fresh_start":  is_fresh_start,
         "current_round":   current_round,
         "reference_price": round(reference_price),
         "current_price":   round(current_price),

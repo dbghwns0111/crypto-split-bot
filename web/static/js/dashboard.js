@@ -635,55 +635,69 @@ async function _savePriceEdit(sym) {
 
 function _openConfirm(symbol, action) {
     if (action === 'start_resume') {
-        _openGapCheck(symbol);
+        _openGapCheck(symbol, false);
+        return;
+    }
+    if (action === 'start_fresh') {
+        _openGapCheck(symbol, true);
         return;
     }
     _pendingAction = action;
     _pendingSymbol = symbol;
-    let title, body, btnCls;
-    if (action === 'start_fresh') {
-        title  = '자동매매 시작 확인';
-        body   = `${symbol} 자동매매를 처음부터 시작하시겠습니까?\n기존 진행 상태(차수/기준가)가 초기화됩니다.`;
-        btnCls = 'cs-btn cs-btn-success';
-    } else {
-        title  = '자동매매 중지 확인';
-        body   = `${symbol} 자동매매를 중지하시겠습니까?\n미체결 주문이 자동으로 취소됩니다.`;
-        btnCls = 'cs-btn cs-btn-danger';
-    }
-    _setEl('modalTitle', title);
-    _setEl('modalBody',  body);
-    document.getElementById('confirmBtn').className = btnCls;
+    // stop
+    _setEl('modalTitle', '자동매매 중지 확인');
+    _setEl('modalBody',  `${symbol} 자동매매를 중지하시겠습니까?\n미체결 주문이 자동으로 취소됩니다.`);
+    document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
     _modal.show();
 }
 
-async function _openGapCheck(symbol) {
+async function _openGapCheck(symbol, isFresh) {
+    const url = `${API.botGap}?symbol=${symbol}${isFresh ? '&fresh=true' : ''}`;
     try {
-        const data = await _fetchJson(`${API.botGap}?symbol=${symbol}`);
+        const data = await _fetchJson(url);
         if (data.gap > 0 && _gapModal) {
-            _showGapModal(symbol, data);
+            _showGapModal(symbol, data, isFresh);
         } else {
             // 갭 없음 → 일반 확인 모달
-            _pendingAction = 'start_resume';
-            _pendingSymbol = symbol;
-            _setEl('modalTitle', '자동매매 재시작 확인');
-            _setEl('modalBody',  `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
+            if (isFresh) {
+                _pendingAction = 'start_fresh';
+                _pendingSymbol = symbol;
+                _setEl('modalTitle', '자동매매 시작 확인');
+                _setEl('modalBody',  `${symbol} 자동매매를 처음부터 시작하시겠습니까?\n기존 진행 상태(차수/기준가)가 초기화됩니다.`);
+            } else {
+                _pendingAction = 'start_resume';
+                _pendingSymbol = symbol;
+                _setEl('modalTitle', '자동매매 재시작 확인');
+                _setEl('modalBody',  `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
+            }
             document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
             _modal.show();
         }
     } catch {
         // 오류 시 일반 확인 모달로 폴백
-        _pendingAction = 'start_resume';
-        _pendingSymbol = symbol;
-        _setEl('modalTitle', '자동매매 재시작 확인');
-        _setEl('modalBody',  `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
+        if (isFresh) {
+            _pendingAction = 'start_fresh';
+            _pendingSymbol = symbol;
+            _setEl('modalTitle', '자동매매 시작 확인');
+            _setEl('modalBody',  `${symbol} 자동매매를 처음부터 시작하시겠습니까?\n기존 진행 상태(차수/기준가)가 초기화됩니다.`);
+        } else {
+            _pendingAction = 'start_resume';
+            _pendingSymbol = symbol;
+            _setEl('modalTitle', '자동매매 재시작 확인');
+            _setEl('modalBody',  `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
+        }
         document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
         _modal.show();
     }
 }
 
-function _showGapModal(symbol, data) {
-    _gapSymbol = symbol;
-    _setEl('gapModalTitle', `${symbol} 재시작 — 가격 갭 감지`);
+let _gapIsFresh = false;
+
+function _showGapModal(symbol, data, isFresh = false) {
+    _gapSymbol  = symbol;
+    _gapIsFresh = isFresh;
+    const titleVerb = isFresh ? '시작' : '재시작';
+    _setEl('gapModalTitle', `${symbol} ${titleVerb} — 가격 갭 감지`);
 
     const levels   = data.levels || [];
     const preview  = levels.slice(0, 10);
@@ -728,7 +742,8 @@ function _showGapModal(symbol, data) {
                     <strong>🔮 가상 채우기<span class="cs-badge-rec">권장</span></strong>
                     <div class="cs-gap-mode-desc">
                         그리드 가격 기준으로 ${data.filled}개 차수 기록을 생성합니다.<br>
-                        실제 매수 없이 이후 매도 수량·가격 정합성을 유지합니다.
+                        실제 매수 없이 수량·수익 정합성을 유지합니다.<br>
+                        ${isFresh ? '⚠ 가상 차수 매도 시 실제 코인 잔고가 필요합니다.' : ''}
                     </div>
                 </div>
             </label>
@@ -738,7 +753,8 @@ function _showGapModal(symbol, data) {
                     <strong>📈 실제 캐치업</strong>
                     <div class="cs-gap-mode-desc">
                         현재가(${data.current_price.toLocaleString()}원)로 실제 매수를 실행합니다.<br>
-                        KRW 잔고와 catchup_max 설정이 적용됩니다.
+                        KRW 잔고와 catchup_max 설정이 적용됩니다.<br>
+                        ${isFresh ? '코인 잔고 없이 새로 시작하는 경우에 적합합니다.' : ''}
                     </div>
                 </div>
             </label>
@@ -769,12 +785,15 @@ function _showGapModal(symbol, data) {
 
 async function _executeGapAction() {
     if (!_gapSymbol) return;
-    const mode   = document.querySelector('input[name="gapMode"]:checked')?.value || 'virtual';
-    const symbol = _gapSymbol;
-    _gapSymbol   = null;
+    const mode    = document.querySelector('input[name="gapMode"]:checked')?.value || 'virtual';
+    const symbol  = _gapSymbol;
+    const isFresh = _gapIsFresh;
+    _gapSymbol    = null;
+    _gapIsFresh   = false;
     _gapModal.hide();
 
     const body = { symbol };
+    if (isFresh) body.fresh = true;
     if (mode === 'virtual') body.virtual_catchup = true;
 
     try {

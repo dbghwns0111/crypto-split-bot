@@ -445,12 +445,16 @@ class MagicSplit:
                           self._symbol, self._reference_price, self._current_round)
                 # ① open 주문 동기화 (강제 중단 대비)
                 self._reconcile_open_orders()
-                # ② 캐치업: 가상(virtual_catchup=True) 또는 실제 시장 매수
+                # ② 신규 시작(fresh start) 인데 기준가가 0인 경우: 시작가를 기준가로 사용
+                is_fresh_start = (self._current_round == 0 and self._start_price > 0)
+                if is_fresh_start and self._reference_price <= 0:
+                    self._reference_price = self._start_price
+                    _log.info("신규 시작 기준가 초기화: %s → %s", self._symbol, self._start_price)
+                # ③ 캐치업: 가상(virtual_catchup=True) 또는 실제 시장 매수
                 if self._reference_price > 0:
-                    current_price  = self._exchange.get_current_price(self._ticker)
-                    is_fresh_start = (self._current_round == 0 and self._start_price > 0)
-                    if virtual_catchup and not is_fresh_start:
-                        self._do_virtual_catchup(current_price)
+                    current_price = self._exchange.get_current_price(self._ticker)
+                    if virtual_catchup:
+                        self._do_virtual_catchup(current_price, fresh_start=is_fresh_start)
                     else:
                         self._do_catchup(current_price, fresh_start=is_fresh_start)
             else:
@@ -626,9 +630,10 @@ class MagicSplit:
                       self._symbol, done, current_price, self._current_round)
             self._notify("catchup", count=done, gap=gap, price=current_price)
 
-    def _do_virtual_catchup(self, current_price: float) -> None:
-        """중단 중 지나친 그리드 레벨을 가상 체결로 채운다 (실제 주문 없음).
+    def _do_virtual_catchup(self, current_price: float, fresh_start: bool = False) -> None:
+        """그리드 레벨을 가상 체결로 채운다 (실제 주문 없음).
 
+        fresh_start=True이면 시작가(reference_price) 레벨 자체도 1차로 포함한다.
         그리드 가격마다 수량을 개별 계산하여 DB에 저장한다.
         KRW 잔고 / catchup_max 제한을 받지 않는다.
         """
@@ -646,6 +651,9 @@ class MagicSplit:
             step = self._reference_price * trigger_pct / 100
             gap  = int((self._reference_price - current_price) // step) if step > 0 else 0
 
+        if fresh_start:
+            gap += 1  # 시작가 레벨 자체를 1차 가상 체결로 포함
+
         if gap <= 0:
             return
 
@@ -656,12 +664,17 @@ class MagicSplit:
             return
 
         original_ref = self._reference_price
-        _log.info("가상 캐치업 시작: %s %d/%d 차수 (기준가=%s → 현재가=%s)",
-                  self._symbol, n, gap, original_ref, current_price)
+        _log.info("가상 캐치업 시작: %s %d/%d 차수 (기준가=%s → 현재가=%s, fresh=%s)",
+                  self._symbol, n, gap, original_ref, current_price, fresh_start)
 
         grid_prices = []
         g = self._reference_price
-        for _ in range(n):
+        if fresh_start and n >= 1:
+            grid_prices.append(round_price(g))  # 시작가 자체가 1차 그리드
+            n_loop = n - 1
+        else:
+            n_loop = n
+        for _ in range(n_loop):
             if trigger_mode == "krw":
                 g = g - trigger_krw
             else:
