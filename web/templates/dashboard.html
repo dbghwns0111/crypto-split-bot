@@ -228,7 +228,16 @@
         <option value="all">전체</option>
       </select>
       <button class="cs-btn cs-btn-primary cs-btn-sm" id="trades-search-btn">조회</button>
+      <button class="cs-btn cs-btn-secondary cs-btn-sm" id="trades-delete-mode-btn">삭제모드</button>
     </div>
+  </div>
+
+  <!-- 삭제 액션바 (삭제모드에서만 표시) -->
+  <div class="cs-trades-delete-bar" id="trades-delete-bar" style="display:none">
+    <button class="cs-btn cs-btn-secondary cs-btn-sm" id="trades-select-all-btn">전체 선택</button>
+    <span class="cs-delete-count" id="trades-delete-count">0건 선택</span>
+    <button class="cs-btn cs-btn-danger cs-btn-sm" id="trades-delete-selected-btn" disabled>선택 삭제</button>
+    <button class="cs-btn cs-btn-danger cs-btn-sm" id="trades-delete-range-btn">기간 전체 삭제</button>
   </div>
 
   <!-- 탭 패널 -->

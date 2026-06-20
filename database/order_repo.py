@@ -277,7 +277,7 @@ def get_pnl_rounds(
         params = [*symbols, start, end, limit]
     rows = _conn().execute(
         f"""
-        SELECT s.symbol, s.round_no,
+        SELECT s.id AS sell_id, s.symbol, s.round_no,
                b.filled_price AS buy_price,  s.filled_price AS sell_price,
                s.quantity,
                b.amount AS buy_amount, s.amount AS sell_amount,
@@ -313,6 +313,52 @@ def get_pnl_rounds(
         r["pnl"] = round((sell_p - buy_p) * qty - fee, 0) if buy_p > 0 else None
         result.append(r)
     return result
+
+
+def delete_orders_by_ids(ids: list) -> tuple:
+    """DB id 목록으로 주문을 삭제한다. (삭제 건수, 영향받은 [(symbol, date)] 목록) 반환."""
+    if not ids:
+        return 0, []
+    ph = ",".join("?" * len(ids))
+    rows = _conn().execute(
+        f"SELECT symbol, DATE(filled_at) AS d FROM orders WHERE id IN ({ph})",
+        ids,
+    ).fetchall()
+    affected = list({(r["symbol"], r["d"]) for r in rows if r["d"]})
+    cur = _conn().execute(f"DELETE FROM orders WHERE id IN ({ph})", ids)
+    _conn().commit()
+    return cur.rowcount, affected
+
+
+def delete_orders_by_range(
+    symbols: list,
+    start: str,
+    end: str,
+    symbol_filter: Optional[str] = None,
+) -> tuple:
+    """기간 + 심볼 필터로 주문을 삭제한다. (삭제 건수, 영향받은 [(symbol, date)] 목록) 반환."""
+    if not symbols:
+        return 0, []
+    if symbol_filter and symbol_filter in symbols:
+        where = "symbol = ?"
+        params: list = [symbol_filter, start, end]
+    else:
+        ph = ",".join("?" * len(symbols))
+        where = f"symbol IN ({ph})"
+        params = [*symbols, start, end]
+    rows = _conn().execute(
+        f"SELECT symbol, DATE(filled_at) AS d FROM orders WHERE {where}"
+        " AND DATE(filled_at) BETWEEN ? AND ?",
+        params,
+    ).fetchall()
+    affected = list({(r["symbol"], r["d"]) for r in rows if r["d"]})
+    cur = _conn().execute(
+        f"DELETE FROM orders WHERE {where}"
+        " AND DATE(filled_at) BETWEEN ? AND ?",
+        params,
+    )
+    _conn().commit()
+    return cur.rowcount, affected
 
 
 def save_catchup_order(

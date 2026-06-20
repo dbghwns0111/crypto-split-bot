@@ -501,6 +501,7 @@ def get_trade_fills():
     fills = []
     for o in rows:
         fills.append({
+            "id":           o["id"],
             "symbol":       o["symbol"],
             "side":         o["side"],
             "filled_price": float(o.get("filled_price") or o.get("price") or 0),
@@ -532,6 +533,7 @@ def get_trade_pnl():
     rounds = []
     for r in rows:
         rounds.append({
+            "sell_id":     r.get("sell_id"),
             "symbol":      r["symbol"],
             "round_no":    r["round_no"],
             "buy_price":   float(r.get("buy_price")   or 0),
@@ -827,3 +829,36 @@ def set_asset_manual_price():
         "pct":              round(pct, 2),
         "editable":         bot_avg == 0,
     })
+
+
+@api_bp.route("/trades/orders", methods=["DELETE"])
+def delete_trade_orders():
+    """투자내역 삭제: ids 목록 또는 기간+심볼로 체결 주문을 삭제한다."""
+    from database.order_repo import delete_orders_by_ids, delete_orders_by_range
+    from database.pnl_repo   import delete_daily_pnl
+
+    body        = request.get_json(silent=True) or {}
+    bot_manager = current_app.config["BOT_MANAGER"]
+    symbols     = list(bot_manager.get_all_status().keys())
+
+    ids = body.get("ids")
+    if ids is not None:
+        count, affected = delete_orders_by_ids([int(i) for i in ids])
+    else:
+        start = (body.get("start") or "").strip()
+        end   = (body.get("end")   or "").strip()
+        sym   = (body.get("symbol") or "").upper().strip() or None
+        if sym == "ALL":
+            sym = None
+        if not start or not end:
+            return jsonify({"ok": False, "message": "start/end 날짜가 필요합니다."}), 400
+        count, affected = delete_orders_by_range(symbols, start, end, sym)
+
+    for symbol, date in affected:
+        try:
+            delete_daily_pnl(symbol, date)
+        except Exception as exc:
+            _log.warning("daily_pnl 삭제 실패 (%s %s): %s", symbol, date, exc)
+
+    _log.info("주문 삭제: %d건 (daily_pnl %d일 초기화)", count, len(set(affected)))
+    return jsonify({"ok": True, "count": count, "message": f"{count}건 삭제되었습니다."})

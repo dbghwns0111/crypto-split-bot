@@ -825,6 +825,31 @@ body {
 .cs-pnl-negative { color: var(--cs-red);   font-weight: 700; }
 .cs-pnl-zero     { color: var(--cs-muted); }
 
+/* ── 투자내역 삭제 모드 ─────────────────────────────────────────────────────── */
+.cs-trades-delete-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(255, 77, 109, 0.07);
+  border-bottom: 1px solid rgba(255, 77, 109, 0.2);
+  flex-wrap: wrap;
+}
+.cs-delete-count {
+  font-size: 13px;
+  color: var(--cs-muted);
+  flex: 1;
+}
+.cs-trade-check {
+  cursor: pointer;
+  accent-color: var(--cs-red);
+  width: 15px;
+  height: 15px;
+  vertical-align: middle;
+}
+.cs-trade-row-selected > td { background: rgba(255, 77, 109, 0.08) !important; }
+.cs-trade-check-th { width: 36px; text-align: center !important; }
+
 /* ── 설정 페이지 ──────────────────────────────────────────────────────────── */
 .cs-settings-server-banner {
   display: flex;

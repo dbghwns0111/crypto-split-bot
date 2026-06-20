@@ -24,6 +24,7 @@ const API = {
     strategySettings: '/api/strategy/settings',
     tradeFills:       '/api/trades/fills',
     tradePnl:         '/api/trades/pnl',
+    deleteOrders:     '/api/trades/orders',
     start:            '/api/bot/start',
     stop:             '/api/bot/stop',
 };
@@ -59,6 +60,9 @@ let _tradesActiveSubTab = 'fills';
 let _tradesStart        = '';
 let _tradesEnd          = '';
 let _tradesSym          = 'all';
+let _tradesDeleteMode   = false;
+let _selectedOrderIds   = new Set();
+let _pendingDeleteFn    = null;
 
 // ── 초기화 ────────────────────────────────────────────────────────────────────
 
@@ -643,6 +647,15 @@ function _openConfirm(symbol, action) {
 }
 
 async function _executeAction() {
+    // 삭제 확인 처리
+    if (_pendingDeleteFn) {
+        const fn = _pendingDeleteFn;
+        _pendingDeleteFn = null;
+        _modal.hide();
+        await fn();
+        return;
+    }
+
     if (!_pendingAction || !_pendingSymbol) return;
     const action = _pendingAction;
     const symbol = _pendingSymbol;
@@ -1056,7 +1069,25 @@ function _initTradesPage() {
         _tradesStart = document.getElementById('trades-start')?.value || '';
         _tradesEnd   = document.getElementById('trades-end')?.value   || '';
         _tradesSym   = document.getElementById('trades-sym-select')?.value || 'all';
+        _selectedOrderIds.clear();
+        _updateDeleteCount();
         _fetchTradesActive();
+    });
+
+    document.getElementById('trades-delete-mode-btn')?.addEventListener('click', _toggleDeleteMode);
+    document.getElementById('trades-select-all-btn')?.addEventListener('click', _selectAllOrders);
+    document.getElementById('trades-delete-selected-btn')?.addEventListener('click', _confirmDeleteSelected);
+    document.getElementById('trades-delete-range-btn')?.addEventListener('click', _confirmDeleteRange);
+
+    // 체크박스 변경 이벤트 (이벤트 위임)
+    document.addEventListener('change', e => {
+        const cb = e.target.closest('.cs-trade-check');
+        if (!cb || !_tradesDeleteMode) return;
+        const id = parseInt(cb.dataset.orderId);
+        if (cb.checked) _selectedOrderIds.add(id);
+        else _selectedOrderIds.delete(id);
+        cb.closest('tr')?.classList.toggle('cs-trade-row-selected', cb.checked);
+        _updateDeleteCount();
     });
 }
 
@@ -1067,6 +1098,112 @@ async function _fetchTradesActive() {
     } catch (err) {
         console.error('[CryptoSplit] trades fetch error:', err);
     }
+}
+
+function _toggleDeleteMode() {
+    _tradesDeleteMode = !_tradesDeleteMode;
+    _selectedOrderIds.clear();
+
+    const btn = document.getElementById('trades-delete-mode-btn');
+    const bar = document.getElementById('trades-delete-bar');
+    if (btn) {
+        btn.textContent = _tradesDeleteMode ? '삭제모드 종료' : '삭제모드';
+        btn.className   = _tradesDeleteMode
+            ? 'cs-btn cs-btn-danger cs-btn-sm'
+            : 'cs-btn cs-btn-secondary cs-btn-sm';
+    }
+    if (bar) bar.style.display = _tradesDeleteMode ? 'flex' : 'none';
+
+    const selAllBtn = document.getElementById('trades-select-all-btn');
+    if (selAllBtn) selAllBtn.textContent = '전체 선택';
+
+    _updateDeleteCount();
+    _fetchTradesActive();
+}
+
+function _updateDeleteCount() {
+    const n = _selectedOrderIds.size;
+    const countEl  = document.getElementById('trades-delete-count');
+    const delBtn   = document.getElementById('trades-delete-selected-btn');
+    if (countEl) countEl.textContent = `${n}건 선택`;
+    if (delBtn) delBtn.disabled = n === 0;
+}
+
+function _selectAllOrders() {
+    const allCbs = document.querySelectorAll('.cs-trade-check');
+    const anyUnchecked = [...allCbs].some(cb => !cb.checked);
+    allCbs.forEach(cb => {
+        cb.checked = anyUnchecked;
+        const id = parseInt(cb.dataset.orderId);
+        if (anyUnchecked) _selectedOrderIds.add(id);
+        else _selectedOrderIds.delete(id);
+        cb.closest('tr')?.classList.toggle('cs-trade-row-selected', anyUnchecked);
+    });
+    const btn = document.getElementById('trades-select-all-btn');
+    if (btn) btn.textContent = anyUnchecked ? '전체 해제' : '전체 선택';
+    _updateDeleteCount();
+}
+
+function _confirmDeleteSelected() {
+    if (_selectedOrderIds.size === 0) return;
+    const n = _selectedOrderIds.size;
+    _setEl('modalTitle', '선택 내역 삭제');
+    _setEl('modalBody',  `선택한 ${n}건의 내역을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 수익 통계에 영향을 줄 수 있습니다.`);
+    document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
+    _pendingDeleteFn = _doDeleteSelected;
+    _modal.show();
+}
+
+function _confirmDeleteRange() {
+    const start = _tradesStart || document.getElementById('trades-start')?.value || '';
+    const end   = _tradesEnd   || document.getElementById('trades-end')?.value   || '';
+    const sym   = _tradesSym || 'all';
+    const symLabel = sym === 'all' ? '전체 심볼' : sym;
+    _setEl('modalTitle', '기간 전체 삭제');
+    _setEl('modalBody',  `${start} ~ ${end} 기간의 ${symLabel} 내역을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 수익 통계에 영향을 줄 수 있습니다.`);
+    document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
+    _pendingDeleteFn = _doDeleteRange;
+    _modal.show();
+}
+
+async function _doDeleteSelected() {
+    const ids = [..._selectedOrderIds];
+    try {
+        const resp = await fetch(API.deleteOrders, {
+            method:  'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ ids }),
+        });
+        const data = await resp.json();
+        _showAlert(data.message, data.ok ? 'success' : 'danger');
+        if (data.ok) {
+            _selectedOrderIds.clear();
+            _updateDeleteCount();
+            document.getElementById('trades-select-all-btn').textContent = '전체 선택';
+            await _fetchTradesActive();
+        }
+    } catch { _showAlert('삭제 중 오류가 발생했습니다.', 'danger'); }
+}
+
+async function _doDeleteRange() {
+    const start = _tradesStart || document.getElementById('trades-start')?.value || '';
+    const end   = _tradesEnd   || document.getElementById('trades-end')?.value   || '';
+    const sym   = _tradesSym || 'all';
+    try {
+        const resp = await fetch(API.deleteOrders, {
+            method:  'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ start, end, symbol: sym }),
+        });
+        const data = await resp.json();
+        _showAlert(data.message, data.ok ? 'success' : 'danger');
+        if (data.ok) {
+            _selectedOrderIds.clear();
+            _updateDeleteCount();
+            document.getElementById('trades-select-all-btn').textContent = '전체 선택';
+            await _fetchTradesActive();
+        }
+    } catch { _showAlert('삭제 중 오류가 발생했습니다.', 'danger'); }
 }
 
 async function _fetchTradeFills() {
@@ -1090,6 +1227,7 @@ function _renderTradeFills(fills) {
         return;
     }
 
+    const checkTh = _tradesDeleteMode ? '<th class="cs-trade-check-th"></th>' : '';
     const rows = fills.map(t => {
         const isSell   = t.side === 'sell';
         const sideCls  = isSell ? 'cs-trade-side-sell' : 'cs-trade-side-buy';
@@ -1098,7 +1236,13 @@ function _renderTradeFills(fills) {
         const qtyStr   = qty > 0 ? (qty < 1 ? qty.toFixed(6) : qty.toFixed(4)) : '-';
         const amtStr   = t.amount > 0 ? Math.round(t.amount).toLocaleString() + '원' : '-';
         const timeStr  = t.filled_at ? t.filled_at.slice(0, 19).replace('T', ' ') : '-';
-        return `<tr>
+        const checked  = _selectedOrderIds.has(t.id) ? 'checked' : '';
+        const selCls   = _selectedOrderIds.has(t.id) ? ' class="cs-trade-row-selected"' : '';
+        const checkTd  = _tradesDeleteMode
+            ? `<td style="text-align:center"><input type="checkbox" class="cs-trade-check" data-order-id="${t.id}" ${checked}></td>`
+            : '';
+        return `<tr${selCls}>
+            ${checkTd}
             <td>${t.symbol}</td>
             <td class="${sideCls}">${isSell ? '매도' : '매수'}</td>
             <td>${priceStr}</td>
@@ -1112,6 +1256,7 @@ function _renderTradeFills(fills) {
     list.innerHTML = `<div class="cs-trades-table-wrap">
         <table class="cs-trade-table">
             <thead><tr>
+                ${checkTh}
                 <th>심볼</th><th>구분</th><th>체결가</th>
                 <th>수량</th><th>주문금액</th><th>차수</th><th>체결시각</th>
             </tr></thead>
@@ -1186,6 +1331,7 @@ function _renderTradePnl(rounds) {
         </div>`;
     }
 
+    const checkTh = _tradesDeleteMode ? '<th class="cs-trade-check-th"></th>' : '';
     const rows = rounds.map(r => {
         const buyP   = r.buy_price  > 0 ? Math.round(r.buy_price).toLocaleString()  + '원' : '-';
         const sellP  = r.sell_price > 0 ? Math.round(r.sell_price).toLocaleString() + '원' : '-';
@@ -1198,7 +1344,13 @@ function _renderTradePnl(rounds) {
             pnlCls = r.pnl > 0 ? 'cs-pnl-positive' : (r.pnl < 0 ? 'cs-pnl-negative' : 'cs-pnl-zero');
             pnlStr = `${_sign(r.pnl)}${Math.round(r.pnl).toLocaleString()}원`;
         }
-        return `<tr>
+        const checked  = r.sell_id && _selectedOrderIds.has(r.sell_id) ? 'checked' : '';
+        const selCls   = r.sell_id && _selectedOrderIds.has(r.sell_id) ? ' class="cs-trade-row-selected"' : '';
+        const checkTd  = _tradesDeleteMode && r.sell_id
+            ? `<td style="text-align:center"><input type="checkbox" class="cs-trade-check" data-order-id="${r.sell_id}" ${checked}></td>`
+            : (_tradesDeleteMode ? '<td></td>' : '');
+        return `<tr${selCls}>
+            ${checkTd}
             <td>${r.symbol}</td>
             <td style="color:var(--cs-muted)">${r.round_no ?? '-'}차</td>
             <td class="cs-trade-side-buy">${buyP}</td>
@@ -1213,6 +1365,7 @@ function _renderTradePnl(rounds) {
     list.innerHTML = `<div class="cs-trades-table-wrap">
         <table class="cs-trade-table">
             <thead><tr>
+                ${checkTh}
                 <th>심볼</th><th>차수번호</th><th>매수가</th><th>매도가</th>
                 <th>수량</th><th>주문금액</th><th>실현손익</th><th>체결시각</th>
             </tr></thead>

@@ -53,6 +53,12 @@ def get_daily_summary(date: Optional[str] = None) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def delete_daily_pnl(symbol: str, date: str) -> None:
+    """특정 날짜의 symbol 일별 손익 레코드를 삭제한다."""
+    _conn().execute("DELETE FROM daily_pnl WHERE date = ? AND symbol = ?", (date, symbol))
+    _conn().commit()
+
+
 def get_period_pnl(symbol: str, start: str, end: str) -> list[dict]:
     """start ~ end(포함) 기간의 symbol 일별 손익을 반환한다."""
     rows = _conn().execute(
