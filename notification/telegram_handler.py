@@ -125,8 +125,8 @@ class TelegramCommandHandler:
         return (
             "📋 CryptoSplit 명령어\n"
             "─────────────────\n"
-            "/status        — 봇 상태 + 현재가\n"
-            "/balance       — 잔고 현황\n"
+            "/status        — 차수·트리거·수익 상세 현황\n"
+            "/balance       — 잔고 + 코인 평가금액\n"
             "/start ETH     — ETH 새로 시작 (초기화)\n"
             "/start USDT    — USDT 새로 시작 (초기화)\n"
             "/resume ETH    — ETH 재시작 (이전 상태 복원)\n"
@@ -136,22 +136,68 @@ class TelegramCommandHandler:
         )
 
     def _cmd_status(self) -> str:
+        from database.pnl_repo import get_daily_pnl
+
         now   = time.strftime("%H:%M")
         lines = [f"📊 봇 상태 [{now}]"]
+
         for symbol, status in self._bot_manager.get_all_status().items():
             lines.append("─────────────────")
-            ticker  = status.get("ticker", f"KRW-{symbol}")
-            running = status.get("running", False)
-            round_  = status.get("current_round", 0)
-
-            state_str = f"실행중 | {round_}차" if running else "중지"
-            lines.append(f"{symbol}: {state_str}")
+            ticker     = status.get("ticker", f"KRW-{symbol}")
+            running    = status.get("running", False)
+            round_     = status.get("current_round", 0)
+            ref_p      = status.get("reference_price", 0)
+            start_p    = status.get("start_price", 0)
+            buy_p      = status.get("pending_buy_price", 0)
+            sell_p     = status.get("pending_sell_price", 0)
+            pair_cfg   = self._cfg.get("pairs", {}).get(symbol, {})
+            max_rounds = int(pair_cfg.get("max_rounds", 50))
 
             try:
                 price = self._exchange.get_current_price(ticker)
-                lines.append(f"현재가: {price:,.0f}원")
             except Exception:
-                lines.append("현재가: 조회 실패")
+                price = 0
+
+            if running:
+                lines.append(f"🟢 {symbol} 실행중 · {round_}/{max_rounds}차")
+                if start_p > 0:
+                    lines.append(f"📍 시작가    {int(start_p):,}원")
+                if ref_p > 0:
+                    lines.append(f"📌 기준가    {int(ref_p):,}원")
+                if price > 0:
+                    lines.append(f"💲 현재가    {price:,.0f}원")
+
+                if round_ >= max_rounds:
+                    lines.append(f"🔵 매수 중단 (최대 {max_rounds}차 도달)")
+                elif buy_p > 0:
+                    lines.append(f"🔵 {round_ + 1}차 매수 대기  {int(buy_p):,}원 이하")
+                else:
+                    lines.append(f"🔵 매수 주문 처리중")
+
+                if sell_p > 0:
+                    lines.append(f"🟠 {round_}차 매도 대기  {int(sell_p):,}원 이상")
+                elif round_ > 0:
+                    lines.append(f"🟠 매도 주문 처리중")
+                else:
+                    lines.append(f"🟠 매도 없음 (보유 없음)")
+
+                try:
+                    pnl_data = get_daily_pnl(symbol) or {}
+                    net_pnl  = float(pnl_data.get("realized_pnl", 0)) - float(pnl_data.get("fee_total", 0))
+                    trades   = int(pnl_data.get("trade_count", 0))
+                    sign     = "+" if net_pnl >= 0 else ""
+                    icon     = "📈" if net_pnl >= 0 else "📉"
+                    lines.append(f"{icon} 오늘수익    {sign}{int(net_pnl):,}원 ({trades}회)")
+                except Exception:
+                    pass
+            else:
+                lines.append(f"🔴 {symbol} 중지됨")
+                if round_ > 0:
+                    lines.append(f"📌 종료차수  {round_}차")
+                if ref_p > 0:
+                    lines.append(f"📍 기준가    {int(ref_p):,}원")
+                if price > 0:
+                    lines.append(f"💲 현재가    {price:,.0f}원")
 
         return "\n".join(lines)
 
@@ -162,16 +208,25 @@ class TelegramCommandHandler:
             return f"잔고 조회 실패: {exc}"
 
         lines = ["💰 잔고 현황", "─────────────────"]
-        krw = balances.get("KRW", 0.0)
-        lines.append(f"KRW:  {krw:>14,.0f}원")
+        krw       = balances.get("KRW", 0.0)
+        total_est = krw
+        lines.append(f"KRW    {krw:,.0f}원")
 
         for symbol in self._bot_manager.symbols:
-            bot    = self._bot_manager.bots[symbol]
-            ticker = bot.ticker                        # e.g. "KRW-ETH"
-            currency = ticker.replace("KRW-", "")     # e.g. "ETH"
-            qty = balances.get(currency, 0.0)
-            lines.append(f"{symbol}: {qty:>14g} {currency}")
+            bot      = self._bot_manager.bots[symbol]
+            ticker   = bot.ticker
+            currency = ticker.replace("KRW-", "")
+            qty      = balances.get(currency, 0.0)
+            try:
+                price   = self._exchange.get_current_price(ticker)
+                est_krw = qty * price
+                total_est += est_krw
+                lines.append(f"{symbol}    {qty:g} {currency}  ≈ {int(est_krw):,}원")
+            except Exception:
+                lines.append(f"{symbol}    {qty:g} {currency}")
 
+        lines.append("─────────────────")
+        lines.append(f"총 평가액   {int(total_est):,}원")
         return "\n".join(lines)
 
     def _cmd_start(self, args: list[str], fresh: bool) -> str:
@@ -182,16 +237,33 @@ class TelegramCommandHandler:
         ok, msg = self._bot_manager.start(symbol, fresh=fresh)
         if ok:
             action = "새로 시작 (초기화)" if fresh else "재시작 (이전 상태 복원)"
-            return f"✅ {symbol} 봇 {action}"
+            lines  = [f"✅ {symbol} {action}"]
+            if not fresh:
+                status = self._bot_manager.get_status(symbol)
+                round_ = status.get("current_round", 0)
+                ref_p  = status.get("reference_price", 0)
+                if round_ > 0:
+                    lines.append(f"📌 복원차수  {round_}차")
+                if ref_p > 0:
+                    lines.append(f"📍 기준가    {int(ref_p):,}원")
+            return "\n".join(lines)
         return f"❌ {msg}"
 
     def _cmd_stop(self, args: list[str]) -> str:
         if not args:
             return "심볼을 지정하세요. 예: /stop ETH"
         symbol = args[0].upper()
+        status_before = self._bot_manager.get_status(symbol)
         ok, msg = self._bot_manager.stop(symbol)
         if ok:
-            return f"✅ {symbol} 봇 중지 완료"
+            lines  = [f"✅ {symbol} 봇 중지 완료"]
+            round_ = status_before.get("current_round", 0)
+            ref_p  = status_before.get("reference_price", 0)
+            if round_ > 0:
+                lines.append(f"📌 종료차수  {round_}차")
+            if ref_p > 0:
+                lines.append(f"📍 기준가    {int(ref_p):,}원")
+            return "\n".join(lines)
         return f"❌ {msg}"
 
     # ── 응답 전송 ─────────────────────────────────────────────────────────────
