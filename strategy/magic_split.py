@@ -88,11 +88,11 @@ class MagicSplit:
 
     # ── 생명주기 ──────────────────────────────────────────────────────────────
 
-    def start(self) -> None:
+    def start(self, virtual_catchup: bool = False) -> None:
         """DB에서 이전 상태를 복구하고 루프 스레드를 시작한다."""
         if self._running:
             return
-        self._restore_state()
+        self._restore_state(virtual_catchup=virtual_catchup)
         self._running = True
         upsert_state(self._symbol, reference_price=self._reference_price,
                      current_round=self._current_round, is_running=True)
@@ -432,7 +432,7 @@ class MagicSplit:
 
     # ── 상태 복구 ─────────────────────────────────────────────────────────────
 
-    def _restore_state(self) -> None:
+    def _restore_state(self, virtual_catchup: bool = False) -> None:
         """DB에서 이전 실행 상태를 복구한다."""
         try:
             state = get_state(self._symbol)
@@ -445,11 +445,14 @@ class MagicSplit:
                           self._symbol, self._reference_price, self._current_round)
                 # ① open 주문 동기화 (강제 중단 대비)
                 self._reconcile_open_orders()
-                # ② 캐치업 매수 (reconcile 후 최신 기준가 기준으로 갭 계산)
+                # ② 캐치업: 가상(virtual_catchup=True) 또는 실제 시장 매수
                 if self._reference_price > 0:
-                    current_price = self._exchange.get_current_price(self._ticker)
+                    current_price  = self._exchange.get_current_price(self._ticker)
                     is_fresh_start = (self._current_round == 0 and self._start_price > 0)
-                    self._do_catchup(current_price, fresh_start=is_fresh_start)
+                    if virtual_catchup and not is_fresh_start:
+                        self._do_virtual_catchup(current_price)
+                    else:
+                        self._do_catchup(current_price, fresh_start=is_fresh_start)
             else:
                 upsert_state(self._symbol, reference_price=0.0,
                              current_round=0, is_running=False)
@@ -622,3 +625,73 @@ class MagicSplit:
             _log.info("캐치업 완료: %s %d회, 새 기준가=%s, 차수=%d",
                       self._symbol, done, current_price, self._current_round)
             self._notify("catchup", count=done, gap=gap, price=current_price)
+
+    def _do_virtual_catchup(self, current_price: float) -> None:
+        """중단 중 지나친 그리드 레벨을 가상 체결로 채운다 (실제 주문 없음).
+
+        그리드 가격마다 수량을 개별 계산하여 DB에 저장한다.
+        KRW 잔고 / catchup_max 제한을 받지 않는다.
+        """
+        if current_price <= 0 or self._reference_price <= 0:
+            return
+
+        pair         = self._cfg["pairs"][self._symbol]
+        trigger_mode = pair.get("trigger_mode", "pct")
+        trigger_krw  = float(pair.get("trigger_krw", 10000))
+        trigger_pct  = float(pair.get("trigger_pct", 0.5))
+
+        if trigger_mode == "krw":
+            gap = int((self._reference_price - current_price) // trigger_krw)
+        else:
+            step = self._reference_price * trigger_pct / 100
+            gap  = int((self._reference_price - current_price) // step) if step > 0 else 0
+
+        if gap <= 0:
+            return
+
+        room = self._max_rounds - self._current_round
+        n    = min(gap, room)
+        if n <= 0:
+            _log.info("가상 캐치업 생략: %s (갭=%d, room=%d)", self._symbol, gap, room)
+            return
+
+        original_ref = self._reference_price
+        _log.info("가상 캐치업 시작: %s %d/%d 차수 (기준가=%s → 현재가=%s)",
+                  self._symbol, n, gap, original_ref, current_price)
+
+        grid_prices = []
+        g = self._reference_price
+        for _ in range(n):
+            if trigger_mode == "krw":
+                g = g - trigger_krw
+            else:
+                g = g * (1 - trigger_pct / 100)
+            grid_prices.append(round_price(g))
+
+        done = 0
+        for grid_price in grid_prices:
+            quantity = calc_quantity(self._current_order_amount, grid_price)
+            if quantity <= 0:
+                break
+            self._current_round += 1
+            virt_oid = f"virt-{self._symbol}-r{self._current_round}-{int(time.time())}"
+            save_catchup_order(
+                self._symbol, virt_oid, "buy",
+                grid_price=float(grid_price),
+                filled_price=float(grid_price),
+                quantity=quantity,
+                amount=round(float(grid_price) * quantity, 2),
+                round_no=self._current_round,
+            )
+            done += 1
+
+        if done > 0:
+            last_grid = grid_prices[done - 1]
+            self._reference_price = float(last_grid)
+            upsert_state(self._symbol,
+                         reference_price=self._reference_price,
+                         current_round=self._current_round)
+            _log.info("가상 캐치업 완료: %s %d회, 새 기준가=%s, 차수=%d",
+                      self._symbol, done, self._reference_price, self._current_round)
+            self._notify("virtual_catchup", count=done, gap=gap,
+                         from_price=original_ref, current_price=current_price)

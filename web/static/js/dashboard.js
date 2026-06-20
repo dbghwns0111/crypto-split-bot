@@ -27,6 +27,7 @@ const API = {
     deleteOrders:     '/api/trades/orders',
     start:            '/api/bot/start',
     stop:             '/api/bot/stop',
+    botGap:           '/api/bot/gap',
 };
 
 const COIN_META = {
@@ -43,6 +44,8 @@ const POLL = { realtime: 4000, status: 5000, pnl: 15000, assets: 20000, strategy
 // ── 상태 ──────────────────────────────────────────────────────────────────────
 
 let _modal         = null;
+let _gapModal      = null;
+let _gapSymbol     = null;
 let _pendingAction = null;
 let _pendingSymbol = null;
 let _activePage    = 'home';
@@ -76,6 +79,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     _modal = new bootstrap.Modal(document.getElementById('confirmModal'));
     document.getElementById('confirmBtn').addEventListener('click', _executeAction);
+
+    const gapModalEl = document.getElementById('gapModal');
+    if (gapModalEl) {
+        _gapModal = new bootstrap.Modal(gapModalEl);
+        document.getElementById('gapConfirmBtn').addEventListener('click', _executeGapAction);
+    }
 
     // 이벤트 위임 (시작/중지 버튼)
     document.addEventListener('click', e => {
@@ -625,16 +634,16 @@ async function _savePriceEdit(sym) {
 // ── 모달 (기존 로직 유지) ─────────────────────────────────────────────────────
 
 function _openConfirm(symbol, action) {
+    if (action === 'start_resume') {
+        _openGapCheck(symbol);
+        return;
+    }
     _pendingAction = action;
     _pendingSymbol = symbol;
     let title, body, btnCls;
     if (action === 'start_fresh') {
         title  = '자동매매 시작 확인';
         body   = `${symbol} 자동매매를 처음부터 시작하시겠습니까?\n기존 진행 상태(차수/기준가)가 초기화됩니다.`;
-        btnCls = 'cs-btn cs-btn-success';
-    } else if (action === 'start_resume') {
-        title  = '자동매매 재시작 확인';
-        body   = `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`;
         btnCls = 'cs-btn cs-btn-success';
     } else {
         title  = '자동매매 중지 확인';
@@ -645,6 +654,141 @@ function _openConfirm(symbol, action) {
     _setEl('modalBody',  body);
     document.getElementById('confirmBtn').className = btnCls;
     _modal.show();
+}
+
+async function _openGapCheck(symbol) {
+    try {
+        const data = await _fetchJson(`${API.botGap}?symbol=${symbol}`);
+        if (data.gap > 0 && _gapModal) {
+            _showGapModal(symbol, data);
+        } else {
+            // 갭 없음 → 일반 확인 모달
+            _pendingAction = 'start_resume';
+            _pendingSymbol = symbol;
+            _setEl('modalTitle', '자동매매 재시작 확인');
+            _setEl('modalBody',  `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
+            document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
+            _modal.show();
+        }
+    } catch {
+        // 오류 시 일반 확인 모달로 폴백
+        _pendingAction = 'start_resume';
+        _pendingSymbol = symbol;
+        _setEl('modalTitle', '자동매매 재시작 확인');
+        _setEl('modalBody',  `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
+        document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
+        _modal.show();
+    }
+}
+
+function _showGapModal(symbol, data) {
+    _gapSymbol = symbol;
+    _setEl('gapModalTitle', `${symbol} 재시작 — 가격 갭 감지`);
+
+    const levels   = data.levels || [];
+    const preview  = levels.slice(0, 10);
+    const extraCnt = levels.length - preview.length;
+
+    const tableRows = preview.map(l =>
+        `<tr>
+            <td>${l.round_no}차</td>
+            <td>${l.grid_price.toLocaleString()}원</td>
+            <td>${l.quantity}</td>
+            <td>${l.amount.toLocaleString()}원</td>
+        </tr>`
+    ).join('');
+    const moreRow = extraCnt > 0
+        ? `<tr><td colspan="4" class="cs-trade-empty">… 외 ${extraCnt}건 더</td></tr>`
+        : '';
+
+    document.getElementById('gapModalBody').innerHTML = `
+        <div class="cs-gap-summary">
+            <div class="cs-gap-row">
+                <span>마지막 기준가</span>
+                <span>${data.reference_price.toLocaleString()}원</span>
+            </div>
+            <div class="cs-gap-row">
+                <span>현재가</span>
+                <span>${data.current_price.toLocaleString()}원</span>
+            </div>
+            <div class="cs-gap-row">
+                <span>미매수 갭</span>
+                <span class="cs-negative">${data.gap}개 차수${data.filled < data.gap ? ` (최대차수 도달로 ${data.filled}개만 처리)` : ''}</span>
+            </div>
+            <div class="cs-gap-row">
+                <span>차수 변화</span>
+                <span>${data.current_round}차 → ${data.current_round + data.filled}차</span>
+            </div>
+        </div>
+
+        <div class="cs-gap-mode-group">
+            <label class="cs-gap-mode-btn active" id="gap-opt-virtual">
+                <input type="radio" name="gapMode" value="virtual" checked>
+                <div>
+                    <strong>🔮 가상 채우기<span class="cs-badge-rec">권장</span></strong>
+                    <div class="cs-gap-mode-desc">
+                        그리드 가격 기준으로 ${data.filled}개 차수 기록을 생성합니다.<br>
+                        실제 매수 없이 이후 매도 수량·가격 정합성을 유지합니다.
+                    </div>
+                </div>
+            </label>
+            <label class="cs-gap-mode-btn" id="gap-opt-real">
+                <input type="radio" name="gapMode" value="real">
+                <div>
+                    <strong>📈 실제 캐치업</strong>
+                    <div class="cs-gap-mode-desc">
+                        현재가(${data.current_price.toLocaleString()}원)로 실제 매수를 실행합니다.<br>
+                        KRW 잔고와 catchup_max 설정이 적용됩니다.
+                    </div>
+                </div>
+            </label>
+        </div>
+
+        ${levels.length > 0 ? `
+        <div class="cs-gap-preview-title">가상 채우기 예상 내역</div>
+        <div class="cs-trades-table-wrap">
+            <table class="cs-trade-table">
+                <thead>
+                    <tr><th>차수</th><th>그리드 매수가</th><th>수량</th><th>금액</th></tr>
+                </thead>
+                <tbody>${tableRows}${moreRow}</tbody>
+            </table>
+        </div>` : ''}
+    `;
+
+    // 라디오 버튼 active 토글
+    document.getElementById('gapModalBody').querySelectorAll('input[name="gapMode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            document.querySelectorAll('.cs-gap-mode-btn').forEach(btn => btn.classList.remove('active'));
+            radio.closest('.cs-gap-mode-btn').classList.add('active');
+        });
+    });
+
+    _gapModal.show();
+}
+
+async function _executeGapAction() {
+    if (!_gapSymbol) return;
+    const mode   = document.querySelector('input[name="gapMode"]:checked')?.value || 'virtual';
+    const symbol = _gapSymbol;
+    _gapSymbol   = null;
+    _gapModal.hide();
+
+    const body = { symbol };
+    if (mode === 'virtual') body.virtual_catchup = true;
+
+    try {
+        const resp = await fetch(API.start, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(body),
+        });
+        const data = await resp.json();
+        _showAlert(data.message, data.ok ? 'success' : 'warning');
+        if (_activePage === 'strategy') await _fetchStrategy();
+    } catch {
+        _showAlert('요청 처리 중 오류가 발생했습니다.', 'danger');
+    }
 }
 
 async function _executeAction() {

@@ -37,11 +37,12 @@ class BotManager:
 
     # ── 시작 / 중지 ───────────────────────────────────────────────────────────
 
-    def start(self, symbol: str, fresh: bool = False) -> tuple[bool, str]:
+    def start(self, symbol: str, fresh: bool = False, virtual_catchup: bool = False) -> tuple[bool, str]:
         """symbol 봇을 시작한다.
 
         Args:
-            fresh: True이면 기존 상태를 초기화하고 처음부터 시작한다.
+            fresh:           True이면 기존 상태를 초기화하고 처음부터 시작한다.
+            virtual_catchup: True이면 갭 구간을 가상 체결로 채운다 (실제 주문 없음).
 
         Returns:
             (success: bool, message: str)
@@ -56,7 +57,7 @@ class BotManager:
                 if fresh:
                     cancel_all(symbol, self._exchange)
                     bot.reset_state()
-                bot.start()
+                bot.start(virtual_catchup=virtual_catchup)
                 _log.info("봇 시작: %s (fresh=%s)", symbol, fresh)
                 if self._notifier:
                     pair         = self._cfg["pairs"][symbol]

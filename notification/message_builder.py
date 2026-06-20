@@ -169,6 +169,24 @@ def build_catchup(
     ])
 
 
+def build_virtual_catchup(
+    symbol: str,
+    count: int,
+    gap: int,
+    from_price: float,
+    current_price: float,
+) -> str:
+    """가상 캐치업 완료 알림 메시지."""
+    return "\n".join([
+        f"🔮 {symbol} 가상 채우기 완료",
+        _DIV,
+        f"📉 갭 구간   {int(from_price):,}원 → {int(current_price):,}원",
+        f"📊 갭 레벨   {gap}단계",
+        f"✅ 가상체결  {count}회",
+        f"ℹ️ 실제 매수 없이 차수 기록이 생성되었습니다.",
+    ])
+
+
 def build_api_error(symbol: str, error: str) -> str:
     """API 오류 알림 메시지."""
     return "\n".join([

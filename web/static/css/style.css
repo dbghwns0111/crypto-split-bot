@@ -1011,3 +1011,59 @@ body {
   gap: 8px;
   margin-top: 12px;
 }
+
+/* ── 갭 채우기 모달 ─────────────────────────────────────────────────────────── */
+.cs-gap-summary {
+  background: var(--cs-card2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.cs-gap-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-gap-row:last-child { border-bottom: none; }
+.cs-gap-row span:first-child { color: var(--cs-muted); }
+.cs-gap-row span:last-child  { font-weight: 600; }
+
+.cs-gap-mode-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+.cs-gap-mode-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1.5px solid var(--cs-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  color: var(--cs-text);
+}
+.cs-gap-mode-btn input[type="radio"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+  accent-color: var(--cs-accent);
+}
+.cs-gap-mode-btn.active { border-color: var(--cs-accent); background: rgba(79,142,247,0.08); }
+.cs-gap-mode-btn strong { font-size: 14px; display: block; margin-bottom: 3px; }
+.cs-gap-mode-desc { font-size: 12px; color: var(--cs-muted); line-height: 1.5; }
+
+.cs-badge-rec {
+  background: var(--cs-green);
+  color: #000;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.cs-gap-preview-title {
+  font-size: 13px;
+  color: var(--cs-muted);
+  margin-bottom: 6px;
+  margin-top: 2px;
+}

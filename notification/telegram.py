@@ -23,6 +23,7 @@ from notification.message_builder import (
     build_max_round,
     build_order_cancelled,
     build_sell_filled,
+    build_virtual_catchup,
 )
 from utils.logger import get_logger
 
@@ -129,6 +130,12 @@ class TelegramNotifier:
         self, symbol: str, count: int = 0, gap: int = 0, price: float = 0, **_: Any
     ) -> bool:
         return self.send(build_catchup(symbol, count, gap, price))
+
+    def send_virtual_catchup(
+        self, symbol: str, count: int = 0, gap: int = 0,
+        from_price: float = 0, current_price: float = 0, **_: Any
+    ) -> bool:
+        return self.send(build_virtual_catchup(symbol, count, gap, from_price, current_price))
 
     def send_api_error(self, symbol: str, error: str = "", **_: Any) -> bool:
         return self.send(build_api_error(symbol, error))

@@ -69,17 +69,104 @@ def get_status():
 
 @api_bp.route("/bot/start", methods=["POST"])
 def start_bot():
-    """봇 시작. fresh=true이면 기존 상태를 초기화하고 처음부터 시작한다."""
-    data   = request.get_json(silent=True) or {}
-    symbol = (data.get("symbol") or "").strip().upper()
-    fresh  = bool(data.get("fresh", False))
+    """봇 시작. fresh=true이면 기존 상태를 초기화하고 처음부터 시작한다.
+    virtual_catchup=true이면 갭 구간을 가상 체결로 채운다.
+    """
+    data            = request.get_json(silent=True) or {}
+    symbol          = (data.get("symbol") or "").strip().upper()
+    fresh           = bool(data.get("fresh", False))
+    virtual_catchup = bool(data.get("virtual_catchup", False))
 
     if not symbol:
         return jsonify({"ok": False, "message": "symbol 파라미터가 필요합니다."}), 400
 
     bot_manager = current_app.config["BOT_MANAGER"]
-    ok, msg     = bot_manager.start(symbol, fresh=fresh)
+    ok, msg     = bot_manager.start(symbol, fresh=fresh, virtual_catchup=virtual_catchup)
     return jsonify({"ok": ok, "message": msg})
+
+
+@api_bp.route("/bot/gap")
+def get_bot_gap():
+    """재시작 전 가격 갭 미리보기 (가상 캐치업 예상 내역 반환)."""
+    from database.state_repo import get_state
+    from utils.math_utils import calc_quantity, round_price
+
+    symbol = request.args.get("symbol", "").upper().strip()
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+
+    exchange = current_app.config.get("EXCHANGE")
+    cfg      = current_app.config.get("CFG", {})
+
+    state           = get_state(symbol) or {}
+    reference_price = float(state.get("reference_price") or 0)
+    current_round   = int(state.get("current_round") or 0)
+
+    if reference_price <= 0:
+        return jsonify({"gap": 0, "filled": 0, "levels": [],
+                        "current_price": 0, "reference_price": 0,
+                        "current_round": current_round})
+
+    pair         = cfg.get("pairs", {}).get(symbol, {})
+    trigger_mode = pair.get("trigger_mode", "pct")
+    trigger_pct  = float(pair.get("trigger_pct", 0.5))
+    trigger_krw  = float(pair.get("trigger_krw", 10000))
+    order_amount = float(pair.get("order_amount", 50000))
+    max_rounds   = int(pair.get("max_rounds", 50))
+
+    current_price = 0.0
+    if exchange:
+        try:
+            ticker        = f"KRW-{symbol}"
+            current_price = exchange.get_current_price(ticker)
+        except Exception as exc:
+            _log.warning("갭 미리보기 현재가 조회 실패 (%s): %s", symbol, exc)
+
+    if current_price <= 0:
+        return jsonify({"gap": 0, "filled": 0, "levels": [],
+                        "current_price": 0,
+                        "reference_price": round(reference_price),
+                        "current_round": current_round})
+
+    if trigger_mode == "krw":
+        gap = int((reference_price - current_price) // trigger_krw)
+    else:
+        step = reference_price * trigger_pct / 100
+        gap  = int((reference_price - current_price) // step) if step > 0 else 0
+
+    if gap <= 0:
+        return jsonify({"gap": 0, "filled": 0, "levels": [],
+                        "current_price": round(current_price),
+                        "reference_price": round(reference_price),
+                        "current_round": current_round})
+
+    room   = max_rounds - current_round
+    filled = min(gap, room)
+
+    levels = []
+    g = reference_price
+    for i in range(filled):
+        if trigger_mode == "krw":
+            g = g - trigger_krw
+        else:
+            g = g * (1 - trigger_pct / 100)
+        grid_price = float(round_price(g))
+        quantity   = calc_quantity(order_amount, grid_price)
+        levels.append({
+            "round_no":   current_round + i + 1,
+            "grid_price": round(grid_price),
+            "quantity":   quantity,
+            "amount":     round(grid_price * quantity),
+        })
+
+    return jsonify({
+        "gap":             gap,
+        "filled":          filled,
+        "current_round":   current_round,
+        "reference_price": round(reference_price),
+        "current_price":   round(current_price),
+        "levels":          levels,
+    })
 
 
 @api_bp.route("/bot/stop", methods=["POST"])
