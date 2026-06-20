@@ -87,7 +87,7 @@ def build_buy_filled(
         f"🔵 {symbol} 매수 체결 · {round_no}차",
         _DIV,
         f"💲 체결가     {price:,.0f}원",
-        f"📦 수량       {quantity:.4f}개",
+        f"📦 수량       {quantity}개",
         f"💰 매수금액   {amount:,}원",
     ])
 
@@ -107,7 +107,7 @@ def build_sell_filled(
         f"🟠 {symbol} 매도 체결 · {round_no}차",
         _DIV,
         f"💲 체결가     {price:,.0f}원",
-        f"📦 수량       {quantity:.4f}개",
+        f"📦 수량       {quantity}개",
         f"💰 매도금액   {amount:,}원",
     ]
     if buy_price > 0:

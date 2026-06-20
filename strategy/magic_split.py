@@ -296,10 +296,10 @@ class MagicSplit:
             _log.error("시작가 매수 실패 (%s): %s", self._symbol, exc)
 
     def _place_sell(self, trigger_pct: float, trigger_mode: str = "pct", trigger_krw: float = 0.0) -> None:
-        latest_buy = get_latest_filled_buy(self._symbol)
-        if not latest_buy:
+        current_buy = get_filled_buy_for_round(self._symbol, self._current_round)
+        if not current_buy:
             return
-        quantity = latest_buy["quantity"]
+        quantity = current_buy["quantity"]
         if trigger_mode == "krw":
             # KRW 모드: 매도가 = 기준가 + 트리거 (그리드 정렬 유지)
             price = round_price(sell_order_price_krw(self._reference_price, trigger_krw))
@@ -366,11 +366,12 @@ class MagicSplit:
             self._notify_max_round()
 
     def _on_sell_filled(self, filled_price: float, qty: float) -> None:
-        latest_buy = get_latest_filled_buy(self._symbol)
+        sold_round = self._current_round  # 알림용: 감소 전 저장
+        buy_order = get_filled_buy_for_round(self._symbol, sold_round)
         buy_price = 0.0
         net_pnl   = 0.0
-        if latest_buy and latest_buy.get("filled_price"):
-            buy_price = float(latest_buy["filled_price"])
+        if buy_order and buy_order.get("filled_price"):
+            buy_price = float(buy_order["filled_price"])
             pnl = calc_pnl(buy_price, filled_price, qty, self._fee_rate, self._point_rate)
             net_pnl = pnl["net"]
             add_trade_pnl(self._symbol, pnl["net"], pnl["fee"], pnl["points"])
@@ -392,7 +393,7 @@ class MagicSplit:
         _log.info("매도 체결: %s 가격=%s 차수=%d 복원기준가=%s",
                   self._symbol, filled_price, self._current_round, self._reference_price)
         self._notify("sell_filled", price=filled_price, qty=qty,
-                     round_no=self._current_round, net_pnl=net_pnl, buy_price=buy_price)
+                     round_no=sold_round, net_pnl=net_pnl, buy_price=buy_price)
 
     # ── 타임아웃 ──────────────────────────────────────────────────────────────
 
