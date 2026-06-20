@@ -60,6 +60,7 @@ let _tradesActiveSubTab = 'fills';
 let _tradesStart        = '';
 let _tradesEnd          = '';
 let _tradesSym          = 'all';
+let _tradesQuickRange   = 'day';
 let _tradesDeleteMode   = false;
 let _selectedOrderIds   = new Set();
 let _pendingDeleteFn    = null;
@@ -1036,11 +1037,8 @@ function _updateStratMonitorCard(s) {
 // ── 투자내역 페이지 ───────────────────────────────────────────────────────────
 
 function _initTradesPage() {
-    const today    = new Date().toISOString().slice(0, 10);
-    const startEl  = document.getElementById('trades-start');
-    const endEl    = document.getElementById('trades-end');
-    if (startEl) { startEl.value = today; _tradesStart = today; }
-    if (endEl)   { endEl.value   = today; _tradesEnd   = today; }
+    // 퀵 날짜 버튼 초기화 (today 기본값, fetch 없이)
+    _applyQuickRange('day', false);
 
     const sel = document.getElementById('trades-sym-select');
     if (sel) {
@@ -1050,6 +1048,19 @@ function _initTradesPage() {
             sel.appendChild(opt);
         });
     }
+
+    // 퀵 날짜 버튼 클릭
+    document.querySelectorAll('.cs-trades-quick-btn').forEach(btn => {
+        btn.addEventListener('click', () => _applyQuickRange(btn.dataset.range));
+    });
+
+    // 날짜 직접 변경 시 퀵 버튼 활성화 해제
+    ['trades-start', 'trades-end'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', () => {
+            _tradesQuickRange = null;
+            document.querySelectorAll('.cs-trades-quick-btn').forEach(b => b.classList.remove('active'));
+        });
+    });
 
     document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1098,6 +1109,44 @@ async function _fetchTradesActive() {
     } catch (err) {
         console.error('[CryptoSplit] trades fetch error:', err);
     }
+}
+
+function _applyQuickRange(range, doFetch = true) {
+    const today = new Date();
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const todayStr = fmt(today);
+    let start;
+
+    switch (range) {
+        case 'day':
+            start = todayStr;
+            break;
+        case 'week': {
+            const d = new Date(today);
+            d.setDate(d.getDate() - 6);
+            start = fmt(d);
+            break;
+        }
+        case 'month':
+            start = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-01`;
+            break;
+        case 'all':
+        default:
+            start = '2026-06-01';
+    }
+
+    const startEl = document.getElementById('trades-start');
+    const endEl   = document.getElementById('trades-end');
+    if (startEl) startEl.value = start;
+    if (endEl)   endEl.value   = todayStr;
+    _tradesStart    = start;
+    _tradesEnd      = todayStr;
+    _tradesQuickRange = range;
+
+    document.querySelectorAll('.cs-trades-quick-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.range === range));
+
+    if (doFetch) _fetchTradesActive();
 }
 
 function _toggleDeleteMode() {

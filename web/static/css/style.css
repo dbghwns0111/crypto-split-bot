@@ -785,9 +785,32 @@ body {
 
 /* ── 투자내역 페이지 ──────────────────────────────────────────────────────── */
 .cs-trades-filter-bar {
-  padding: 10px 16px;
+  padding: 10px 16px 8px;
   border-bottom: 1px solid var(--cs-border);
   background: var(--cs-card);
+}
+.cs-trades-quick-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.cs-trades-quick-btn {
+  background: var(--cs-card2);
+  color: var(--cs-muted);
+  border: 1px solid var(--cs-border);
+  border-radius: 6px;
+  padding: 4px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.cs-trades-quick-btn:hover { color: var(--cs-text); border-color: var(--cs-accent); }
+.cs-trades-quick-btn.active {
+  background: var(--cs-accent);
+  color: #fff;
+  border-color: var(--cs-accent);
+  font-weight: 700;
 }
 .cs-trades-filter-row {
   display: flex;
