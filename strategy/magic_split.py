@@ -92,6 +92,7 @@ class MagicSplit:
         """DB에서 이전 상태를 복구하고 루프 스레드를 시작한다."""
         if self._running:
             return
+        self._circuit_breaker.reset()
         self._restore_state(virtual_catchup=virtual_catchup)
         self._running = True
         upsert_state(self._symbol, reference_price=self._reference_price,
@@ -271,6 +272,9 @@ class MagicSplit:
         try:
             result = self._exchange.buy_limit(self._ticker, price, quantity)
             oid = result["order_id"]
+            if not oid:
+                _log.error("매수 주문 실패: order_id 없음 (%s)", self._symbol)
+                return
             self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
             save_order(self._symbol, oid, "buy", price, quantity,
                        round(price * quantity, 2), self._current_round + 1)
