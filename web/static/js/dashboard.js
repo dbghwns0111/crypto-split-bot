@@ -27,6 +27,7 @@ const API = {
     deleteOrders:     '/api/trades/orders',
     start:            '/api/bot/start',
     stop:             '/api/bot/stop',
+    reset:            '/api/bot/reset',
     botGap:           '/api/bot/gap',
 };
 
@@ -654,6 +655,15 @@ function _openConfirm(symbol, action) {
         _openGapCheck(symbol, true);
         return;
     }
+    if (action === 'reset') {
+        _pendingAction = 'reset';
+        _pendingSymbol = symbol;
+        _setEl('modalTitle', `${symbol} 전략 초기화`);
+        _setEl('modalBody',  `${symbol} 전략 상태를 초기화하시겠습니까?\n현재 차수와 기준가가 0으로 리셋됩니다.\n(거래 이력은 유지됩니다)`);
+        document.getElementById('confirmBtn').className = 'cs-btn cs-btn-warning';
+        _modal.show();
+        return;
+    }
     _pendingAction = action;
     _pendingSymbol = symbol;
     // stop
@@ -674,13 +684,13 @@ async function _openGapCheck(symbol, isFresh) {
             if (isFresh) {
                 _pendingAction = 'start_fresh';
                 _pendingSymbol = symbol;
-                _setEl('modalTitle', '자동매매 시작 확인');
-                _setEl('modalBody',  `${symbol} 자동매매를 처음부터 시작하시겠습니까?\n기존 진행 상태(차수/기준가)가 초기화됩니다.`);
+                _setEl('modalTitle', '신규 시작 확인');
+                _setEl('modalBody',  `${symbol} 신규 시작하시겠습니까?\n기존 진행 상태(차수/기준가)가 초기화됩니다.`);
             } else {
                 _pendingAction = 'start_resume';
                 _pendingSymbol = symbol;
-                _setEl('modalTitle', '자동매매 재시작 확인');
-                _setEl('modalBody',  `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
+                _setEl('modalTitle', '이어서 시작 확인');
+                _setEl('modalBody',  `${symbol} 이어서 시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
             }
             document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
             _modal.show();
@@ -690,13 +700,13 @@ async function _openGapCheck(symbol, isFresh) {
         if (isFresh) {
             _pendingAction = 'start_fresh';
             _pendingSymbol = symbol;
-            _setEl('modalTitle', '자동매매 시작 확인');
-            _setEl('modalBody',  `${symbol} 자동매매를 처음부터 시작하시겠습니까?\n기존 진행 상태(차수/기준가)가 초기화됩니다.`);
+            _setEl('modalTitle', '신규 시작 확인');
+            _setEl('modalBody',  `${symbol} 신규 시작하시겠습니까?\n기존 진행 상태(차수/기준가)가 초기화됩니다.`);
         } else {
             _pendingAction = 'start_resume';
             _pendingSymbol = symbol;
-            _setEl('modalTitle', '자동매매 재시작 확인');
-            _setEl('modalBody',  `${symbol} 자동매매를 재시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
+            _setEl('modalTitle', '이어서 시작 확인');
+            _setEl('modalBody',  `${symbol} 이어서 시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
         }
         document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
         _modal.show();
@@ -708,8 +718,9 @@ let _gapIsFresh = false;
 function _showGapModal(symbol, data, isFresh = false) {
     _gapSymbol  = symbol;
     _gapIsFresh = isFresh;
-    const titleVerb = isFresh ? '시작' : '재시작';
+    const titleVerb = isFresh ? '신규 시작' : '이어서 시작';
     _setEl('gapModalTitle', `${symbol} ${titleVerb} — 가격 갭 감지`);
+    _setEl('gapConfirmBtn', titleVerb);
 
     const levels   = data.levels || [];
     const preview  = levels.slice(0, 10);
@@ -847,9 +858,10 @@ async function _executeAction() {
     _pendingAction = _pendingSymbol = null;
     _modal.hide();
 
-    const isStop = action === 'stop';
-    const url    = isStop ? API.stop : API.start;
-    const body   = { symbol };
+    const isStop  = action === 'stop';
+    const isReset = action === 'reset';
+    const url     = isStop ? API.stop : isReset ? API.reset : API.start;
+    const body    = { symbol };
     if (action === 'start_fresh') body.fresh = true;
 
     try {
@@ -1143,9 +1155,10 @@ function _makeStratMonitorCard(sym) {
         </div>
         <div class="cs-strat-card-point" id="strat-card-${sym}-point"></div>
         <div class="cs-strat-card-actions">
-            <button class="cs-btn cs-btn-success cs-btn-sm cs-btn-start-main"   data-action="start_fresh"  data-symbol="${sym}" id="strat-card-${sym}-start-btn"  style="display:none">▶ 자동매매 시작</button>
-            <button class="cs-btn cs-btn-secondary cs-btn-sm cs-btn-start-resume" data-action="start_resume" data-symbol="${sym}" id="strat-card-${sym}-resume-btn" style="display:none">↺ 재시작</button>
-            <button class="cs-btn cs-btn-danger    cs-btn-sm"                   data-action="stop"         data-symbol="${sym}" id="strat-card-${sym}-stop-btn"   style="display:none">■ 자동매매 중지</button>
+            <button class="cs-btn cs-btn-success cs-btn-sm cs-btn-start-main"    data-action="start_fresh"  data-symbol="${sym}" id="strat-card-${sym}-start-btn"  style="display:none">▶ 신규 시작</button>
+            <button class="cs-btn cs-btn-secondary cs-btn-sm cs-btn-start-resume" data-action="start_resume" data-symbol="${sym}" id="strat-card-${sym}-resume-btn" style="display:none">↺ 이어서 시작</button>
+            <button class="cs-btn cs-btn-warning   cs-btn-sm"                    data-action="reset"        data-symbol="${sym}" id="strat-card-${sym}-reset-btn"  style="display:none">🗑️ 초기화</button>
+            <button class="cs-btn cs-btn-danger    cs-btn-sm"                    data-action="stop"         data-symbol="${sym}" id="strat-card-${sym}-stop-btn"   style="display:none">■ 자동매매 중지</button>
         </div>`;
     return card;
 }
@@ -1212,9 +1225,11 @@ function _updateStratMonitorCard(s) {
 
     const startBtn  = document.getElementById(`strat-card-${sym}-start-btn`);
     const resumeBtn = document.getElementById(`strat-card-${sym}-resume-btn`);
+    const resetBtn  = document.getElementById(`strat-card-${sym}-reset-btn`);
     const stopBtn   = document.getElementById(`strat-card-${sym}-stop-btn`);
     if (startBtn)  startBtn.style.display  = s.running ? 'none' : '';
     if (resumeBtn) resumeBtn.style.display = s.running ? 'none' : '';
+    if (resetBtn)  resetBtn.style.display  = s.running ? 'none' : '';
     if (stopBtn)   stopBtn.style.display   = s.running ? '' : 'none';
 }
 

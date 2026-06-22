@@ -118,6 +118,23 @@ class BotManager:
                 _log.error("봇 중지 실패 (%s): %s", symbol, exc)
                 return False, f"중지 실패: {exc}"
 
+    def reset(self, symbol: str) -> tuple[bool, str]:
+        """봇을 시작하지 않고 전략 상태(차수/기준가)만 초기화한다."""
+        with self._lock:
+            if symbol not in self._bots:
+                return False, f"알 수 없는 심볼: {symbol}"
+            bot = self._bots[symbol]
+            if bot.is_running:
+                return False, f"{symbol} 봇이 실행 중입니다. 먼저 중지해주세요."
+            try:
+                cancel_all(symbol, self._exchange)
+                bot.reset_state()
+                _log.info("전략 초기화: %s", symbol)
+                return True, f"{symbol} 전략이 초기화되었습니다."
+            except Exception as exc:
+                _log.error("전략 초기화 실패 (%s): %s", symbol, exc)
+                return False, f"초기화 실패: {exc}"
+
     def stop_all(self) -> list[str]:
         """실행 중인 모든 봇을 중지한다. 중지된 symbol 목록을 반환한다."""
         stopped = []

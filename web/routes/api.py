@@ -197,6 +197,20 @@ def stop_bot():
     return jsonify({"ok": ok, "message": msg})
 
 
+@api_bp.route("/bot/reset", methods=["POST"])
+def reset_bot():
+    """전략 상태 초기화 (봇 시작 없이 차수/기준가만 리셋)."""
+    data   = request.get_json(silent=True) or {}
+    symbol = (data.get("symbol") or "").strip().upper()
+
+    if not symbol:
+        return jsonify({"ok": False, "message": "symbol 파라미터가 필요합니다."}), 400
+
+    bot_manager = current_app.config["BOT_MANAGER"]
+    ok, msg     = bot_manager.reset(symbol)
+    return jsonify({"ok": ok, "message": msg})
+
+
 @api_bp.route("/bot/stop_all", methods=["POST"])
 def stop_all_bots():
     """모든 봇 중지."""
