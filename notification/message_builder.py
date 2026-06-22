@@ -299,12 +299,13 @@ def build_daily_report(
         f"💵 KRW잔고   {total_krw:,.0f}원",
     ]
     for sym, bal in balances.items():
+        bal_str = f"{bal:.8f}".rstrip("0").rstrip(".")
         price   = (prices or {}).get(sym, 0)
         krw_val = int(bal * price) if price > 0 else 0
         if krw_val > 0:
-            lines.append(f"🪙 {sym}   {bal} {sym}")
+            lines.append(f"🪙 {sym}   {bal_str} {sym}")
             lines.append(f"     └ ≈ {krw_val:,}원  (현재가 {int(price):,}원)")
         else:
-            lines.append(f"🪙 {sym}   {bal} {sym}")
+            lines.append(f"🪙 {sym}   {bal_str} {sym}")
 
     return "\n".join(lines)
