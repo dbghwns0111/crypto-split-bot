@@ -123,6 +123,7 @@ def get_today_trade_counts(symbol: str, date: Optional[str] = None) -> dict:
         FROM orders
         WHERE symbol = ? AND status = 'filled'
           AND DATE(filled_at) = ?
+          AND order_id NOT LIKE 'virt-%'
         """,
         (symbol, d),
     ).fetchone()

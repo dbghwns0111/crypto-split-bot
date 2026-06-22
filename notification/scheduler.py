@@ -85,8 +85,8 @@ class NotificationScheduler:
                 counts = get_today_trade_counts(row["symbol"], date)
                 row["buy_count"]  = counts["buy"]
                 row["sell_count"] = counts["sell"]
-            total_krw, balances = self._collect_balances()
-            self._notifier.send_daily_report(date, symbol_data, total_krw, balances)
+            total_krw, balances, prices = self._collect_balances()
+            self._notifier.send_daily_report(date, symbol_data, total_krw, balances, prices)
             _log.info("일일 결산 리포트 전송: %s", date)
         except Exception as exc:
             _log.error("일일 결산 전송 실패: %s", exc)
@@ -135,13 +135,22 @@ class NotificationScheduler:
                 statuses.append({"symbol": sym, "running": False})
         return statuses
 
-    def _collect_balances(self) -> tuple[float, dict[str, float]]:
-        """KRW 잔고와 코인 잔고를 수집한다."""
+    def _collect_balances(self) -> tuple[float, dict[str, float], dict[str, float]]:
+        """KRW 잔고, 코인 잔고, 심볼별 현재가를 수집한다."""
         try:
             snap      = take_snapshot(self._exchange, self._bot_manager.symbols)
             total_krw = float(snap.get("KRW", 0))
             balances  = {s: snap.get(s, 0) for s in self._bot_manager.symbols}
-            return total_krw, balances
         except Exception as exc:
             _log.warning("잔고 조회 실패: %s", exc)
-            return 0.0, {}
+            total_krw, balances = 0.0, {}
+
+        prices: dict[str, float] = {}
+        for sym in self._bot_manager.symbols:
+            try:
+                ticker     = self._cfg["pairs"][sym]["ticker"]
+                prices[sym] = self._exchange.get_current_price(ticker)
+            except Exception:
+                prices[sym] = 0.0
+
+        return total_krw, balances, prices

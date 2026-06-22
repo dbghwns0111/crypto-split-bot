@@ -255,6 +255,7 @@ def build_daily_report(
     symbol_data: list[dict],
     total_krw: float,
     balances: dict[str, float],
+    prices: dict[str, float] | None = None,
 ) -> str:
     """일일 결산 리포트 메시지.
 
@@ -263,6 +264,7 @@ def build_daily_report(
          "trade_count": int, "fee_total": float,
          "buy_count": int, "sell_count": int}
     balances: {"ETH": float, "USDT": float, ...}
+    prices:   {"ETH": float, "USDT": float, ...}  # 결산 시점 현재가
     """
     lines     = [f"📊 CryptoSplit 일일 결산 [{date}]"]
     grand_net = 0.0
@@ -297,6 +299,12 @@ def build_daily_report(
         f"💵 KRW잔고   {total_krw:,.0f}원",
     ]
     for sym, bal in balances.items():
-        lines.append(f"🪙 {sym}      {bal} {sym}")
+        price   = (prices or {}).get(sym, 0)
+        krw_val = int(bal * price) if price > 0 else 0
+        if krw_val > 0:
+            lines.append(f"🪙 {sym}   {bal} {sym}")
+            lines.append(f"     └ ≈ {krw_val:,}원  (현재가 {int(price):,}원)")
+        else:
+            lines.append(f"🪙 {sym}   {bal} {sym}")
 
     return "\n".join(lines)

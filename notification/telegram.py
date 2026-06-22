@@ -145,9 +145,10 @@ class TelegramNotifier:
 
     def send_daily_report(
         self, date: str, symbol_data: list[dict],
-        total_krw: float = 0, balances: dict | None = None
+        total_krw: float = 0, balances: dict | None = None,
+        prices: dict | None = None,
     ) -> bool:
-        return self.send(build_daily_report(date, symbol_data, total_krw, balances or {}))
+        return self.send(build_daily_report(date, symbol_data, total_krw, balances or {}, prices or {}))
 
     # ── 내부 ─────────────────────────────────────────────────────────────────
 
