@@ -162,6 +162,9 @@ class MagicSplit:
             return float(self._pending_buy.get("order_price", 0))
         if self._reference_price <= 0:
             return 0
+        # 0차: 다음 매수는 reference_price - trigger가 아닌 start_price에서 발생
+        if self._current_round == 0 and self._start_price > 0:
+            return round_price(self._start_price)
         pair = self._cfg["pairs"][self._symbol]
         trigger_mode = pair.get("trigger_mode", "pct")
         if trigger_mode == "krw":
