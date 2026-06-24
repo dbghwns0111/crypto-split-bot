@@ -299,7 +299,7 @@ def build_daily_report(
         f"💵 KRW잔고   {total_krw:,.0f}원",
     ]
     for sym, bal in balances.items():
-        bal_str = f"{bal:.8f}".rstrip("0").rstrip(".")
+        bal_str = f"{bal:.8f}"
         price   = (prices or {}).get(sym, 0)
         krw_val = int(bal * price) if price > 0 else 0
         if krw_val > 0:
