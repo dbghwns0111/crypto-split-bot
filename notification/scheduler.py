@@ -62,6 +62,17 @@ class NotificationScheduler:
             misfire_grace_time=300,
         )
 
+        sync_interval = int(
+            self._cfg.get("system", {}).get("time_sync_interval_hours", 6)
+        )
+        self._scheduler.add_job(
+            self._job_time_sync,
+            CronTrigger(hour=f"*/{sync_interval}"),
+            id="time_sync",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+
     # ── 잡 콜백 ───────────────────────────────────────────────────────────────
 
     def _job_hourly_status(self) -> None:
@@ -73,6 +84,16 @@ class NotificationScheduler:
             _log.debug("정각 현황 전송: %02d:00", hour)
         except Exception as exc:
             _log.error("정각 현황 전송 실패: %s", exc)
+
+    def _job_time_sync(self) -> None:
+        """주기적 Windows 시간 동기화 — 실패 시에만 텔레그램 알림."""
+        try:
+            from utils.time_sync import sync_windows_time
+            ok = sync_windows_time()
+            if not ok:
+                self._notifier.send_time_sync_alert(False)
+        except Exception as exc:
+            _log.error("주기적 시간 동기화 실패: %s", exc)
 
     def _job_daily_report(self) -> None:
         """매일 00시: 일일 결산 리포트 전송 (전날 데이터 집계)."""

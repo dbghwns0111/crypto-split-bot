@@ -50,3 +50,5 @@ logging:
 report:
   hour: 0
   minute: 0
+system:
+  time_sync_interval_hours: 6

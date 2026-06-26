@@ -23,6 +23,7 @@ from notification.message_builder import (
     build_max_round,
     build_order_cancelled,
     build_sell_filled,
+    build_time_sync_alert,
     build_virtual_catchup,
 )
 from utils.logger import get_logger
@@ -139,6 +140,9 @@ class TelegramNotifier:
 
     def send_api_error(self, symbol: str, error: str = "", **_: Any) -> bool:
         return self.send(build_api_error(symbol, error))
+
+    def send_time_sync_alert(self, success: bool) -> bool:
+        return self.send(build_time_sync_alert(success))
 
     def send_hourly_status(self, hour: int, statuses: list[dict]) -> bool:
         return self.send(build_hourly_status(hour, statuses))

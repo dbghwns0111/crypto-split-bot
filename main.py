@@ -18,10 +18,12 @@ from database.connection import configure as db_configure
 from database.connection import get_connection
 from database.models import create_tables
 from exchange.bithumb_client import BithumbClient
+from exchange.retry import set_notifier_fn
 from notification.scheduler import NotificationScheduler
 from notification.telegram import TelegramNotifier
 from notification.telegram_handler import TelegramCommandHandler
 from utils.logger import get_logger
+from utils.time_sync import sync_windows_time
 from web.app import create_app
 
 _log = get_logger("main")
@@ -39,6 +41,7 @@ def build_components(cfg: dict):
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id   = os.environ.get("TELEGRAM_CHAT_ID",   "")
     notifier  = TelegramNotifier(bot_token, chat_id)
+    set_notifier_fn(notifier.send_time_sync_alert)
 
     bot_manager = BotManager(exchange, cfg, notifier)
 
@@ -105,6 +108,9 @@ def main() -> None:
     db_configure(db_path)
     conn = get_connection()
     create_tables(conn)
+
+    # 시작 시 시계 동기화 1회 실행 (JWT 만료 예방)
+    sync_windows_time()
 
     # 컴포넌트 초기화 — 봇 자동시작 없음
     exchange, bot_manager, notifier, sched, app, cmd_handler = build_components(cfg)

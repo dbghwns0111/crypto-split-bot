@@ -196,6 +196,24 @@ def build_api_error(symbol: str, error: str) -> str:
     ])
 
 
+def build_time_sync_alert(success: bool) -> str:
+    """JWT 만료 감지 후 시간 동기화 결과 알림 메시지."""
+    if success:
+        return "\n".join([
+            "✅ Windows 시간 동기화 완료",
+            _DIV,
+            "JWT 만료 오류 감지 후 시계를 동기화했습니다.",
+            "자동매매가 정상 재개됩니다.",
+        ])
+    return "\n".join([
+        "❌ Windows 시간 동기화 실패",
+        _DIV,
+        "JWT 만료 오류 감지 후 동기화를 시도했으나 실패했습니다.",
+        "관리자 권한으로 아래 명령어를 실행해 주세요:",
+        "w32tm /resync /force",
+    ])
+
+
 # ── 정기 알림 ──────────────────────────────────────────────────────────────────
 
 def build_hourly_status(hour: int, statuses: list[dict]) -> str:
