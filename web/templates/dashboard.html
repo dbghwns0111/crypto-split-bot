@@ -77,10 +77,42 @@
       </div>
     </div>
 
+    <!-- 기간 선택 -->
     <div class="cs-sort-bar">
-      <select class="cs-sort-select" id="pnl-sort">
-        <option value="default">기본정렬</option>
+      <select class="cs-sort-select" id="pnl-period">
+        <option value="7">최근 7일</option>
+        <option value="30" selected>최근 30일</option>
+        <option value="90">최근 90일</option>
       </select>
+    </div>
+
+    <!-- 성과 통계 카드 -->
+    <div class="cs-stat-grid">
+      <div class="cs-stat-card">
+        <span class="cs-stat-label">승률</span>
+        <span class="cs-stat-value" id="stat-win-rate">-</span>
+        <span class="cs-stat-sub" id="stat-win-sub">-</span>
+      </div>
+      <div class="cs-stat-card">
+        <span class="cs-stat-label">프로핏팩터</span>
+        <span class="cs-stat-value" id="stat-profit-factor">-</span>
+        <span class="cs-stat-sub">총수익 / 총손실</span>
+      </div>
+      <div class="cs-stat-card">
+        <span class="cs-stat-label">평균손익</span>
+        <span class="cs-stat-value cs-neutral" id="stat-avg-pnl">-</span>
+        <span class="cs-stat-sub" id="stat-total-pnl">-</span>
+      </div>
+      <div class="cs-stat-card">
+        <span class="cs-stat-label">총 거래수</span>
+        <span class="cs-stat-value" id="stat-total-trades">-</span>
+        <span class="cs-stat-sub" id="stat-bestworst">-</span>
+      </div>
+    </div>
+
+    <!-- 일별 수익 차트 -->
+    <div class="cs-chart-box">
+      <canvas id="pnl-daily-chart"></canvas>
     </div>
 
     <div class="cs-symbol-list" id="pnl-symbol-list"></div>
@@ -432,5 +464,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/chart.umd.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}

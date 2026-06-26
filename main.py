@@ -13,7 +13,7 @@ import sys
 
 from bot_manager import BotManager
 from config.loader import get_config
-from database.connection import close_connection
+from database.connection import backup_database, check_integrity, close_connection
 from database.connection import configure as db_configure
 from database.connection import get_connection
 from database.models import create_tables
@@ -109,11 +109,25 @@ def main() -> None:
     conn = get_connection()
     create_tables(conn)
 
+    # DB 무결성 검사 + 시작 시 백업 1회 (데이터 손실 예방)
+    integrity_ok = check_integrity()
+    if not integrity_ok:
+        _log.error("DB 무결성 검사 실패 — 데이터 손상 가능, 백업 확인 필요")
+    backup_keep = int(cfg.get("system", {}).get("db_backup_keep", 14))
+    backup_database(keep=backup_keep)
+
     # 시작 시 시계 동기화 1회 실행 (JWT 만료 예방)
     sync_windows_time()
 
     # 컴포넌트 초기화 — 봇 자동시작 없음
     exchange, bot_manager, notifier, sched, app, cmd_handler = build_components(cfg)
+
+    # 무결성 실패 시 텔레그램 경고 (notifier 준비 후)
+    if not integrity_ok:
+        try:
+            notifier.send_db_backup_alert(False, "시작 시 DB 무결성 검사에 실패했습니다. 최근 백업으로 복구를 검토하세요.")
+        except Exception:
+            pass
 
     # 종료 핸들러
     def _on_exit() -> None:

@@ -18,6 +18,8 @@ const API = {
     marketPrices:     '/api/market/prices',
     investment:       '/api/investment',
     cumulative:       '/api/pnl/cumulative',
+    pnlDaily:         '/api/pnl/daily',
+    pnlStats:         '/api/pnl/stats',
     assets:           '/api/assets/exchange',
     manualPrice:      '/api/assets/manual-price',
     strategy:         '/api/strategy',
@@ -60,6 +62,9 @@ let _stratTableOpen = false;
 let _stratModeUserSet   = false;
 let _stratInputsUserSet = false;
 
+let _pnlChart  = null;
+let _pnlPeriod = 30;
+
 let _tradesActiveSubTab = 'fills';
 let _tradesStart        = '';
 let _tradesEnd          = '';
@@ -96,6 +101,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // 투자현황 정렬
     const invSort = document.getElementById('inv-sort');
     if (invSort) invSort.addEventListener('change', _reorderInvCards);
+
+    // 누적손익 기간 선택 (차트/통계)
+    const pnlPeriod = document.getElementById('pnl-period');
+    if (pnlPeriod) pnlPeriod.addEventListener('change', () => {
+        _pnlPeriod = parseInt(pnlPeriod.value) || 30;
+        _fetchPnlChart();
+    });
 
     // 거래소자산 새로고침 버튼
     const refreshBtn = document.getElementById('assets-refresh-btn');
@@ -427,6 +439,126 @@ function _makeSymbolCard(id, sym) {
 async function _fetchCumulative() {
     const data = await _fetchJson(API.cumulative);
     _renderCumulative(data);
+    await _fetchPnlChart();
+}
+
+async function _fetchPnlChart() {
+    try {
+        const [daily, stats] = await Promise.all([
+            _fetchJson(`${API.pnlDaily}?days=${_pnlPeriod}`),
+            _fetchJson(`${API.pnlStats}?days=${_pnlPeriod}`),
+        ]);
+        _renderPnlStats(stats);
+        _renderPnlChart(daily);
+    } catch (err) {
+        console.error('[CryptoSplit] pnl chart error:', err);
+    }
+}
+
+function _renderPnlStats(data) {
+    const o = (data && data.overall) || {};
+
+    _setEl('stat-win-rate', `${o.win_rate ?? 0}%`);
+    _setEl('stat-win-sub',  `${o.win_count ?? 0}승 ${o.loss_count ?? 0}패`);
+
+    // profit_factor: null = 손실 없음(∞)
+    _setEl('stat-profit-factor',
+        o.profit_factor === null ? '∞' : Number(o.profit_factor ?? 0).toFixed(2));
+
+    const avgEl = document.getElementById('stat-avg-pnl');
+    if (avgEl) {
+        const a = o.avg_pnl ?? 0;
+        avgEl.textContent = `${_sign(a)}${Math.round(a).toLocaleString()}원`;
+        avgEl.className    = `cs-stat-value ${_colorClass(a)}`;
+    }
+    const totalEl = document.getElementById('stat-total-pnl');
+    if (totalEl) {
+        const t = o.total_pnl ?? 0;
+        totalEl.textContent = `누적 ${_sign(t)}${Math.round(t).toLocaleString()}원`;
+    }
+
+    _setEl('stat-total-trades', `${o.total_trades ?? 0}회`);
+    const best  = o.best_trade  ?? 0;
+    const worst = o.worst_trade ?? 0;
+    _setEl('stat-bestworst',
+        `최고 ${_sign(best)}${Math.round(best).toLocaleString()} / 최저 ${Math.round(worst).toLocaleString()}`);
+}
+
+function _renderPnlChart(data) {
+    const canvas = document.getElementById('pnl-daily-chart');
+    if (!canvas || typeof Chart === 'undefined' || !data) return;
+
+    const css        = getComputedStyle(document.documentElement);
+    const green      = (css.getPropertyValue('--cs-green') || '#00c896').trim();
+    const red        = (css.getPropertyValue('--cs-red')   || '#ff4d6d').trim();
+    const accent     = (css.getPropertyValue('--cs-accent')|| '#4f8ef7').trim();
+    const muted      = (css.getPropertyValue('--cs-muted') || '#7a8aaa').trim();
+    const border     = (css.getPropertyValue('--cs-border')|| '#263354').trim();
+
+    const labels     = (data.labels || []).map(d => d.slice(5));  // MM-DD
+    const totals     = data.total || [];
+    const cumulative = data.cumulative || [];
+    const barColors  = totals.map(v => (v >= 0 ? green : red));
+
+    if (_pnlChart) {
+        _pnlChart.data.labels                = labels;
+        _pnlChart.data.datasets[0].data      = totals;
+        _pnlChart.data.datasets[0].backgroundColor = barColors;
+        _pnlChart.data.datasets[1].data      = cumulative;
+        _pnlChart.update();
+        return;
+    }
+
+    _pnlChart = new Chart(canvas, {
+        data: {
+            labels,
+            datasets: [
+                {
+                    type: 'bar',
+                    label: '일별손익',
+                    data: totals,
+                    backgroundColor: barColors,
+                    yAxisID: 'y',
+                    order: 2,
+                },
+                {
+                    type: 'line',
+                    label: '누적손익',
+                    data: cumulative,
+                    borderColor: accent,
+                    backgroundColor: accent,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.25,
+                    yAxisID: 'y1',
+                    order: 1,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: muted, boxWidth: 12, font: { size: 11 } } },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString()}원`,
+                    },
+                },
+            },
+            scales: {
+                x:  { ticks: { color: muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } },
+                      grid: { display: false } },
+                y:  { position: 'left',  ticks: { color: muted, font: { size: 10 },
+                          callback: (v) => `${(v / 1000).toFixed(0)}k` },
+                      grid: { color: border } },
+                y1: { position: 'right', ticks: { color: accent, font: { size: 10 },
+                          callback: (v) => `${(v / 1000).toFixed(0)}k` },
+                      grid: { display: false } },
+            },
+        },
+    });
 }
 
 function _renderCumulative(data) {

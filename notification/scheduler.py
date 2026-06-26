@@ -73,6 +73,17 @@ class NotificationScheduler:
             misfire_grace_time=300,
         )
 
+        backup_interval = int(
+            self._cfg.get("system", {}).get("db_backup_interval_hours", 6)
+        )
+        self._scheduler.add_job(
+            self._job_db_backup,
+            CronTrigger(hour=f"*/{backup_interval}"),
+            id="db_backup",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+
     # ── 잡 콜백 ───────────────────────────────────────────────────────────────
 
     def _job_hourly_status(self) -> None:
@@ -93,6 +104,23 @@ class NotificationScheduler:
             self._notifier.send_time_sync_alert(ok)
         except Exception as exc:
             _log.error("주기적 시간 동기화 실패: %s", exc)
+
+    def _job_db_backup(self) -> None:
+        """주기적 DB 백업 — 실패 시에만 텔레그램 알림 (성공은 무알림)."""
+        try:
+            from database.connection import backup_database
+            keep = int(self._cfg.get("system", {}).get("db_backup_keep", 14))
+            path = backup_database(keep=keep)
+            if path is None:
+                self._notifier.send_db_backup_alert(False, "주기적 DB 백업에 실패했습니다.")
+            else:
+                _log.debug("주기적 DB 백업 완료: %s", path)
+        except Exception as exc:
+            _log.error("주기적 DB 백업 실패: %s", exc)
+            try:
+                self._notifier.send_db_backup_alert(False, f"DB 백업 오류: {exc}")
+            except Exception:
+                pass
 
     def _job_daily_report(self) -> None:
         """매일 00시: 일일 결산 리포트 전송 (전날 데이터 집계)."""

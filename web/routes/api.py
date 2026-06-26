@@ -402,6 +402,113 @@ def get_cumulative_pnl():
     })
 
 
+@api_bp.route("/pnl/daily")
+def get_pnl_daily():
+    """일별 손익 시계열 (차트용). ?days=30 기본, 누락 날짜는 0으로 채움."""
+    from datetime import timedelta
+
+    from database.pnl_repo import get_period_pnl
+    from utils.time_utils import now_kst
+
+    bot_manager = current_app.config["BOT_MANAGER"]
+    symbols     = list(bot_manager.symbols)
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+
+    today      = now_kst().date()
+    start_date = today - timedelta(days=days - 1)
+    labels     = [(start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
+    label_idx  = {d: i for i, d in enumerate(labels)}
+
+    total: list[float]            = [0.0] * days
+    by_symbol: dict[str, list]    = {}
+    for sym in symbols:
+        series = [0.0] * days
+        for row in get_period_pnl(sym, labels[0], labels[-1]):
+            i = label_idx.get(row.get("date"))
+            if i is not None:
+                val       = float(row.get("realized_pnl", 0) or 0)
+                series[i] = round(val)
+                total[i] += val
+        by_symbol[sym] = series
+
+    total = [round(t) for t in total]
+    cumulative: list[float] = []
+    running = 0.0
+    for t in total:
+        running += t
+        cumulative.append(round(running))
+
+    return jsonify({
+        "labels":     labels,
+        "total":      total,
+        "cumulative": cumulative,
+        "by_symbol":  by_symbol,
+    })
+
+
+@api_bp.route("/pnl/stats")
+def get_pnl_stats():
+    """성과 통계 요약 (승률/프로핏팩터/평균손익 등). ?days=30 기본."""
+    from datetime import timedelta
+
+    from database.order_repo import get_pnl_rounds
+    from utils.time_utils import now_kst
+
+    bot_manager = current_app.config["BOT_MANAGER"]
+    symbols     = list(bot_manager.symbols)
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+
+    today = now_kst().date()
+    start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    end   = today.strftime("%Y-%m-%d")
+
+    rounds = get_pnl_rounds(symbols, start, end, limit=100000)
+
+    def _calc(rows: list[dict]) -> dict:
+        pnls = [float(r["pnl"]) for r in rows if r.get("pnl") is not None]
+        if not pnls:
+            return {
+                "total_trades": 0, "win_count": 0, "loss_count": 0,
+                "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl": 0,
+                "total_pnl": 0, "best_trade": 0, "worst_trade": 0,
+            }
+        wins       = [p for p in pnls if p > 0]
+        losses     = [p for p in pnls if p < 0]
+        gross_win  = sum(wins)
+        gross_loss = abs(sum(losses))
+        if gross_loss > 0:
+            profit_factor = round(gross_win / gross_loss, 2)
+        else:
+            profit_factor = None if gross_win > 0 else 0.0  # None → 손실 없음(∞)
+        return {
+            "total_trades":  len(pnls),
+            "win_count":     len(wins),
+            "loss_count":    len(losses),
+            "win_rate":      round(len(wins) / len(pnls) * 100, 1),
+            "profit_factor": profit_factor,
+            "avg_pnl":       round(sum(pnls) / len(pnls)),
+            "total_pnl":     round(sum(pnls)),
+            "best_trade":    round(max(pnls)),
+            "worst_trade":   round(min(pnls)),
+        }
+
+    return jsonify({
+        "days":      days,
+        "overall":   _calc(rounds),
+        "by_symbol": {sym: _calc([r for r in rounds if r.get("symbol") == sym]) for sym in symbols},
+    })
+
+
 @api_bp.route("/assets/exchange")
 def get_exchange_assets():
     """거래소자산 탭: 빗썸 보유 자산 현황."""

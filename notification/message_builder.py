@@ -215,6 +215,18 @@ def build_time_sync_alert(success: bool, reason: str = "") -> str:
     return "\n".join(lines)
 
 
+def build_db_backup_alert(success: bool, detail: str = "") -> str:
+    """DB 백업/무결성 결과 알림 메시지."""
+    if success:
+        lines = ["✅ DB 백업 완료", _DIV]
+        lines.append(detail or "데이터베이스 백업이 완료되었습니다.")
+        return "\n".join(lines)
+    lines = ["🚨 DB 백업/무결성 경고", _DIV]
+    lines.append(detail or "데이터베이스 백업 또는 무결성 검사에 실패했습니다.")
+    lines.append("data/backups 폴더와 디스크 용량을 확인해 주세요.")
+    return "\n".join(lines)
+
+
 # ── 정기 알림 ──────────────────────────────────────────────────────────────────
 
 def build_hourly_status(hour: int, statuses: list[dict]) -> str:

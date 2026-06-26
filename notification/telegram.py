@@ -19,6 +19,7 @@ from notification.message_builder import (
     build_buy_filled,
     build_catchup,
     build_daily_report,
+    build_db_backup_alert,
     build_hourly_status,
     build_max_round,
     build_order_cancelled,
@@ -143,6 +144,9 @@ class TelegramNotifier:
 
     def send_time_sync_alert(self, success: bool, reason: str = "") -> bool:
         return self.send(build_time_sync_alert(success, reason))
+
+    def send_db_backup_alert(self, success: bool, detail: str = "") -> bool:
+        return self.send(build_db_backup_alert(success, detail))
 
     def send_hourly_status(self, hour: int, statuses: list[dict]) -> bool:
         return self.send(build_hourly_status(hour, statuses))
