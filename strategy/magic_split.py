@@ -23,6 +23,7 @@ from database.state_repo import (
     set_start_price,
     upsert_state,
 )
+from portfolio.balance import check_buy_feasible, check_sell_feasible
 from strategy.circuit_breaker import CircuitBreaker
 from strategy.trigger import (
     buy_order_price,
@@ -122,6 +123,10 @@ class MagicSplit:
         self._running = False
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
+            if self._thread.is_alive():
+                _log.warning("봇 중지 타임아웃 — 스레드가 5초 후에도 실행 중: %s", self._symbol)
+                if self._notifier:
+                    self._notifier.send(f"⚠️ {self._symbol} 봇 중지 타임아웃\n스레드가 종료되지 않았습니다. 수동 확인이 필요합니다.")
         upsert_state(self._symbol, reference_price=self._reference_price,
                      current_round=self._current_round, is_running=False)
         _log.info("봇 중지: %s", self._symbol)
@@ -196,11 +201,21 @@ class MagicSplit:
     # ── 루프 ─────────────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
+        consecutive_errors = 0
         while self._running:
             try:
                 self._tick()
+                consecutive_errors = 0
             except Exception as exc:
-                _log.error("루프 오류 (%s): %s", self._symbol, exc)
+                consecutive_errors += 1
+                _log.error("루프 오류 (%d연속) (%s): %s", consecutive_errors, self._symbol, exc)
+                if consecutive_errors >= 10:
+                    if self._notifier:
+                        self._notifier.send_api_error(
+                            self._symbol,
+                            f"10회 연속 오류로 주문이 중단됐습니다: {exc}",
+                        )
+                    consecutive_errors = 0
             time.sleep(self._poll_interval)
 
     def _tick(self) -> None:
@@ -272,6 +287,13 @@ class MagicSplit:
         quantity = calc_quantity(self._current_order_amount, price)
         if quantity <= 0:
             return
+        feasible, reason = check_buy_feasible(
+            self._exchange, self._current_order_amount,
+            self._current_round, self._max_rounds,
+        )
+        if not feasible:
+            _log.warning("매수 불가 (%s): %s", self._symbol, reason)
+            return
         try:
             result = self._exchange.buy_limit(self._ticker, price, quantity)
             oid = result["order_id"]
@@ -295,6 +317,9 @@ class MagicSplit:
         try:
             result = self._exchange.buy_limit(self._ticker, price, quantity)
             oid = result["order_id"]
+            if not oid:
+                _log.error("시작가 매수 실패: order_id 없음 (%s)", self._symbol)
+                return
             self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
             save_order(self._symbol, oid, "buy", price, quantity,
                        round(price * quantity, 2), 1)
@@ -318,9 +343,16 @@ class MagicSplit:
             _log.warning("매도 생략: 반올림 후 가격(%d) ≤ 기준가(%d) — trigger가 tick 단위보다 작음",
                          price, ref)
             return
+        feasible, reason = check_sell_feasible(self._exchange, self._symbol, quantity)
+        if not feasible:
+            _log.warning("매도 불가 (%s): %s", self._symbol, reason)
+            return
         try:
             result = self._exchange.sell_limit(self._ticker, price, quantity)
             oid = result["order_id"]
+            if not oid:
+                _log.error("매도 주문 실패: order_id 없음 (%s)", self._symbol)
+                return
             self._pending_sell = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
             save_order(self._symbol, oid, "sell", price, quantity,
                        round(price * quantity, 2), self._current_round)
