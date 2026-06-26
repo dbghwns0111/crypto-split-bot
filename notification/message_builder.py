@@ -289,22 +289,22 @@ def build_daily_report(
     grand_net = 0.0
 
     for s in symbol_data:
-        sym      = s["symbol"]
-        realized = float(s.get("realized_pnl", 0))
-        fee      = float(s.get("fee_total", 0))
-        net      = realized - fee
+        sym   = s["symbol"]
+        net   = float(s.get("realized_pnl", 0))   # realized_pnl = 이미 수수료 차감된 순수익
+        fee   = float(s.get("fee_total", 0))
+        gross = net + fee                           # 수수료 차감 전 실현수익 역산
         grand_net += net
 
         buys   = int(s.get("buy_count",  0))
         sells  = int(s.get("sell_count", 0))
-        sign_r = "+" if realized >= 0 else ""
+        sign_g = "+" if gross >= 0 else ""
         sign_n = "+" if net >= 0 else ""
         net_icon = "📈" if net >= 0 else "📉"
 
         lines += [
             _DIV,
             f"[ {sym} ]",
-            f"💰 실현수익   {sign_r}{realized:,.0f}원",
+            f"💰 실현수익   {sign_g}{gross:,.0f}원",
             f"🔄 매수/매도  {buys}/{sells}회",
             f"💸 수수료     -{fee:,.0f}원",
             f"{net_icon} 순수익     {sign_n}{net:,.0f}원",

@@ -182,12 +182,13 @@ class TelegramCommandHandler:
                     lines.append(f"🟠 매도 없음 (보유 없음)")
 
                 try:
+                    from database.order_repo import get_today_trade_counts
                     pnl_data = get_daily_pnl(symbol) or {}
-                    net_pnl  = float(pnl_data.get("realized_pnl", 0)) - float(pnl_data.get("fee_total", 0))
-                    trades   = int(pnl_data.get("trade_count", 0))
+                    net_pnl  = float(pnl_data.get("realized_pnl", 0))
+                    counts   = get_today_trade_counts(symbol)
                     sign     = "+" if net_pnl >= 0 else ""
                     icon     = "📈" if net_pnl >= 0 else "📉"
-                    lines.append(f"{icon} 오늘수익    {sign}{int(net_pnl):,}원 ({trades}회)")
+                    lines.append(f"{icon} 오늘수익    {sign}{int(net_pnl):,}원  (매수 {counts['buy']} / 매도 {counts['sell']})")
                 except Exception:
                     pass
             else:
