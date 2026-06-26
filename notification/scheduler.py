@@ -86,12 +86,11 @@ class NotificationScheduler:
             _log.error("정각 현황 전송 실패: %s", exc)
 
     def _job_time_sync(self) -> None:
-        """주기적 Windows 시간 동기화 — 실패 시에만 텔레그램 알림."""
+        """주기적 Windows 시간 동기화 — 결과를 텔레그램으로 알림."""
         try:
             from utils.time_sync import sync_windows_time
             ok = sync_windows_time()
-            if not ok:
-                self._notifier.send_time_sync_alert(False)
+            self._notifier.send_time_sync_alert(ok)
         except Exception as exc:
             _log.error("주기적 시간 동기화 실패: %s", exc)
 

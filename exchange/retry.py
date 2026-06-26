@@ -17,7 +17,7 @@ _JWT_EXPIRED_HINT = "expired_jwt"
 _notifier_fn: Callable[[bool], None] | None = None
 
 
-def set_notifier_fn(fn: Callable[[bool], None]) -> None:
+def set_notifier_fn(fn: Callable[..., None]) -> None:
     """JWT 동기화 결과를 텔레그램으로 전송할 콜백을 등록한다."""
     global _notifier_fn
     _notifier_fn = fn
@@ -68,7 +68,12 @@ def with_retry(
                             ok = sync_windows_time()
                             if _notifier_fn is not None:
                                 try:
-                                    _notifier_fn(ok)
+                                    reason = (
+                                        "JWT 만료 오류 감지 후 시계를 동기화했습니다.\n자동매매가 정상 재개됩니다."
+                                        if ok else
+                                        "JWT 만료 오류 감지 후 동기화를 시도했으나 실패했습니다."
+                                    )
+                                    _notifier_fn(ok, reason)
                                 except Exception:
                                     pass
                             if ok:
