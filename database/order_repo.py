@@ -384,6 +384,7 @@ def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
                   AND round_no = s.round_no
                   AND side    = 'buy'
                   AND status  = 'filled'
+                  AND filled_at <= s.filled_at
                 ORDER BY filled_at DESC
                 LIMIT 1
             )
