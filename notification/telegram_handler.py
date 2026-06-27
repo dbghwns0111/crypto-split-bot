@@ -29,12 +29,14 @@ class TelegramCommandHandler:
         cfg: dict,
         token: str,
         chat_id: str,
+        scheduler=None,
     ):
         self._bot_manager = bot_manager
         self._exchange    = exchange
         self._cfg         = cfg
         self._token       = token
         self._chat_id     = str(chat_id).strip()
+        self._scheduler   = scheduler
         self._stop        = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -116,6 +118,12 @@ class TelegramCommandHandler:
             return self._cmd_start(args, fresh=False)
         if cmd == "stop":
             return self._cmd_stop(args)
+        if cmd == "report":
+            return self._cmd_report()
+        if cmd in ("stopall", "pauseall"):
+            return self._cmd_stop_all()
+        if cmd in ("resumeall", "startall"):
+            return self._cmd_resume_all()
         return f"알 수 없는 명령어: /{cmd}\n/help 로 목록을 확인하세요."
 
     # ── 명령어 구현 ───────────────────────────────────────────────────────────
@@ -132,7 +140,10 @@ class TelegramCommandHandler:
             "/resume ETH    — ETH 재시작 (이전 상태 복원)\n"
             "/resume USDT   — USDT 재시작 (이전 상태 복원)\n"
             "/stop ETH      — ETH 중지 + 미체결 취소\n"
-            "/stop USDT     — USDT 중지 + 미체결 취소"
+            "/stop USDT     — USDT 중지 + 미체결 취소\n"
+            "/report        — 오늘 결산 즉시 전송\n"
+            "/stopall       — 전체 봇 중지 + 미체결 취소\n"
+            "/resumeall     — 중지된 전체 봇 재시작 (상태 복원)"
         )
 
     def _cmd_status(self) -> str:
@@ -266,6 +277,35 @@ class TelegramCommandHandler:
                 lines.append(f"📍 기준가    {int(ref_p):,}원")
             return "\n".join(lines)
         return f"❌ {msg}"
+
+    def _cmd_stop_all(self) -> str:
+        stopped = self._bot_manager.stop_all()
+        if not stopped:
+            return "실행 중인 봇이 없습니다."
+        return "⏹️ 전체 봇 중지 완료\n─────────────────\n" + ", ".join(stopped)
+
+    def _cmd_resume_all(self) -> str:
+        resumed, failed = [], []
+        for sym in self._bot_manager.symbols:
+            status = self._bot_manager.get_status(sym)
+            if status.get("running"):
+                continue
+            ok, _ = self._bot_manager.start(sym, fresh=False)
+            (resumed if ok else failed).append(sym)
+        if not resumed and not failed:
+            return "모든 봇이 이미 실행 중입니다."
+        lines = ["▶ 전체 봇 재시작", "─────────────────"]
+        if resumed:
+            lines.append(f"재시작: {', '.join(resumed)}")
+        if failed:
+            lines.append(f"실패: {', '.join(failed)}")
+        return "\n".join(lines)
+
+    def _cmd_report(self) -> str:
+        if not self._scheduler:
+            return "❌ 결산 기능을 사용할 수 없습니다 (스케줄러 미연결)."
+        ok = self._scheduler.report_now()
+        return "📊 오늘 결산을 전송했습니다." if ok else "❌ 결산 전송에 실패했습니다."
 
     # ── 응답 전송 ─────────────────────────────────────────────────────────────
 

@@ -23,9 +23,11 @@ from notification.message_builder import (
     build_hourly_status,
     build_max_round,
     build_order_cancelled,
+    build_partial_fill_alert,
     build_sell_filled,
     build_time_sync_alert,
     build_virtual_catchup,
+    build_watchdog_alert,
 )
 from utils.logger import get_logger
 
@@ -147,6 +149,15 @@ class TelegramNotifier:
 
     def send_db_backup_alert(self, success: bool, detail: str = "") -> bool:
         return self.send(build_db_backup_alert(success, detail))
+
+    def send_watchdog_alert(self, symbol: str, recovered: bool) -> bool:
+        return self.send(build_watchdog_alert(symbol, recovered))
+
+    def send_partial_fill(
+        self, symbol: str, side: str = "buy", qty: float = 0,
+        price: float = 0, leftover: float = 0, **_: Any
+    ) -> bool:
+        return self.send(build_partial_fill_alert(symbol, side, qty, price, leftover))
 
     def send_hourly_status(self, hour: int, statuses: list[dict]) -> bool:
         return self.send(build_hourly_status(hour, statuses))

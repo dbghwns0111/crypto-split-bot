@@ -54,3 +54,4 @@ system:
   time_sync_interval_hours: 6
   db_backup_interval_hours: 6   # DB 자동 백업 주기 (시간)
   db_backup_keep: 14            # 보관할 백업 파일 개수 (초과 시 오래된 것부터 삭제)
+  watchdog_interval_min: 3      # 봇 스레드 헬스 점검 주기 (분)

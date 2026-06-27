@@ -50,7 +50,9 @@ def build_components(cfg: dict):
 
     cmd_handler = None
     if cfg.get("telegram", {}).get("enabled", True) and bot_token and chat_id:
-        cmd_handler = TelegramCommandHandler(bot_manager, exchange, cfg, bot_token, chat_id)
+        cmd_handler = TelegramCommandHandler(
+            bot_manager, exchange, cfg, bot_token, chat_id, scheduler=sched
+        )
 
     return exchange, bot_manager, notifier, sched, app, cmd_handler
 

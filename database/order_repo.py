@@ -54,6 +54,30 @@ def update_order(
     _conn().commit()
 
 
+def update_order_fill(
+    order_id: str,
+    filled_price: float,
+    filled_qty: float,
+    filled_at: Optional[str] = None,
+) -> None:
+    """부분 체결 정산용 — 체결 수량/금액/가격으로 행을 보정하고 filled 처리한다.
+
+    부분 체결 시 주문 행에는 원래 주문 수량이 저장돼 있으므로, 실제 체결 수량으로
+    quantity/amount를 정정해 이후 매도가 올바른 수량을 사용하도록 한다.
+    """
+    now = filled_at or now_kst_str()
+    _conn().execute(
+        """
+        UPDATE orders
+        SET status = 'filled', filled_price = ?, quantity = ?, amount = ?,
+            filled_at = ?, updated_at = ?
+        WHERE order_id = ?
+        """,
+        (filled_price, filled_qty, round(filled_price * filled_qty, 2), now, now, order_id),
+    )
+    _conn().commit()
+
+
 def get_order(order_id: str) -> Optional[dict]:
     """order_id로 단건 조회. 없으면 None."""
     row = _conn().execute(

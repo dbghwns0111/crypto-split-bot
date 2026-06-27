@@ -147,6 +147,27 @@ class BotManager:
             _log.info("전체 봇 중지 완료: %s", stopped)
         return stopped
 
+    # ── 워치독 ────────────────────────────────────────────────────────────────
+
+    def check_and_recover_health(self) -> list[dict]:
+        """죽은 봇 스레드를 찾아 복구를 시도한다.
+
+        의도된 상태(is_running)는 True인데 실제 스레드가 죽은 경우 = 무음 사망.
+        복구를 시도하고 [{symbol, recovered}] 목록을 반환한다 (이상 없으면 빈 목록).
+        """
+        results = []
+        with self._lock:
+            for sym, bot in self._bots.items():
+                if bot.is_running and not bot.is_thread_alive:
+                    _log.error("워치독: %s 봇 스레드 사망 감지 — 복구 시도", sym)
+                    try:
+                        bot.force_restart()
+                        results.append({"symbol": sym, "recovered": bot.is_thread_alive})
+                    except Exception as exc:
+                        _log.error("워치독 복구 실패 (%s): %s", sym, exc)
+                        results.append({"symbol": sym, "recovered": False})
+        return results
+
     # ── 상태 조회 ─────────────────────────────────────────────────────────────
 
     def get_status(self, symbol: str) -> dict:

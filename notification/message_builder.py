@@ -227,6 +227,41 @@ def build_db_backup_alert(success: bool, detail: str = "") -> str:
     return "\n".join(lines)
 
 
+def build_watchdog_alert(symbol: str, recovered: bool) -> str:
+    """봇 스레드 사망 감지/복구 알림 메시지."""
+    if recovered:
+        return "\n".join([
+            f"🔧 {symbol} 봇 자동 복구",
+            _DIV,
+            "봇 스레드가 중단된 것을 감지해 자동 재시작했습니다.",
+            "차수와 기준가는 DB에서 복원되었습니다.",
+        ])
+    return "\n".join([
+        f"🚨 {symbol} 봇 복구 실패",
+        _DIV,
+        "봇 스레드 사망을 감지했으나 자동 복구에 실패했습니다.",
+        "대시보드에서 수동으로 재시작해 주세요.",
+    ])
+
+
+def build_partial_fill_alert(
+    symbol: str, side: str, qty: float, price: float, leftover: float = 0.0
+) -> str:
+    """부분 체결 정산 알림 메시지."""
+    side_kr = "매수" if side == "buy" else "매도"
+    lines = [
+        f"⚠️ {symbol} 부분 체결 정산 · {side_kr}",
+        _DIV,
+        f"📦 체결수량   {qty}",
+    ]
+    if price:
+        lines.append(f"💲 체결가     {price:,.0f}원")
+    if leftover > 0:
+        lines.append(f"🔸 미매도잔량  {leftover}")
+        lines.append("그리드 정합을 위해 잔량을 수동 확인해 주세요.")
+    return "\n".join(lines)
+
+
 # ── 정기 알림 ──────────────────────────────────────────────────────────────────
 
 def build_hourly_status(hour: int, statuses: list[dict]) -> str:

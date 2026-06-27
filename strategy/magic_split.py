@@ -13,6 +13,7 @@ from database.order_repo import (
     save_catchup_order,
     save_order,
     update_order,
+    update_order_fill,
 )
 from database.pnl_repo import add_trade_pnl
 from database.state_repo import (
@@ -131,11 +132,23 @@ class MagicSplit:
                      current_round=self._current_round, is_running=False)
         _log.info("봇 중지: %s", self._symbol)
 
+    def force_restart(self) -> None:
+        """죽은 스레드를 정리하고 DB 상태로부터 재시작한다 (워치독 복구용)."""
+        self._running = False
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
+        _log.warning("워치독 복구: %s 스레드 재시작", self._symbol)
+        self.start()  # _restore_state로 DB 최신 차수/기준가 복원 후 새 스레드 시작
+
     # ── 프로퍼티 ──────────────────────────────────────────────────────────────
 
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def is_thread_alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
 
     @property
     def is_resume(self) -> bool:
@@ -300,7 +313,8 @@ class MagicSplit:
             if not oid:
                 _log.error("매수 주문 실패: order_id 없음 (%s)", self._symbol)
                 return
-            self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
+            self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(),
+                                 "order_price": price, "quantity": quantity}
             save_order(self._symbol, oid, "buy", price, quantity,
                        round(price * quantity, 2), self._current_round + 1)
             _log.info("매수 주문 전송: %s 가격=%d 수량=%s 금액=%d원",
@@ -320,7 +334,8 @@ class MagicSplit:
             if not oid:
                 _log.error("시작가 매수 실패: order_id 없음 (%s)", self._symbol)
                 return
-            self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
+            self._pending_buy = {"order_id": oid, "placed_at": time.monotonic(),
+                                 "order_price": price, "quantity": quantity}
             save_order(self._symbol, oid, "buy", price, quantity,
                        round(price * quantity, 2), 1)
             _log.info("시작가 매수 주문: %s 가격=%d 수량=%s", self._symbol, price, quantity)
@@ -353,7 +368,8 @@ class MagicSplit:
             if not oid:
                 _log.error("매도 주문 실패: order_id 없음 (%s)", self._symbol)
                 return
-            self._pending_sell = {"order_id": oid, "placed_at": time.monotonic(), "order_price": price}
+            self._pending_sell = {"order_id": oid, "placed_at": time.monotonic(),
+                                  "order_price": price, "quantity": quantity}
             save_order(self._symbol, oid, "sell", price, quantity,
                        round(price * quantity, 2), self._current_round)
             _log.info("매도 주문 전송: %s 가격=%d 수량=%s", self._symbol, price, quantity)
@@ -440,15 +456,62 @@ class MagicSplit:
         now = time.monotonic()
         for attr, side in (("_pending_buy", "buy"), ("_pending_sell", "sell")):
             pending = getattr(self, attr)
-            if pending and (now - pending["placed_at"]) > self._order_timeout:
-                oid = pending["order_id"]
-                _log.info("주문 타임아웃 취소: %s (%s)", oid, side)
+            if not (pending and (now - pending["placed_at"]) > self._order_timeout):
+                continue
+
+            oid = pending["order_id"]
+            # 취소 전 최종 체결 상태 확인 (부분 체결 정산용)
+            try:
+                info = self._exchange.get_order_status(oid)
+            except Exception as exc:
+                _log.error("타임아웃 상태조회 실패 (%s): %s", oid, exc)
+                info = None
+
+            ordered = float(pending.get("quantity", 0) or 0)
+            filled  = float(info.get("filled_quantity", 0) or 0) if info else 0.0
+
+            # (a) 폴링 사이 완전체결된 경우 — 취소하지 않고 체결 처리
+            if info and (info["status"] == "filled" or (ordered > 0 and filled >= ordered * 0.999)):
+                self._check_one_fill(oid, side)
+                continue
+
+            # 잔량 취소
+            _log.info("주문 타임아웃 취소: %s (%s, 체결 %s/%s)", oid, side, filled, ordered)
+            try:
+                self._exchange.cancel_order(oid)
+                update_order(oid, "cancelled")
+            except Exception as exc:
+                _log.error("타임아웃 취소 실패: %s", exc)
+
+            # (b) 부분 체결: 체결분을 실제 체결로 정산
+            if info and filled > 0:
                 try:
-                    self._exchange.cancel_order(oid)
-                    update_order(oid, "cancelled")
+                    self._settle_partial(side, info, filled, pending)
                 except Exception as exc:
-                    _log.error("타임아웃 취소 실패: %s", exc)
-                setattr(self, attr, None)
+                    _log.error("부분 체결 정산 실패 (%s): %s", self._symbol, exc)
+
+            setattr(self, attr, None)
+
+    def _settle_partial(self, side: str, info: dict, filled_qty: float, pending: dict) -> None:
+        """타임아웃 취소 시 이미 체결된 부분을 실제 체결로 정산한다.
+
+        매수: 보유가 생겼으므로 차수를 진행 (DB 행을 체결 수량으로 보정).
+        매도: 체결분의 PnL을 실현하고 차수 감소. 미매도 잔량은 경고로 가시화.
+        """
+        oid          = pending["order_id"]
+        order_price  = pending.get("order_price") or 0.0
+        filled_price = info.get("filled_price") or order_price or 0.0
+        update_order_fill(oid, filled_price=filled_price, filled_qty=filled_qty)
+
+        if side == "buy":
+            self._on_buy_filled(filled_price, order_price or filled_price, filled_qty)
+            self._notify("partial_fill", side="buy", qty=filled_qty, price=filled_price)
+        else:
+            ordered  = float(pending.get("quantity", filled_qty) or filled_qty)
+            leftover = max(0.0, ordered - filled_qty)
+            self._on_sell_filled(filled_price, filled_qty)
+            self._notify("partial_fill", side="sell", qty=filled_qty,
+                         price=filled_price, leftover=leftover)
 
     # ── 알림 헬퍼 ─────────────────────────────────────────────────────────────
 

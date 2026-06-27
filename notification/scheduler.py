@@ -84,6 +84,17 @@ class NotificationScheduler:
             misfire_grace_time=300,
         )
 
+        watchdog_interval = int(
+            self._cfg.get("system", {}).get("watchdog_interval_min", 3)
+        )
+        self._scheduler.add_job(
+            self._job_watchdog,
+            CronTrigger(minute=f"*/{watchdog_interval}"),
+            id="watchdog",
+            replace_existing=True,
+            misfire_grace_time=60,
+        )
+
     # ── 잡 콜백 ───────────────────────────────────────────────────────────────
 
     def _job_hourly_status(self) -> None:
@@ -122,12 +133,30 @@ class NotificationScheduler:
             except Exception:
                 pass
 
+    def _job_watchdog(self) -> None:
+        """주기적 봇 헬스 점검 — 죽은 스레드 자동 복구 + 텔레그램 알림."""
+        try:
+            results = self._bot_manager.check_and_recover_health()
+            for r in results:
+                self._notifier.send_watchdog_alert(r["symbol"], r["recovered"])
+        except Exception as exc:
+            _log.error("워치독 점검 실패: %s", exc)
+
     def _job_daily_report(self) -> None:
         """매일 00시: 일일 결산 리포트 전송 (전날 데이터 집계)."""
+        from datetime import timedelta
+        date = (now_kst() - timedelta(days=1)).strftime("%Y-%m-%d")
+        self._send_report(date)
+
+    def report_now(self) -> bool:
+        """오늘 날짜 기준 결산 리포트를 즉시 전송한다 (/report 명령용)."""
+        date = now_kst().strftime("%Y-%m-%d")
+        return self._send_report(date)
+
+    def _send_report(self, date: str) -> bool:
+        """지정 날짜의 결산 리포트를 집계해 전송한다."""
         try:
-            from datetime import timedelta
             from database.order_repo import get_today_trade_counts
-            date        = (now_kst() - timedelta(days=1)).strftime("%Y-%m-%d")
             symbol_data = get_daily_summary(date)
             for row in symbol_data:
                 counts = get_today_trade_counts(row["symbol"], date)
@@ -135,9 +164,11 @@ class NotificationScheduler:
                 row["sell_count"] = counts["sell"]
             total_krw, balances, prices = self._collect_balances()
             self._notifier.send_daily_report(date, symbol_data, total_krw, balances, prices)
-            _log.info("일일 결산 리포트 전송: %s", date)
+            _log.info("결산 리포트 전송: %s", date)
+            return True
         except Exception as exc:
-            _log.error("일일 결산 전송 실패: %s", exc)
+            _log.error("결산 전송 실패 (%s): %s", date, exc)
+            return False
 
     # ── 헬퍼 ──────────────────────────────────────────────────────────────────
 
