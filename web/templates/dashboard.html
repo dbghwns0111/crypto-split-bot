@@ -15,7 +15,6 @@
   <!-- 서브탭 바 -->
   <div class="cs-home-tabs">
     <button class="cs-home-tab active" data-tab="realtime">실시간</button>
-    <button class="cs-home-tab" data-tab="status">투자현황</button>
     <button class="cs-home-tab" data-tab="pnl">누적손익</button>
     <button class="cs-home-tab" data-tab="assets">거래소자산</button>
   </div>
@@ -25,41 +24,7 @@
     <div id="market-price-list" class="cs-coin-list"></div>
   </div>
 
-  <!-- ── 탭 2: 투자현황 ── -->
-  <div id="home-tab-status" class="cs-tab-panel">
-
-    <div class="cs-summary-section">
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">총 매수금액</span>
-        <span class="cs-summary-value" id="inv-total-buy">-</span>
-      </div>
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">총 평가금액</span>
-        <span class="cs-summary-value" id="inv-total-eval">-</span>
-      </div>
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">평가손익/수익률</span>
-        <span class="cs-summary-value cs-neutral" id="inv-total-pnl">-</span>
-      </div>
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">실행중 / 보유종목</span>
-        <span class="cs-summary-value" id="inv-counts">-</span>
-      </div>
-    </div>
-
-    <div class="cs-sort-bar">
-      <select class="cs-sort-select" id="inv-sort">
-        <option value="default">기본정렬</option>
-        <option value="buy">매수금액순</option>
-        <option value="eval">평가금액순</option>
-        <option value="pnl">평가손익순</option>
-      </select>
-    </div>
-
-    <div class="cs-symbol-list" id="investment-symbol-list"></div>
-  </div>
-
-  <!-- ── 탭 3: 누적손익 ── -->
+  <!-- ── 탭 2: 누적손익 ── -->
   <div id="home-tab-pnl" class="cs-tab-panel">
 
     <div class="cs-summary-section">
@@ -89,14 +54,14 @@
     <!-- 성과 통계 카드 -->
     <div class="cs-stat-grid">
       <div class="cs-stat-card">
-        <span class="cs-stat-label">승률</span>
-        <span class="cs-stat-value" id="stat-win-rate">-</span>
-        <span class="cs-stat-sub" id="stat-win-sub">-</span>
+        <span class="cs-stat-label">일평균수익</span>
+        <span class="cs-stat-value cs-neutral" id="stat-daily-pnl">-</span>
+        <span class="cs-stat-sub" id="stat-daily-pnl-sub">-</span>
       </div>
       <div class="cs-stat-card">
-        <span class="cs-stat-label">프로핏팩터</span>
-        <span class="cs-stat-value" id="stat-profit-factor">-</span>
-        <span class="cs-stat-sub">총수익 / 총손실</span>
+        <span class="cs-stat-label">일 완료횟수</span>
+        <span class="cs-stat-value" id="stat-daily-cycles">-</span>
+        <span class="cs-stat-sub" id="stat-daily-cycles-sub">-</span>
       </div>
       <div class="cs-stat-card">
         <span class="cs-stat-label">평균손익</span>

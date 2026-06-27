@@ -16,7 +16,6 @@ const API = {
     pnl:              '/api/pnl/today',
     portfolio:        '/api/portfolio',
     marketPrices:     '/api/market/prices',
-    investment:       '/api/investment',
     cumulative:       '/api/pnl/cumulative',
     pnlDaily:         '/api/pnl/daily',
     pnlStats:         '/api/pnl/stats',
@@ -42,7 +41,7 @@ const COIN_META = {
 
 const MARKET_COINS = ['BTC', 'ETH', 'USDT', 'XRP'];
 
-const POLL = { realtime: 4000, status: 5000, pnl: 15000, assets: 20000, strategy: 3000 };
+const POLL = { realtime: 4000, pnl: 15000, assets: 20000, strategy: 3000 };
 
 // ── 상태 ──────────────────────────────────────────────────────────────────────
 
@@ -97,10 +96,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = e.target.closest('[data-action][data-symbol]');
         if (btn) _openConfirm(btn.dataset.symbol, btn.dataset.action);
     });
-
-    // 투자현황 정렬
-    const invSort = document.getElementById('inv-sort');
-    if (invSort) invSort.addEventListener('change', _reorderInvCards);
 
     // 누적손익 기간 선택 (차트/통계)
     const pnlPeriod = document.getElementById('pnl-period');
@@ -263,7 +258,6 @@ async function _fetchActivePage() {
         if (_activePage === 'home') {
             switch (_activeTab) {
                 case 'realtime': await _fetchMarketPrices(); break;
-                case 'status':   await _fetchInvestment();   break;
                 case 'pnl':      await _fetchCumulative();   break;
                 case 'assets':   await _fetchAssets();       break;
             }
@@ -317,124 +311,7 @@ function _renderMarketPrices(data) {
     });
 }
 
-// ── 탭 2: 투자현황 ────────────────────────────────────────────────────────────
-
-let _invSymbols = [];
-
-async function _fetchInvestment() {
-    const data = await _fetchJson(API.investment);
-    _renderInvestment(data);
-}
-
-function _renderInvestment(data) {
-    if (!data) return;
-    const s = data.summary || {};
-
-    _setEl('inv-total-buy',  _fmt(s.total_buy));
-    _setEl('inv-total-eval', _fmt(s.total_eval));
-    _setEl('inv-counts',     `${s.active_count ?? '-'}/${s.total_count ?? '-'}종목`);
-
-    const pnlEl = document.getElementById('inv-total-pnl');
-    if (pnlEl) {
-        const pnl = s.unrealized_pnl ?? 0;
-        const pct = s.pct ?? 0;
-        pnlEl.textContent = `${_sign(pnl)}${Math.round(pnl).toLocaleString()}원(${_sign(pct)}${pct.toFixed(2)}%)`;
-        pnlEl.className   = `cs-summary-value ${_colorClass(pnl)}`;
-    }
-
-    const list = document.getElementById('investment-symbol-list');
-    if (!list) return;
-
-    _invSymbols = data.symbols || [];
-
-    // 빈 상태 처리
-    if (_invSymbols.length === 0) {
-        list.innerHTML = '<p class="cs-inv-empty">매매 이력이 없습니다</p>';
-        return;
-    }
-    const empty = list.querySelector('.cs-inv-empty');
-    if (empty) empty.remove();
-
-    // 더 이상 데이터에 없는 카드 제거
-    const activeSymbols = new Set(_invSymbols.map(s => s.symbol));
-    list.querySelectorAll('[id^="inv-card-"]').forEach(card => {
-        if (!activeSymbols.has(card.id.replace('inv-card-', ''))) card.remove();
-    });
-
-    // 카드 생성/업데이트
-    _invSymbols.forEach(sym => {
-        if (!document.getElementById(`inv-card-${sym.symbol}`)) {
-            list.appendChild(_makeSymbolCard(`inv-card-${sym.symbol}`, sym.symbol));
-        }
-        _updateInvCard(sym);
-    });
-
-    _reorderInvCards();
-}
-
-function _updateInvCard(sym) {
-    const id = `inv-card-${sym.symbol}`;
-    _setEl(`${id}-badge-label`, sym.running ? '실행중' : '중지됨');
-    const badge = document.getElementById(`${id}-badge`);
-    if (badge) badge.className = `cs-badge ${sym.running ? 'cs-badge-running' : 'cs-badge-stopped'}`;
-    _setEl(`${id}-buy`,  _fmt(sym.total_buy));
-    _setEl(`${id}-eval`, _fmt(sym.total_eval));
-    const pnlEl = document.getElementById(`${id}-pnl`);
-    if (pnlEl) {
-        const p = sym.unrealized_pnl ?? 0;
-        const r = sym.pct ?? 0;
-        pnlEl.textContent = `${_sign(p)}${Math.round(p).toLocaleString()}원(${_sign(r)}${r.toFixed(2)}%)`;
-        pnlEl.className   = `cs-card-value ${_colorClass(p)}`;
-    }
-}
-
-function _reorderInvCards() {
-    const list = document.getElementById('investment-symbol-list');
-    if (!list || _invSymbols.length === 0) return;
-    const sortVal = document.getElementById('inv-sort')?.value || 'default';
-    const sorted  = [..._invSymbols].sort((a, b) => {
-        if (sortVal === 'buy')  return b.total_buy - a.total_buy;
-        if (sortVal === 'eval') return b.total_eval - a.total_eval;
-        if (sortVal === 'pnl')  return b.unrealized_pnl - a.unrealized_pnl;
-        return 0;
-    });
-    sorted.forEach(sym => {
-        const card = document.getElementById(`inv-card-${sym.symbol}`);
-        if (card) list.appendChild(card);
-    });
-}
-
-function _makeSymbolCard(id, sym) {
-    const meta = COIN_META[sym] || { name: sym, letter: sym.slice(0, 3), css: '' };
-    const card = document.createElement('div');
-    card.id    = id;
-    card.className = 'cs-symbol-card';
-    card.innerHTML = `
-        <div class="cs-symbol-card-header">
-            <div class="cs-coin-icon ${meta.css}">${meta.letter}</div>
-            <span class="cs-symbol-card-title">${meta.name}(${sym})</span>
-            <span class="cs-badge cs-badge-stopped" id="${id}-badge">
-                <span id="${id}-badge-label">-</span>
-            </span>
-        </div>
-        <div class="cs-symbol-card-body">
-            <div class="cs-card-row">
-                <span class="cs-card-label">총 매수금액</span>
-                <span class="cs-card-value" id="${id}-buy">-</span>
-            </div>
-            <div class="cs-card-row">
-                <span class="cs-card-label">총 평가금액</span>
-                <span class="cs-card-value" id="${id}-eval">-</span>
-            </div>
-            <div class="cs-card-row">
-                <span class="cs-card-label">평가손익/수익률</span>
-                <span class="cs-card-value" id="${id}-pnl">-</span>
-            </div>
-        </div>`;
-    return card;
-}
-
-// ── 탭 3: 누적손익 ────────────────────────────────────────────────────────────
+// ── 탭 2: 누적손익 ────────────────────────────────────────────────────────────
 
 async function _fetchCumulative() {
     const data = await _fetchJson(API.cumulative);
@@ -456,15 +333,23 @@ async function _fetchPnlChart() {
 }
 
 function _renderPnlStats(data) {
-    const o = (data && data.overall) || {};
+    const o    = (data && data.overall) || {};
+    const days = data.days || 30;
 
-    _setEl('stat-win-rate', `${o.win_rate ?? 0}%`);
-    _setEl('stat-win-sub',  `${o.win_count ?? 0}승 ${o.loss_count ?? 0}패`);
+    // 일평균수익
+    const dailyPnlEl = document.getElementById('stat-daily-pnl');
+    if (dailyPnlEl) {
+        const a = o.daily_avg_pnl ?? 0;
+        dailyPnlEl.textContent = `${_sign(a)}${Math.round(a).toLocaleString()}원`;
+        dailyPnlEl.className   = `cs-stat-value ${_colorClass(a)}`;
+    }
+    _setEl('stat-daily-pnl-sub', `기간 ${days}일 기준`);
 
-    // profit_factor: null = 손실 없음(∞)
-    _setEl('stat-profit-factor',
-        o.profit_factor === null ? '∞' : Number(o.profit_factor ?? 0).toFixed(2));
+    // 일 완료횟수
+    _setEl('stat-daily-cycles',     `${Number(o.daily_cycles ?? 0).toFixed(1)}회`);
+    _setEl('stat-daily-cycles-sub', `총 ${o.total_trades ?? 0}회 완료`);
 
+    // 평균손익 (유지)
     const avgEl = document.getElementById('stat-avg-pnl');
     if (avgEl) {
         const a = o.avg_pnl ?? 0;
@@ -477,6 +362,7 @@ function _renderPnlStats(data) {
         totalEl.textContent = `누적 ${_sign(t)}${Math.round(t).toLocaleString()}원`;
     }
 
+    // 총 거래수 (유지)
     _setEl('stat-total-trades', `${o.total_trades ?? 0}회`);
     const best  = o.best_trade  ?? 0;
     const worst = o.worst_trade ?? 0;

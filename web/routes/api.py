@@ -474,38 +474,29 @@ def get_pnl_stats():
 
     rounds = get_pnl_rounds(symbols, start, end, limit=100000)
 
-    def _calc(rows: list[dict]) -> dict:
+    def _calc(rows: list[dict], period_days: int) -> dict:
         pnls = [float(r["pnl"]) for r in rows if r.get("pnl") is not None]
         if not pnls:
             return {
-                "total_trades": 0, "win_count": 0, "loss_count": 0,
-                "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl": 0,
-                "total_pnl": 0, "best_trade": 0, "worst_trade": 0,
+                "total_trades": 0, "avg_pnl": 0, "total_pnl": 0,
+                "best_trade": 0, "worst_trade": 0,
+                "daily_avg_pnl": 0, "daily_cycles": 0.0,
             }
-        wins       = [p for p in pnls if p > 0]
-        losses     = [p for p in pnls if p < 0]
-        gross_win  = sum(wins)
-        gross_loss = abs(sum(losses))
-        if gross_loss > 0:
-            profit_factor = round(gross_win / gross_loss, 2)
-        else:
-            profit_factor = None if gross_win > 0 else 0.0  # None → 손실 없음(∞)
+        d = max(period_days, 1)
         return {
             "total_trades":  len(pnls),
-            "win_count":     len(wins),
-            "loss_count":    len(losses),
-            "win_rate":      round(len(wins) / len(pnls) * 100, 1),
-            "profit_factor": profit_factor,
             "avg_pnl":       round(sum(pnls) / len(pnls)),
             "total_pnl":     round(sum(pnls)),
             "best_trade":    round(max(pnls)),
             "worst_trade":   round(min(pnls)),
+            "daily_avg_pnl": round(sum(pnls) / d),
+            "daily_cycles":  round(len(pnls) / d, 1),
         }
 
     return jsonify({
         "days":      days,
-        "overall":   _calc(rounds),
-        "by_symbol": {sym: _calc([r for r in rounds if r.get("symbol") == sym]) for sym in symbols},
+        "overall":   _calc(rounds, days),
+        "by_symbol": {sym: _calc([r for r in rounds if r.get("symbol") == sym], days) for sym in symbols},
     })
 
 
