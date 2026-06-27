@@ -14,6 +14,8 @@
 
 import hmac
 import os
+import threading
+import time
 
 from flask import (
     Blueprint,
@@ -36,6 +38,53 @@ auth_bp = Blueprint("auth", __name__)
 _EXEMPT_ENDPOINTS = {"auth.login", "auth.logout", "static"}
 
 _LOCAL_IPS = {"127.0.0.1", "::1", "localhost"}
+
+# ── 로그인 무차별 대입(brute-force) 방어 ──────────────────────────────────────
+# 인터넷에 노출된 로그인 화면 보호용. 외부 의존성 없는 인메모리 IP별 시도 제한.
+_LOGIN_MAX_FAILS = 5       # 잠금 발동까지 허용하는 연속 실패 횟수
+_LOGIN_WINDOW    = 900     # 실패 횟수 집계 윈도우 (초) — 15분
+_LOGIN_LOCK      = 600     # 초과 시 잠금 지속 시간 (초) — 10분
+
+_login_lock = threading.Lock()
+# ip -> {"fails": [타임스탬프...], "locked_until": float}
+_login_attempts: dict[str, dict] = {}
+
+
+def _login_locked_remaining(ip: str) -> int:
+    """해당 IP가 잠금 상태면 남은 초를, 아니면 0을 반환한다."""
+    if ip in _LOCAL_IPS:
+        return 0
+    now = time.monotonic()
+    with _login_lock:
+        rec = _login_attempts.get(ip)
+        if not rec:
+            return 0
+        locked_until = rec.get("locked_until", 0)
+        if locked_until > now:
+            return int(locked_until - now)
+        return 0
+
+
+def _login_record_fail(ip: str) -> None:
+    """로그인 실패를 기록하고, 윈도우 내 임계치 초과 시 잠금을 건다."""
+    if ip in _LOCAL_IPS:
+        return
+    now = time.monotonic()
+    with _login_lock:
+        rec = _login_attempts.setdefault(ip, {"fails": [], "locked_until": 0})
+        # 윈도우 밖의 오래된 실패 기록 제거
+        rec["fails"] = [t for t in rec["fails"] if now - t < _LOGIN_WINDOW]
+        rec["fails"].append(now)
+        if len(rec["fails"]) >= _LOGIN_MAX_FAILS:
+            rec["locked_until"] = now + _LOGIN_LOCK
+            rec["fails"] = []
+            _log.warning("로그인 잠금 발동: %s (%d초)", ip, _LOGIN_LOCK)
+
+
+def _login_clear(ip: str) -> None:
+    """로그인 성공 시 해당 IP의 실패/잠금 기록을 초기화한다."""
+    with _login_lock:
+        _login_attempts.pop(ip, None)
 
 
 def _auth_cfg() -> dict:
@@ -129,18 +178,32 @@ def login():
     if not _auth_active():
         return redirect("/")
 
+    remote = (request.remote_addr or "").strip()
+
+    # 잠금 중인 IP는 비밀번호 검사 없이 차단
+    remaining = _login_locked_remaining(remote)
+    if remaining > 0:
+        mins = (remaining + 59) // 60
+        _log.warning("잠금된 IP의 로그인 시도 차단: %s (%d초 남음)", remote, remaining)
+        return render_template(
+            "login.html",
+            error=f"로그인 시도가 너무 많습니다. 약 {mins}분 후 다시 시도하세요.",
+        ), 429
+
     if request.method == "POST":
         pwd = request.form.get("password", "")
         if hmac.compare_digest(pwd, _password()):
+            _login_clear(remote)
             session.permanent = True
             session["authenticated"] = True
-            _log.info("웹 로그인 성공: %s", request.remote_addr)
+            _log.info("웹 로그인 성공: %s", remote)
             nxt = request.args.get("next") or "/"
             # 오픈 리다이렉트 방지 — 내부 경로만 허용
             if not nxt.startswith("/"):
                 nxt = "/"
             return redirect(nxt)
-        _log.warning("웹 로그인 실패: %s", request.remote_addr)
+        _login_record_fail(remote)
+        _log.warning("웹 로그인 실패: %s", remote)
         return render_template("login.html", error="비밀번호가 올바르지 않습니다."), 401
 
     return render_template("login.html")
