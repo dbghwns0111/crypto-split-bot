@@ -1,82 +1,103 @@
 # CryptoSplit — 프로젝트 컨텍스트
 
 ## 프로젝트 개요
-- 빗썸 거래소에서 ETH/KRW, USDT/KRW 페어를 대상으로
+- 빗썸 거래소에서 **BTC, ETH, XRP, USDT** (KRW 페어) 를 대상으로
   매직스플릿(분할매수/분할매도) 전략을 자동 실행하는 Python 봇
 - 웹 대시보드(Flask)로 모바일/PC에서 설정 및 모니터링
-- 텔레그램으로 매매 알림 수신
+- 텔레그램으로 매매 알림 수신 + 원격 명령어 제어
 
 ## 실행 흐름 (중요)
 ```
 main.py 실행
-  → Flask 웹서버만 시작 (포트 5000)
-  → 봇은 중지 상태로 대기
+  → DB 초기화 + 무결성 검사 + 시작 백업 1회
+  → 시계 동기화 1회 (Windows NTP)
+  → BotManager / Notifier / Scheduler / Flask / CmdHandler 초기화
+  → Flask 웹서버 시작 (포트 5000), 봇은 중지 상태로 대기
+  → APScheduler 자동 시작 (정각 현황 / 00시 결산 / 6h DB백업 / 3분 워치독)
 
 사용자가 브라우저에서 접속
-  → 설정 페이지에서 전략 파라미터 입력 후 저장
-  → 대시보드에서 [시작] 버튼 클릭
-  → 확인 팝업 ("ETH 봇을 시작하시겠습니까?") → 확인
-  → 봇 Thread 시작, 매매 가동
+  → 전략현황 탭에서 파라미터 확인 및 저장
+  → [시작] 버튼 클릭 → 확인 팝업 → 봇 Thread 시작, 매매 가동
 
 사용자가 [중지] 버튼 클릭
-  → 확인 팝업 ("ETH 봇을 중지하시겠습니까?") → 확인
-  → 봇 Thread 중지, 미체결 주문 취소
+  → 확인 팝업 → 봇 Thread 중지, 미체결 주문 취소
 ```
 
 ## 핵심 매매 방식
 1초마다 현재가 조회 → 트리거 조건 판단 → 주문 실행
 (미리 주문 올려두는 방식 X, 트리거 감지 후 즉시 주문 방식 O)
 
+### 트리거 모드 (2가지)
+- **pct 모드**: 기준가 대비 퍼센트 변동으로 트리거 계산
+- **krw 모드**: 고정 금액 단위로 트리거 계산 (현재 기본 모드)
+
 ### 매수 조건
-현재가 ≤ 기준가 × (1 - 트리거%) 이면 매수 주문 실행
+- pct: 현재가 ≤ 기준가 × (1 - trigger_pct%) 이면 매수
+- krw: 현재가 ≤ 기준가 − trigger_krw 이면 매수
 
 ### 매도 조건
-현재가 ≥ 기준가 × (1 + 트리거% + 0.08%) 이면 매도 주문 실행
+- pct: 현재가 ≥ 기준가 × (1 + trigger_pct% + 0.08%) 이면 매도
+- krw: 현재가 ≥ 기준가 + trigger_krw 이면 매도
 (수수료 0.04% × 2회 반영, 반드시 수익이 나는 가격에만 매도)
 
 ### 체결 후 처리
 - 매수 체결: 차수 +1, 기준가 = 매수 체결가
 - 매도 체결: 차수 -1, 기준가 = 매도 체결가
 - 최대 차수 도달 시: 매수 중단, 매도만 유지, 텔레그램 알림
-- 미체결 주문 300초 초과 시: 자동 취소 후 재주문
+- 미체결 주문 300초 초과 시: 자동 취소 → 부분 체결 여부 확인 후 재주문
 
-## 사용자 설정 가능 항목 (웹 설정 페이지에서 변경)
-- 트리거 간격 % (기본값: 0.5%)
+### 서킷브레이커
+- `circuit_breaker_pct`% 이상 급변이 `circuit_breaker_window`초 내 발생 시 매수 자동 중단
+- 300초 후 자동 해제 (또는 봇 재시작 시 해제)
+
+### 캐치업 / 가상 캐치업
+- 봇 재시작 후 현재가와 시작가 사이에 갭이 있으면 캐치업 매수 실행
+  - **실제 캐치업**: 갭 레벨 수만큼 실제 매수 주문 연속 실행
+  - **가상 캐치업**: 실제 매수 없이 차수 기록만 생성 (virtual_catchup=true)
+
+## 사용자 설정 가능 항목 (전략현황 탭에서 변경)
+- 트리거 모드 (pct / krw)
+- 트리거 간격 (기본: krw=15,000원 / pct=0.5%)
 - 최대 차수 (기본값: 50차)
-- 1회 주문금액 (기본값: 50,000원)
-- 미체결 주문 자동취소 시간 (기본값: 300초)
+- 1회 주문금액 (기본값: 10,000원)
+- 시작가 (수동 입력 가능)
 
 ## 기술 스택
 - 언어: Python
-- 거래소 API: python-bithumb
-- 웹: Flask + Bootstrap 5 (다크모드, 반응형)
-- DB: SQLite
-- 알림: 텔레그램 Bot API
-- 실행환경: Windows (클라우드 PC, Windows 8)
+- 거래소 API: python-bithumb (BithumbClient 래퍼)
+- 웹: Flask + Bootstrap 5 (다크모드, 반응형, 모바일 최적화)
+- DB: SQLite (WAL 모드, 자동 백업)
+- 알림: 텔레그램 Bot API (큐 기반 비동기, rate-limit 처리)
+- 스케줄러: APScheduler (BackgroundScheduler)
+- 실행환경: Windows (클라우드 PC)
 - 개발환경: 개인 PC → GitHub 커밋 → 클라우드 PC pull → 실행
 
 ## 폴더 구조
 ```
 crypto-split-bot/
-├── .env
+├── .env                       # API 키, 텔레그램 토큰 (git 제외)
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
 ├── CLAUDE.md
-├── main.py
+├── main.py                    # 진입점
+├── bot_manager.py             # 봇 생명주기 관리 (start/stop/reset/health)
 ├── config/
 │   ├── __init__.py
-│   ├── settings.yaml
-│   └── loader.py
+│   ├── settings.default.yaml  # 기본 설정 템플릿
+│   ├── settings.yaml          # 실제 운영 설정 (git 제외)
+│   └── loader.py              # 싱글턴 설정 로더 + .env 주입
 ├── exchange/
 │   ├── __init__.py
 │   ├── base.py
-│   ├── bithumb_client.py
-│   └── retry.py
+│   ├── bithumb_client.py      # 빗썸 API 래퍼 (주문/잔고/현재가)
+│   └── retry.py               # API 재시도 데코레이터
 ├── strategy/
 │   ├── __init__.py
-│   ├── magic_split.py
-│   └── trigger.py
+│   ├── magic_split.py         # 핵심 매매 전략 로직 ★변경 최소화
+│   ├── trigger.py             # 트리거 가격 계산 (pct/krw)
+│   ├── circuit_breaker.py     # 급락 감지 서킷브레이커
+│   └── volatility.py          # 변동성 계산
 ├── order/
 │   ├── __init__.py
 │   ├── executor.py
@@ -88,167 +109,242 @@ crypto-split-bot/
 │   └── position.py
 ├── database/
 │   ├── __init__.py
-│   ├── connection.py
-│   ├── models.py
-│   ├── order_repo.py
-│   ├── state_repo.py
-│   └── pnl_repo.py
+│   ├── connection.py          # DB 연결 + backup_database() + check_integrity()
+│   ├── models.py              # DDL + 마이그레이션
+│   ├── order_repo.py          # 주문 CRUD
+│   ├── state_repo.py          # bot_state 읽기/쓰기
+│   └── pnl_repo.py            # 손익 집계
 ├── notification/
 │   ├── __init__.py
-│   ├── telegram.py
-│   └── message_builder.py
+│   ├── telegram.py            # 큐 기반 비동기 발송 (TelegramNotifier)
+│   ├── message_builder.py     # 메시지 포맷 함수 모음 (순수 함수)
+│   ├── scheduler.py           # APScheduler 잡 (현황/결산/백업/워치독/시계동기화)
+│   └── telegram_handler.py    # 텔레그램 명령어 수신 (long-polling)
 ├── web/
 │   ├── __init__.py
 │   ├── app.py
 │   ├── routes/
 │   │   ├── __init__.py
-│   │   ├── dashboard.py
-│   │   ├── settings.py
-│   │   └── api.py
+│   │   ├── dashboard.py       # 페이지 라우트
+│   │   └── api.py             # REST API 엔드포인트
 │   ├── templates/
 │   │   ├── base.html
-│   │   ├── dashboard.html
-│   │   └── settings.html
+│   │   └── dashboard.html
 │   └── static/
 │       ├── css/style.css
+│       ├── images/
 │       └── js/
 │           ├── dashboard.js
-│           └── settings.js
-└── utils/
-    ├── __init__.py
-    ├── logger.py
-    ├── time_utils.py
-    └── math_utils.py
+│           └── chart.umd.min.js  # Chart.js v4.4.1 로컬 번들
+├── utils/
+│   ├── __init__.py
+│   ├── logger.py
+│   ├── time_utils.py
+│   ├── time_sync.py           # Windows NTP 시계 동기화
+│   └── math_utils.py
+├── tests/
+│   ├── __init__.py
+│   └── test_stage1~11.py
+└── data/
+    ├── cryptosplit.db         # SQLite DB
+    └── backups/               # 자동 백업 파일 (최대 14개)
 ```
 
-## settings.yaml 기본값
+## settings.yaml 구조
 ```yaml
-eth:
-  ticker: "KRW-ETH"
-  enabled: true
-  total_capital_krw: 2500000
-  order_amount_krw: 50000
-  max_splits: 50
-  trigger_pct: 0.5
+exchange:
+  name: bithumb
+  membership: 화이트       # 화이트/일반 (수수료율에 영향)
 
-usdt:
-  ticker: "KRW-USDT"
-  enabled: true
-  total_capital_krw: 2500000
-  order_amount_krw: 50000
-  max_splits: 50
-  trigger_pct: 0.5
+pairs:
+  ETH:
+    ticker: KRW-ETH
+    enabled: true
+    capital: 2500000
+    order_amount: 10000
+    max_rounds: 50
+    trigger_pct: 0.5
+    trigger_mode: krw       # pct | krw
+    trigger_krw: 15000.0
+  USDT:
+    ticker: KRW-USDT
+    enabled: true
+    capital: 2500000
+    order_amount: 10000
+    max_rounds: 50
+    trigger_pct: 0.5
+    trigger_mode: krw
+    trigger_krw: 10.0
+  # BTC, XRP 동일 구조
 
 strategy:
-  fee_rate: 0.0004
-  cancel_timeout_sec: 300
-  loop_interval_sec: 1
+  trigger_min_pct: 0.3
+  trigger_max_pct: 1.0
+  sell_extra_pct: 0.08      # 수수료 커버 추가 매도 여유 (%)
+  circuit_breaker_pct: 5.0  # 급변 감지 임계값 (%)
+  circuit_breaker_window: 300
+  order_timeout: 300        # 미체결 자동취소 시간 (초)
+  price_poll_interval: 1    # 현재가 조회 주기 (초)
+  catchup_max: 10           # 캐치업 최대 실행 횟수
 
-notification:
+database:
+  path: data/cryptosplit.db
+
+telegram:
   enabled: true
-  daily_report_hour: 23
+
+web:
+  host: 0.0.0.0
+  port: 5000
 
 logging:
-  level: "INFO"
-  file: "logs/bot.log"
+  level: INFO
+  dir: logs
+  max_bytes: 10485760
+  backup_count: 5
+
+report:
+  hour: 0
+  minute: 0
+
+system:
+  time_sync_interval_hours: 6
+  db_backup_interval_hours: 6
+  db_backup_keep: 14
+  watchdog_interval_min: 3
 ```
 
 ## DB 테이블
-- orders: id, uuid, ticker, side, split_no, price, volume,
-          amount_krw, state(wait/done/cancel), created_at, updated_at
-- bot_state: key, ticker, value, updated_at
-  (저장항목: base_price, is_running, current_splits, last_trade_time)
-- daily_pnl: date, ticker, realized_pnl, trade_count, fee_total, net_pnl
+### orders
+- id, symbol, order_id(UNIQUE), side(buy/sell)
+- price, quantity, amount, status(open/filled/cancelled)
+- round_no, filled_price, filled_at, is_catchup
+- created_at, updated_at
+
+### bot_state
+- symbol (PK), reference_price, start_price, current_round
+- is_running, circuit_breaker_on, cb_until, updated_at
+
+### daily_pnl
+- id, date, symbol(UNIQUE per date)
+- realized_pnl, trade_count, fee_total, point_total
+
+### manual_avg_prices
+- symbol (PK), avg_buy_price, updated_at
+  (봇 매매 이력 없는 코인에 수동 평균매수가 입력용)
 
 ## 텔레그램 알림 항목
-- 매수 체결: 코인/가격/수량/금액/차수/시각
-- 매도 체결: 코인/가격/수량/수익금/수익률/차수/시각
-- 최대 차수 도달: 코인/현재차수/매수중단 안내
-- 미체결 자동취소: 코인/취소된주문/재주문 안내
-- API 오류: 오류내용/재시도횟수
+- 봇 시작 / 재시작 / 중지
+- 매수 체결 / 매도 체결 (차수/수익 포함)
+- 최대 차수 도달 (매수 중단)
+- 미체결 자동취소 + 재주문 안내
+- 부분 체결 정산 (타임아웃 취소 시 부분체결 분 처리 결과)
+- 캐치업 / 가상 캐치업 완료
+- API 오류
+- 봇 워치독 자동 복구 / 복구 실패 (3분마다 점검)
+- DB 백업 실패 경고 (성공은 무알림)
+- 시간 동기화 결과
 
-- 매 정각 가동 현황 리포트:
-  🟢 CryptoSplit 가동중 [00:00]
-  ├ ETH: 실행중 | 현재가 3,245,000원 | 현재차수 3차
-  ├ ETH: 오늘수익 +12,400원 | 거래 24회
-  ├ USDT: 실행중 | 현재가 1,385원 | 현재차수 1차
-  └ USDT: 오늘수익 +3,200원 | 거래 8회
+- 매 정각 가동 현황 리포트 (running 봇만 표시)
+- 일일 결산 리포트 (00:00, 전날 기준)
 
-- 일일 결산 리포트 (매일 00시):
-  📊 CryptoSplit 일일 결산 [2025-01-15]
-  ─────────────────
-  [ETH]
-  실현수익: +38,200원
-  거래횟수: 87회
-  수수료합계: -4,350원
-  순수익: +33,850원
-  ─────────────────
-  [USDT]
-  실현수익: +12,400원
-  거래횟수: 31회
-  수수료합계: -1,240원
-  순수익: +11,160원
-  ─────────────────
-  전체 순수익: +45,010원
-  KRW잔고: 512,000원
-  ETH보유: 0.142 ETH
-  USDT보유: 1,850 USDT
+## 텔레그램 명령어
+```
+/help          — 명령어 목록
+/status        — 차수·트리거·수익 상세 현황
+/balance       — 잔고 + 코인 평가금액
+/start ETH     — ETH 새로 시작 (초기화)
+/resume ETH    — ETH 재시작 (이전 상태 복원)
+/stop ETH      — ETH 중지 + 미체결 취소
+/report        — 오늘 결산 즉시 전송
+/stopall       — 전체 봇 중지 + 미체결 취소
+/resumeall     — 중지된 전체 봇 재시작 (상태 복원)
+```
 
-## 웹 대시보드 상세
+## 웹 대시보드
 접속: http://[클라우드PC_IP]:5000
 
-### 대시보드 페이지 (/)
-- ETH / USDT 탭 분리
-- 봇 상태 표시 (중지 / 실행중 / 최대차수도달)
-- 현재가 및 등락률 (5초마다 자동 갱신)
-- 현재 차수 / 최대 차수
-- 오늘 수익 / 거래 횟수
-- KRW 잔고 / 코인 보유량
-- [시작] 버튼:
-    클릭 시 확인 팝업 ("ETH 자동매매를 시작하시겠습니까?")
-    확인 → 봇 시작
-- [중지] 버튼:
-    클릭 시 확인 팝업 ("ETH 자동매매를 중지하시겠습니까?
-                        미체결 주문이 자동으로 취소됩니다.")
-    확인 → 봇 중지 + 미체결 주문 전량 취소
-- 최근 거래 내역 (최근 20건, 차수 표시)
+### 홈 화면 (4개 서브탭)
+1. **실시간**: BTC/ETH/XRP/USDT 현재가 + 봇 상태 카드 (시작/중지 버튼)
+2. **투자현황**: 심볼별 매수금액/평가금액/평가손익 요약
+3. **누적손익**: 전체 체결 기준 누적 실현손익 + 일별 차트/통계
+4. **거래소자산**: 빗썸 보유 전체 자산 (KRW + 코인 평가액, 수동 평균매수가 입력)
 
-### 설정 페이지 (/settings)
-- ETH / USDT 각각 독립 설정
-- 입력 항목:
-    트리거 간격 (%), 최대 차수, 1회 주문금액 (원),
-    미체결 취소 시간 (초), 텔레그램 알림 on/off
-- 자동 계산 표시:
-    총 필요자금 = 최대차수 × 1회주문금액
-    최대 하락 커버 = 트리거% × 최대차수
-- [저장] 버튼: settings.yaml 즉시 반영
+### 전략 탭 (심볼별)
+- 전략 파라미터 (트리거/차수/금액/시작가) 확인 및 저장
+- 실시간 트리거 가격 / 서킷브레이커 상태 / 미체결 주문 현황
+- [새로시작] / [이어서시작] / [중지] 버튼 (확인 팝업 후 실행)
 
-### REST API (/api/...)
-- GET  /api/status          → 전체 봇 상태 JSON
-- GET  /api/status/{ticker} → 특정 코인 상태 JSON
-- GET  /api/trades          → 최근 거래 내역 JSON
-- GET  /api/pnl             → 오늘/누적 손익 JSON
-- POST /api/bot/start       → 봇 시작 (ticker 지정)
-- POST /api/bot/stop        → 봇 중지 + 미체결 취소
-- POST /api/settings        → 설정 저장 및 즉시 반영
+### 투자내역 탭
+- 기간별 체결 주문 내역 / 차수별 실현손익
+- 선택 삭제 기능
+
+### 설정 탭
+- API 키 / 텔레그램 설정 / 미체결 취소 시간 / 결산 시각
+- 텔레그램 테스트 메시지 발송
+
+## REST API (/api/...)
+```
+GET  /api/status              → 전체 봇 상태 + 오늘 손익
+GET  /api/portfolio           → KRW + 코인 잔고 스냅샷
+GET  /api/market/prices       → BTC/ETH/XRP/USDT 현재가 (4초 캐시)
+GET  /api/investment          → 심볼별 포지션 평가
+GET  /api/pnl/today           → 오늘 손익
+GET  /api/pnl/cumulative      → 누적 손익
+GET  /api/pnl/daily?days=30   → 일별 손익 시계열 (차트용)
+GET  /api/pnl/stats?days=30   → 승률/프로핏팩터 등 성과 통계
+GET  /api/strategy            → 심볼별 전략 파라미터 + 모니터링
+GET  /api/assets/exchange     → 빗썸 보유 자산 전체 현황
+GET  /api/bot/gap?symbol=ETH  → 재시작 전 캐치업 갭 미리보기
+GET  /api/settings            → 현재 설정값 (API 키 마스킹)
+GET  /api/trades/fills        → 기간별 체결 주문 내역
+GET  /api/trades/pnl          → 기간별 차수별 실현손익
+
+POST /api/bot/start           → 봇 시작 {symbol, fresh, virtual_catchup}
+POST /api/bot/stop            → 봇 중지 + 미체결 취소 {symbol}
+POST /api/bot/reset           → 차수/기준가만 리셋 (봇 시작 없음) {symbol}
+POST /api/bot/stop_all        → 전체 봇 중지
+POST /api/strategy/settings   → 전략 설정 저장 즉시 반영
+POST /api/settings            → 시스템 설정 저장
+POST /api/settings/telegram/test → 텔레그램 테스트 메시지
+POST /api/assets/manual-price → 수동 평균매수가 저장
+
+DELETE /api/trades/orders     → 주문 내역 삭제
+```
 
 ## main.py 실행 구조
 ```
-main.py 실행
-  → BotManager 초기화 (ETH/USDT 봇 인스턴스 생성, 중지 상태)
-  → Flask 웹서버 시작 (포트 5000)
-  → 웹에서 시작 요청 시 해당 봇 Thread 시작
-  → 웹에서 중지 요청 시 해당 봇 Thread 중지
+main.py
+  → get_config() — settings.yaml + .env 로드
+  → db_configure() + create_tables() — DB 초기화/마이그레이션
+  → check_integrity() — DB 무결성 검사 (실패 시 텔레그램 경고)
+  → backup_database() — 시작 시 백업 1회
+  → sync_windows_time() — NTP 동기화 1회
+  → build_components()
+      BithumbClient, TelegramNotifier, BotManager
+      NotificationScheduler (APScheduler 시작)
+      create_app() — Flask 앱
+      TelegramCommandHandler (scheduler 주입)
+  → sched.start(), cmd_handler.start()
+  → app.run() — 메인 스레드 블록
 ```
 
 ## 개발 주의사항
-- main.py 실행 시 봇이 자동으로 시작되면 안 됨
-  반드시 웹 대시보드에서 사용자가 수동으로 시작
+
+### ★ 최우선: 자동매매 로직 변경 최소화
+> 현재 자동매매가 안정적으로 실행 중임. 업그레이드 시 **`strategy/magic_split.py`,
+> `strategy/trigger.py`, `strategy/circuit_breaker.py`** 의 매매 로직 핵심 코드는
+> 꼭 필요한 경우가 아니면 변경하지 말 것.
+> 웹/알림/DB/스케줄러 레이어 개선을 우선적으로 진행할 것.
+
+### 기본 원칙
+- main.py 실행 시 봇이 자동으로 시작되면 안 됨 — 반드시 웹 또는 텔레그램으로 수동 시작
 - 시작/중지 버튼은 반드시 확인 팝업(confirm modal) 후 실행
 - 각 파일은 단일 책임 원칙 준수
 - API 키는 .env에서만 로드, 코드 하드코딩 금지
 - 모든 예외는 try/except + 로그 기록
 - 주문 실행 전 반드시 잔고 확인
-- ETH/USDT 봇은 완전히 독립적으로 동작
-- Windows 8 호환성 유지
+- BTC/ETH/XRP/USDT 봇은 완전히 독립적으로 동작
+- Windows 호환성 유지 (클라우드 PC 환경)
 - 봇 재시작 시 DB에서 이전 상태(기준가/차수) 자동 복구
+- 코드 커밋 후 반드시 git push까지 완료 (클라우드 PC에서 pull로 반영)
