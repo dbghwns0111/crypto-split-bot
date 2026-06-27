@@ -579,12 +579,18 @@ function _renderCumulative(data) {
     const list = document.getElementById('pnl-symbol-list');
     if (!list) return;
 
-    (data.symbols || []).forEach(sym => {
+    // 표시 순서 고정 (BTC → ETH → XRP → USDT)
+    const order  = ['BTC', 'ETH', 'XRP', 'USDT'];
+    const sorted = [...(data.symbols || [])].sort(
+        (a, b) => order.indexOf(a.symbol) - order.indexOf(b.symbol)
+    );
+
+    sorted.forEach(sym => {
         let card = document.getElementById(`pnl-card-${sym.symbol}`);
         if (!card) {
             card = _makePnlCard(sym.symbol);
-            list.appendChild(card);
         }
+        list.appendChild(card);  // 항상 재배치하여 순서 유지
         _setEl(`pnl-card-${sym.symbol}-buy`,  _fmt(sym.total_buy));
         _setEl(`pnl-card-${sym.symbol}-sell`, _fmt(sym.total_sell));
 
