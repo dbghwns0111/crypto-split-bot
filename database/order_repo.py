@@ -355,6 +355,55 @@ def get_pnl_rounds(
     return result
 
 
+def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
+    """기간 내 시간대별(0-23시) 실현손익을 반환한다. 누락 시간은 0으로 채워 24개 반환."""
+    empty = [{"hour": h, "trade_count": 0, "realized_pnl": 0.0} for h in range(24)]
+    if not symbols:
+        return empty
+    ph = ",".join("?" * len(symbols))
+    rows = _conn().execute(
+        f"""
+        SELECT
+            CAST(strftime('%H', s.filled_at) AS INTEGER) AS hour,
+            COUNT(*) AS trade_count,
+            SUM(
+                CASE WHEN b.filled_price IS NOT NULL AND b.filled_price > 0
+                     THEN (s.filled_price - b.filled_price) * s.quantity
+                          - (b.amount + s.amount) * 0.0005
+                     ELSE 0 END
+            ) AS realized_pnl
+        FROM orders s
+        LEFT JOIN orders b ON (
+            b.id = (
+                SELECT id FROM orders
+                WHERE symbol  = s.symbol
+                  AND round_no = s.round_no
+                  AND side    = 'buy'
+                  AND status  = 'filled'
+                ORDER BY filled_at DESC
+                LIMIT 1
+            )
+        )
+        WHERE s.side   = 'sell'
+          AND s.status = 'filled'
+          AND s.symbol IN ({ph})
+          AND DATE(s.filled_at) BETWEEN ? AND ?
+        GROUP BY hour
+        ORDER BY hour
+        """,
+        (*symbols, start, end),
+    ).fetchall()
+    by_hour = {
+        r["hour"]: {
+            "hour":        r["hour"],
+            "trade_count": int(r["trade_count"] or 0),
+            "realized_pnl": round(float(r["realized_pnl"] or 0)),
+        }
+        for r in rows
+    }
+    return [by_hour.get(h, {"hour": h, "trade_count": 0, "realized_pnl": 0.0}) for h in range(24)]
+
+
 def delete_orders_by_ids(ids: list) -> tuple:
     """DB id 목록으로 주문을 삭제한다. (삭제 건수, 영향받은 [(symbol, date)] 목록) 반환."""
     if not ids:

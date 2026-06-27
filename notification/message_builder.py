@@ -244,6 +244,18 @@ def build_watchdog_alert(symbol: str, recovered: bool) -> str:
     ])
 
 
+def build_low_balance_alert(symbol: str, krw: float, order_amount: float) -> str:
+    """KRW 잔고 부족 — 매수 자동 중단 알림 메시지."""
+    return "\n".join([
+        f"⚠️ {symbol} 잔고 부족 — 매수 중단",
+        _DIV,
+        f"💵 주문가능 KRW  {krw:,.0f}원",
+        f"💰 1회 주문금액  {int(order_amount):,}원",
+        "🛑 매수 자동 중단 · 매도는 계속 진행됩니다.",
+        "원화 충전 후 봇 재시작 없이 자동 재개됩니다.",
+    ])
+
+
 def build_partial_fill_alert(
     symbol: str, side: str, qty: float, price: float, leftover: float = 0.0
 ) -> str:

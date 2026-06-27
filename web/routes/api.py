@@ -451,6 +451,36 @@ def get_pnl_daily():
     })
 
 
+@api_bp.route("/pnl/hourly")
+def get_pnl_hourly():
+    """시간대별(0-23시) 손익 통계. ?days=30 기본."""
+    from datetime import timedelta
+
+    from database.order_repo import get_hourly_pnl
+    from utils.time_utils import now_kst
+
+    bot_manager = current_app.config["BOT_MANAGER"]
+    symbols     = list(bot_manager.symbols)
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+
+    today = now_kst().date()
+    start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    end   = today.strftime("%Y-%m-%d")
+
+    rows = get_hourly_pnl(symbols, start, end)
+    return jsonify({
+        "days":         days,
+        "hours":        [r["hour"] for r in rows],
+        "trade_counts": [r["trade_count"] for r in rows],
+        "realized_pnl": [r["realized_pnl"] for r in rows],
+    })
+
+
 @api_bp.route("/pnl/stats")
 def get_pnl_stats():
     """성과 통계 요약 (승률/프로핏팩터/평균손익 등). ?days=30 기본."""

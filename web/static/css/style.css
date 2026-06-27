@@ -442,6 +442,14 @@ body {
   border: 1px solid var(--cs-border);
   border-radius: 12px;
 }
+.cs-chart-box--sm {
+  height: 180px;
+}
+.cs-chart-title {
+  font-size: 11px;
+  color: var(--cs-muted);
+  margin-bottom: 6px;
+}
 
 /* ── 버튼 ─────────────────────────────────────────────────────────────────── */
 .cs-btn {

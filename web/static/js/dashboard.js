@@ -19,6 +19,7 @@ const API = {
     cumulative:       '/api/pnl/cumulative',
     pnlDaily:         '/api/pnl/daily',
     pnlStats:         '/api/pnl/stats',
+    pnlHourly:        '/api/pnl/hourly',
     assets:           '/api/assets/exchange',
     manualPrice:      '/api/assets/manual-price',
     strategy:         '/api/strategy',
@@ -61,8 +62,9 @@ let _stratTableOpen = false;
 let _stratModeUserSet   = false;
 let _stratInputsUserSet = false;
 
-let _pnlChart  = null;
-let _pnlPeriod = 30;
+let _pnlChart        = null;
+let _pnlHourlyChart  = null;
+let _pnlPeriod       = 30;
 
 let _tradesActiveSubTab = 'fills';
 let _tradesStart        = '';
@@ -321,12 +323,14 @@ async function _fetchCumulative() {
 
 async function _fetchPnlChart() {
     try {
-        const [daily, stats] = await Promise.all([
+        const [daily, stats, hourly] = await Promise.all([
             _fetchJson(`${API.pnlDaily}?days=${_pnlPeriod}`),
             _fetchJson(`${API.pnlStats}?days=${_pnlPeriod}`),
+            _fetchJson(`${API.pnlHourly}?days=${_pnlPeriod}`),
         ]);
         _renderPnlStats(stats);
         _renderPnlChart(daily);
+        _renderHourlyChart(hourly);
     } catch (err) {
         console.error('[CryptoSplit] pnl chart error:', err);
     }
@@ -442,6 +446,63 @@ function _renderPnlChart(data) {
                 y1: { position: 'right', ticks: { color: accent, font: { size: 10 },
                           callback: (v) => `${(v / 1000).toFixed(0)}k` },
                       grid: { display: false } },
+            },
+        },
+    });
+}
+
+function _renderHourlyChart(data) {
+    const canvas = document.getElementById('pnl-hourly-chart');
+    if (!canvas || typeof Chart === 'undefined' || !data) return;
+
+    const css    = getComputedStyle(document.documentElement);
+    const green  = (css.getPropertyValue('--cs-green')  || '#00c896').trim();
+    const red    = (css.getPropertyValue('--cs-red')    || '#ff4d6d').trim();
+    const muted  = (css.getPropertyValue('--cs-muted')  || '#7a8aaa').trim();
+    const border = (css.getPropertyValue('--cs-border') || '#263354').trim();
+
+    const labels    = (data.hours || []).map(h => `${h}시`);
+    const pnls      = data.realized_pnl || [];
+    const barColors = pnls.map(v => (v >= 0 ? green : red));
+
+    if (_pnlHourlyChart) {
+        _pnlHourlyChart.data.labels = labels;
+        _pnlHourlyChart.data.datasets[0].data = pnls;
+        _pnlHourlyChart.data.datasets[0].backgroundColor = barColors;
+        _pnlHourlyChart.update();
+        return;
+    }
+
+    _pnlHourlyChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: '시간대별 손익',
+                data: pnls,
+                backgroundColor: barColors,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${Math.round(ctx.parsed.y).toLocaleString()}원`,
+                        afterLabel: (ctx) => {
+                            const cnt = (data.trade_counts || [])[ctx.dataIndex] || 0;
+                            return cnt > 0 ? `완료 ${cnt}회` : '';
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: { ticks: { color: muted, font: { size: 10 } }, grid: { display: false } },
+                y: { ticks: { color: muted, font: { size: 10 },
+                         callback: (v) => `${(v / 1000).toFixed(0)}k` },
+                     grid: { color: border } },
             },
         },
     });

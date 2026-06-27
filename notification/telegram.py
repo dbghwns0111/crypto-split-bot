@@ -21,6 +21,7 @@ from notification.message_builder import (
     build_daily_report,
     build_db_backup_alert,
     build_hourly_status,
+    build_low_balance_alert,
     build_max_round,
     build_order_cancelled,
     build_partial_fill_alert,
@@ -152,6 +153,11 @@ class TelegramNotifier:
 
     def send_watchdog_alert(self, symbol: str, recovered: bool) -> bool:
         return self.send(build_watchdog_alert(symbol, recovered))
+
+    def send_low_balance_alert(
+        self, symbol: str, krw: float = 0, order_amount: float = 0, **_: Any
+    ) -> bool:
+        return self.send(build_low_balance_alert(symbol, krw, order_amount))
 
     def send_partial_fill(
         self, symbol: str, side: str = "buy", qty: float = 0,

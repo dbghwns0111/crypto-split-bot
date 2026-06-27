@@ -112,6 +112,10 @@ class TelegramCommandHandler:
             return self._cmd_status()
         if cmd == "balance":
             return self._cmd_balance()
+        if cmd == "pnl":
+            return self._cmd_pnl()
+        if cmd == "set":
+            return self._cmd_set(args)
         if cmd == "start":
             return self._cmd_start(args, fresh=True)
         if cmd == "resume":
@@ -136,12 +140,19 @@ class TelegramCommandHandler:
             "📊 현황 조회\n"
             "/status   — 차수·트리거·수익 현황\n"
             "/balance  — 잔고 + 코인 평가금액\n"
+            "/pnl      — 오늘 실현손익 요약\n"
             "/report   — 오늘 결산 즉시 전송\n"
             "\n"
             "▶ 봇 제어  (예: BTC)\n"
             "/start BTC   — 새로 시작 (초기화)\n"
             "/resume BTC  — 재시작 (이전 상태 복원)\n"
             "/stop BTC    — 중지 + 미체결 취소\n"
+            "\n"
+            "⚙ 설정 변경\n"
+            "/set BTC trigger_krw 300000\n"
+            "  파라미터: trigger_mode / trigger_pct\n"
+            "           trigger_krw / max_rounds\n"
+            "           order_amount\n"
             "\n"
             "⏹ 전체 제어\n"
             "/stopall    — 전체 봇 중지\n"
@@ -242,6 +253,81 @@ class TelegramCommandHandler:
         lines.append("─────────────────")
         lines.append(f"총 평가액   {int(total_est):,}원")
         return "\n".join(lines)
+
+    def _cmd_pnl(self) -> str:
+        from database.pnl_repo import get_daily_pnl
+
+        today = time.strftime("%Y-%m-%d")
+        lines = [f"📊 오늘 실현손익  [{today}]", "─────────────────"]
+        total = 0.0
+        for symbol in self._bot_manager.symbols:
+            pnl_data = get_daily_pnl(symbol) or {}
+            pnl    = float(pnl_data.get("realized_pnl", 0))
+            trades = int(pnl_data.get("trade_count", 0))
+            total += pnl
+            sign = "+" if pnl >= 0 else ""
+            icon = "📈" if pnl >= 0 else "📉"
+            lines.append(f"{icon} {symbol}  {sign}{int(pnl):,}원  ({trades}회)")
+        lines.append("─────────────────")
+        total_sign = "+" if total >= 0 else ""
+        total_icon = "📈" if total >= 0 else "📉"
+        lines.append(f"{total_icon} 합계  {total_sign}{int(total):,}원")
+        return "\n".join(lines)
+
+    def _cmd_set(self, args: list[str]) -> str:
+        import os
+        import yaml
+
+        if len(args) < 3:
+            return (
+                "사용법: /set SYMBOL 파라미터 값\n"
+                "예: /set BTC trigger_krw 300000\n"
+                "파라미터: trigger_mode / trigger_pct / trigger_krw / max_rounds / order_amount"
+            )
+
+        symbol = args[0].upper()
+        param  = args[1].lower()
+        raw    = args[2]
+
+        ALLOWED = {
+            "trigger_mode": str,
+            "trigger_pct":  float,
+            "trigger_krw":  float,
+            "max_rounds":   int,
+            "order_amount": int,
+        }
+        if param not in ALLOWED:
+            return f"❌ 지원하지 않는 파라미터: {param}"
+
+        pairs = self._cfg.get("pairs", {})
+        if symbol not in pairs:
+            return f"❌ 알 수 없는 심볼: {symbol}"
+
+        try:
+            value = ALLOWED[param](raw)
+        except (ValueError, TypeError):
+            return f"❌ 값 변환 실패: {raw}"
+
+        if param == "trigger_mode" and value not in ("pct", "krw"):
+            return "❌ trigger_mode는 'pct' 또는 'krw'만 가능합니다."
+
+        pairs[symbol][param] = value
+
+        try:
+            yaml_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "config", "settings.yaml")
+            )
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                raw_cfg = yaml.safe_load(f) or {}
+            raw_cfg.setdefault("pairs", {}).setdefault(symbol, {})[param] = value
+            with open(yaml_path, "w", encoding="utf-8") as f:
+                yaml.dump(raw_cfg, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        except Exception as exc:
+            _log.error("/set 파일 저장 실패: %s", exc)
+            return f"✅ {symbol} {param} = {value}  (메모리 반영, 파일 저장 실패: {exc})"
+
+        _log.info("[/set] %s.%s = %s", symbol, param, value)
+        return f"✅ {symbol} {param} = {value}  (즉시 반영됨)"
 
     def _cmd_start(self, args: list[str], fresh: bool) -> str:
         if not args:

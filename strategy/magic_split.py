@@ -84,6 +84,8 @@ class MagicSplit:
 
         # 최대 차수 알림 중복 방지
         self._max_round_notified = False
+        # 잔고 부족 알림 중복 방지 (잔고 회복 시 자동 리셋)
+        self._balance_warned = False
 
         self._volatility      = VolatilityMeter(exchange, symbol, self._ticker, cfg)
         self._circuit_breaker = CircuitBreaker(symbol, cfg)
@@ -116,6 +118,7 @@ class MagicSplit:
         self._pending_buy        = None
         self._pending_sell       = None
         self._max_round_notified = False
+        self._balance_warned     = False
         upsert_state(self._symbol, reference_price=0.0, current_round=0, is_running=False)
         _log.info("상태 초기화: %s", self._symbol)
 
@@ -306,6 +309,13 @@ class MagicSplit:
         )
         if not feasible:
             _log.warning("매수 불가 (%s): %s", self._symbol, reason)
+            if "KRW 잔고 부족" in reason and not self._balance_warned:
+                self._balance_warned = True
+                try:
+                    krw = self._exchange.get_balance("KRW")
+                except Exception:
+                    krw = 0.0
+                self._notify("low_balance", krw=krw, order_amount=self._current_order_amount)
             return
         try:
             result = self._exchange.buy_limit(self._ticker, price, quantity)
@@ -412,6 +422,7 @@ class MagicSplit:
         self._current_round += 1
         self._reference_price = float(order_price)  # 주문가 기준 (fill_price 드리프트 방지)
         self._pending_buy = None
+        self._balance_warned = False  # 잔고 회복 후 다음 부족 상황에서 재알림하도록 리셋
         increment_round(self._symbol)
         set_reference_price(self._symbol, self._reference_price)
         _log.info("매수 체결: %s 체결가=%s 주문가=%s 차수=%d",
