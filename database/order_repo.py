@@ -198,11 +198,14 @@ def get_cumulative_totals() -> list[dict]:
             AND b.side     = 'buy'
             AND b.status   = 'filled'
             AND b.id = (
-                SELECT MAX(id) FROM orders b2
+                SELECT id FROM orders b2
                 WHERE b2.symbol   = s.symbol
                   AND b2.round_no = s.round_no
                   AND b2.side     = 'buy'
                   AND b2.status   = 'filled'
+                  AND b2.filled_at <= s.filled_at
+                ORDER BY b2.filled_at DESC, b2.id DESC
+                LIMIT 1
             )
         )
         WHERE s.side = 'sell' AND s.status = 'filled'
@@ -330,6 +333,7 @@ def get_pnl_rounds(
                   AND round_no = s.round_no
                   AND side    = 'buy'
                   AND status  = 'filled'
+                  AND filled_at <= s.filled_at
                 ORDER BY filled_at DESC
                 LIMIT 1
             )
@@ -459,13 +463,17 @@ def save_catchup_order(
     quantity: float,
     amount: float,
     round_no: int,
+    filled_at: Optional[str] = None,
 ) -> int:
     """캐치업 매수 주문을 즉시 체결 상태로 저장한다.
 
     grid_price: 차수 테이블 표시용 의도 그리드 가격
     filled_price: 실제 체결가 (PnL 계산 기준)
+    filled_at: 체결시각(미지정 시 현재). 가상 캐치업은 차수 순서대로 증가하는 값을 전달해
+               체결내역이 1차(아래)→고차수(위)로 시간순 정렬되도록 한다.
     """
     now = now_kst_str()
+    ts  = filled_at or now
     cur = _conn().execute(
         """
         INSERT INTO orders
@@ -475,7 +483,7 @@ def save_catchup_order(
         VALUES (?, ?, ?, ?, ?, ?, 'filled', ?, ?, ?, ?, ?, 1)
         """,
         (symbol, order_id, side, grid_price, quantity, amount,
-         round_no, filled_price, now, now, now),
+         round_no, filled_price, ts, now, now),
     )
     _conn().commit()
     return cur.lastrowid

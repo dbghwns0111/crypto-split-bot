@@ -829,13 +829,21 @@ class MagicSplit:
                     g = g * (1 - trigger_pct / 100)
                 grid_prices.append(round_price(g))
 
+        # 체결시각을 차수 순서대로 증가시켜 기록 → 체결내역이 1차(가장 오래됨, 아래)
+        # → 고차수(최신, 위) 순으로 정렬되게 한다. (전부 같은 초로 저장하면 순서가 뒤집혀 보임)
+        from datetime import timedelta
+        from utils.time_utils import now_kst
+        base  = now_kst()
+        total = len(grid_prices)
+
         done = 0
-        for grid_price in grid_prices:
+        for idx, grid_price in enumerate(grid_prices):
             quantity = calc_quantity(self._current_order_amount, grid_price)
             if quantity <= 0:
                 break
             self._current_round += 1
             virt_oid = f"virt-{self._symbol}-r{self._current_round}-{int(time.time())}"
+            ts = (base - timedelta(seconds=(total - 1 - idx))).strftime("%Y-%m-%d %H:%M:%S")
             save_catchup_order(
                 self._symbol, virt_oid, "buy",
                 grid_price=float(grid_price),
@@ -843,6 +851,7 @@ class MagicSplit:
                 quantity=quantity,
                 amount=round(float(grid_price) * quantity, 2),
                 round_no=self._current_round,
+                filled_at=ts,
             )
             done += 1
 
