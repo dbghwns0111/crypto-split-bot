@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>CryptoSplit · 로그인</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+  <style>
+    body {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; padding: 24px;
+      background: #0d1117;
+    }
+    .cs-login-card {
+      width: 100%; max-width: 360px;
+      background: #161b22; border: 1px solid #30363d; border-radius: 16px;
+      padding: 32px 24px; box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    }
+    .cs-login-title {
+      text-align: center; color: #f0f6fc; font-size: 1.4rem;
+      font-weight: 700; margin-bottom: 4px;
+    }
+    .cs-login-sub {
+      text-align: center; color: #8b949e; font-size: .85rem; margin-bottom: 24px;
+    }
+    .cs-login-input {
+      width: 100%; box-sizing: border-box; padding: 12px 14px;
+      background: #0d1117; border: 1px solid #30363d; border-radius: 10px;
+      color: #f0f6fc; font-size: 1rem; margin-bottom: 14px;
+    }
+    .cs-login-input:focus { outline: none; border-color: #2f81f7; }
+    .cs-login-btn {
+      width: 100%; padding: 12px; border: none; border-radius: 10px;
+      background: #238636; color: #fff; font-size: 1rem; font-weight: 600;
+      cursor: pointer;
+    }
+    .cs-login-btn:hover { background: #2ea043; }
+    .cs-login-err {
+      color: #f85149; font-size: .85rem; text-align: center;
+      margin-bottom: 14px; min-height: 1em;
+    }
+  </style>
+</head>
+<body>
+  <form class="cs-login-card" method="post" action="{{ url_for('auth.login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+    <div class="cs-login-title">🔒 CryptoSplit</div>
+    <div class="cs-login-sub">대시보드 접근 비밀번호를 입력하세요</div>
+    <div class="cs-login-err">{{ error or '' }}</div>
+    <input class="cs-login-input" type="password" name="password"
+           placeholder="비밀번호" autocomplete="current-password" autofocus required>
+    <button class="cs-login-btn" type="submit">로그인</button>
+  </form>
+</body>
+</html>

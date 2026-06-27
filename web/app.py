@@ -28,4 +28,8 @@ def create_app(bot_manager, exchange=None, cfg=None):
     app.register_blueprint(api_bp)
     app.register_blueprint(dashboard_bp)
 
+    # 접근 보안 (세션 비밀번호 로그인 + IP 화이트리스트)
+    from web.auth import init_auth
+    init_auth(app, cfg or {})
+
     return app

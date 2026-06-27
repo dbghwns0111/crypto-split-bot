@@ -1021,6 +1021,10 @@ async function _executeAction() {
 
 async function _fetchJson(url, opts = null) {
     const res = await fetch(url, opts || {});
+    if (res.status === 401) {           // 세션 만료/미인증 → 로그인 페이지로
+        location.href = '/login';
+        throw new Error('unauthorized');
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
 }
@@ -1803,6 +1807,9 @@ function _initSettingsPage() {
             report_minute: document.getElementById('settings-report-minute')?.value,
         }));
 
+    document.getElementById('settings-security-save')
+        ?.addEventListener('click', _saveSecurity);
+
     document.getElementById('settings-membership-save')
         ?.addEventListener('click', async () => {
             const membership = document.getElementById('settings-membership')?.value;
@@ -1857,6 +1864,17 @@ async function _fetchSettings() {
             _applyTierColor(data.exchange.membership);
         }
 
+        // 접근 보안 상태
+        const sec = data.security || {};
+        const wlEl = document.getElementById('settings-ip-whitelist');
+        if (wlEl) wlEl.value = (sec.ip_whitelist || []).join(', ');
+        const secBadge = document.getElementById('security-status-badge');
+        if (secBadge) {
+            const active = sec.enabled && sec.has_password;
+            secBadge.textContent = active ? '보안 활성' : '비활성';
+            secBadge.style.color = active ? '#2ea043' : '#8b949e';
+        }
+
         _settingsLoaded = true;
     } catch { _showAlert('설정을 불러오지 못했습니다.', 'danger'); }
 }
@@ -1893,6 +1911,29 @@ async function _saveSettings(body) {
             await _fetchSettings();
         }
     } catch { _showAlert('저장 중 오류가 발생했습니다.', 'danger'); }
+}
+
+async function _saveSecurity() {
+    const pwd = document.getElementById('settings-web-password')?.value ?? '';
+    const wl  = document.getElementById('settings-ip-whitelist')?.value ?? '';
+    // ip_whitelist 는 항상 전송(빈 값=전체허용), 비밀번호는 입력 시에만 전송(미입력=변경없음)
+    const body = { ip_whitelist: wl };
+    if (pwd) body.web_password = pwd;
+    try {
+        const resp = await fetch('/api/settings', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(body),
+        });
+        const data = await resp.json();
+        _showAlert(data.message, data.ok ? 'success' : 'danger');
+        if (data.ok) {
+            const pwdEl = document.getElementById('settings-web-password');
+            if (pwdEl) pwdEl.value = '';
+            _settingsLoaded = false;
+            await _fetchSettings();
+        }
+    } catch { _showAlert('보안 설정 저장 중 오류가 발생했습니다.', 'danger'); }
 }
 
 async function _testTelegram() {

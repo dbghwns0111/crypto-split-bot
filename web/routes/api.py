@@ -876,10 +876,16 @@ def get_settings():
     port = cfg.get("web", {}).get("port", 5000)
 
     membership = cfg.get("exchange", {}).get("membership", "화이트")
+    auth_cfg = (cfg.get("web", {}) or {}).get("auth", {}) or {}
     return jsonify({
         "server": {
             "ip":   _get_local_ip(),
             "port": port,
+        },
+        "security": {
+            "enabled":      bool(auth_cfg.get("enabled", True)),
+            "has_password": bool(auth_cfg.get("password", "")),
+            "ip_whitelist": auth_cfg.get("ip_whitelist", []) or [],
         },
         "exchange": {
             "access_key": _mask(access_key, 4),
@@ -944,6 +950,19 @@ def save_settings():
         _log.error("env 저장 오류: %s", exc)
         return jsonify({"ok": False, "message": f"env 저장 실패: {exc}"}), 500
 
+    # ── 웹 접근 비밀번호 (.env WEB_PASSWORD) — 재시작 없이 즉시 적용 ──────────────
+    if "web_password" in body:
+        try:
+            from dotenv import set_key as _dotenv_set_key
+            pwd = (body.get("web_password") or "").strip()
+            _dotenv_set_key(env_path, "WEB_PASSWORD", pwd)
+            os.environ["WEB_PASSWORD"] = pwd
+            cfg.setdefault("web", {}).setdefault("auth", {})["password"] = pwd
+            _log.info("[설정변경] 웹 접근 비밀번호 %s", "설정" if pwd else "해제")
+        except Exception as exc:
+            _log.error("웹 비밀번호 저장 오류: %s", exc)
+            return jsonify({"ok": False, "message": f"비밀번호 저장 실패: {exc}"}), 500
+
     # ── settings.yaml 항목 ────────────────────────────────────────────────────
     yaml_fields = {
         "order_timeout":       ("strategy",  "order_timeout",       int),
@@ -972,6 +991,34 @@ def save_settings():
         except Exception as exc:
             _log.error("yaml 저장 오류: %s", exc)
             return jsonify({"ok": False, "message": f"yaml 저장 실패: {exc}"}), 500
+
+    # ── 웹 보안 설정 (web.auth.ip_whitelist / enabled) — 즉시 적용 ──────────────
+    if ("ip_whitelist" in body) or ("auth_enabled" in body):
+        try:
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                raw = yaml.safe_load(f) or {}
+            raw.setdefault("web", {}).setdefault("auth", {})
+            cfg.setdefault("web", {}).setdefault("auth", {})
+
+            if "ip_whitelist" in body:
+                wl_raw = body.get("ip_whitelist") or []
+                if isinstance(wl_raw, str):
+                    wl_raw = [p for p in wl_raw.replace("\n", ",").split(",")]
+                wl = [str(ip).strip() for ip in wl_raw if str(ip).strip()]
+                raw["web"]["auth"]["ip_whitelist"] = wl
+                cfg["web"]["auth"]["ip_whitelist"] = wl
+
+            if "auth_enabled" in body:
+                en = bool(body.get("auth_enabled"))
+                raw["web"]["auth"]["enabled"] = en
+                cfg["web"]["auth"]["enabled"] = en
+
+            with open(yaml_path, "w", encoding="utf-8") as f:
+                yaml.dump(raw, f, allow_unicode=True,
+                          default_flow_style=False, sort_keys=False)
+        except Exception as exc:
+            _log.error("웹 보안 설정 저장 오류: %s", exc)
+            return jsonify({"ok": False, "message": f"보안 설정 저장 실패: {exc}"}), 500
 
     msg = "저장 완료"
     if needs_restart:

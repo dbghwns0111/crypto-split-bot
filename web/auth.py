@@ -1,0 +1,152 @@
+"""웹 대시보드 접근 보안 — 세션 비밀번호 로그인 + IP 화이트리스트.
+
+설계 원칙:
+- 비밀번호는 .env 의 WEB_PASSWORD 에서만 로드한다 (하드코딩 금지).
+- 비밀번호가 설정되지 않았으면 인증을 자동 비활성한다 (fail-open) —
+  운영 중인 봇이 업데이트 pull 후 로그인 불가로 잠기는 것을 방지한다.
+  보안은 사용자가 비밀번호를 설정한 시점부터만 활성화된다.
+- IP 화이트리스트는 비밀번호와 독립적인 별도 방어선이다.
+  목록이 비어 있으면 모든 IP 를 허용한다. 자기 잠금 방지를 위해
+  127.0.0.1(로컬)은 항상 허용한다.
+- 인증 설정(비밀번호/화이트리스트)은 매 요청 시 cfg 에서 다시 읽으므로
+  설정 탭에서 변경하면 앱 재시작 없이 즉시 반영된다.
+"""
+
+import hmac
+import os
+
+from flask import (
+    Blueprint,
+    current_app,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
+
+from utils.logger import get_logger
+
+_log = get_logger("web.auth")
+
+auth_bp = Blueprint("auth", __name__)
+
+# 인증 없이 항상 접근 가능한 엔드포인트 (로그인 페이지/정적파일 등)
+_EXEMPT_ENDPOINTS = {"auth.login", "auth.logout", "static"}
+
+_LOCAL_IPS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _auth_cfg() -> dict:
+    """현재 앱 cfg 에서 web.auth 설정을 반환한다 (매 요청 시 최신값)."""
+    cfg = current_app.config.get("CFG", {}) or {}
+    return (cfg.get("web", {}) or {}).get("auth", {}) or {}
+
+
+def _password() -> str:
+    return str(_auth_cfg().get("password", "") or "")
+
+
+def _ip_whitelist() -> list[str]:
+    wl = _auth_cfg().get("ip_whitelist", []) or []
+    return [str(ip).strip() for ip in wl if str(ip).strip()]
+
+
+def _auth_active() -> bool:
+    """비밀번호 인증이 실제로 활성 상태인지.
+
+    enabled=True 이고 비밀번호가 설정된 경우에만 활성.
+    """
+    if not _auth_cfg().get("enabled", True):
+        return False
+    return bool(_password())
+
+
+def init_auth(app, cfg: dict) -> None:
+    """Flask 앱에 인증 가드와 로그인/로그아웃 라우트를 설치한다."""
+    auth = (cfg.get("web", {}) or {}).get("auth", {}) or {}
+
+    # 세션 서명 키 — WEB_SECRET_KEY 가 있으면 재시작 후에도 세션 유지,
+    # 없으면 매 실행 시 랜덤 생성 (재시작 시 재로그인 필요).
+    secret = os.getenv("WEB_SECRET_KEY", "") or auth.get("secret_key", "")
+    if not secret:
+        secret = os.urandom(32).hex()
+        _log.warning(
+            "WEB_SECRET_KEY 미설정 — 임의 키 생성 (재시작 시 재로그인 필요). "
+            ".env 에 WEB_SECRET_KEY 설정 권장."
+        )
+    app.secret_key = secret
+
+    session_days = int(auth.get("session_days", 30) or 30)
+    from datetime import timedelta
+    app.permanent_session_lifetime = timedelta(days=session_days)
+
+    app.register_blueprint(auth_bp)
+    app.before_request(_guard)
+
+    if auth.get("enabled", True) and not (
+        os.getenv("WEB_PASSWORD", "") or auth.get("password", "")
+    ):
+        _log.warning(
+            "웹 인증 활성(enabled=true) 이지만 WEB_PASSWORD 미설정 — "
+            "인증 비활성 상태로 동작합니다. 설정 탭에서 비밀번호를 지정하세요."
+        )
+
+
+def _guard():
+    """모든 요청 전에 실행되는 접근 제어 가드."""
+    remote = (request.remote_addr or "").strip()
+
+    # ── 1. IP 화이트리스트 (비밀번호와 독립) ───────────────────────────────
+    whitelist = _ip_whitelist()
+    if whitelist and remote not in whitelist and remote not in _LOCAL_IPS:
+        _log.warning("화이트리스트 외 IP 접근 차단: %s", remote)
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "forbidden"}), 403
+        return ("접근이 허용되지 않은 IP 입니다.", 403)
+
+    # ── 2. 비밀번호 인증 ───────────────────────────────────────────────────
+    if not _auth_active():
+        return None  # 인증 비활성 — 통과
+
+    if request.endpoint in _EXEMPT_ENDPOINTS:
+        return None
+    if request.endpoint == "serve_project_image":
+        return None
+    if session.get("authenticated"):
+        return None
+
+    # 미인증 — API 는 401, 페이지는 로그인으로 리다이렉트
+    if request.path.startswith("/api/"):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    return redirect(url_for("auth.login", next=request.path))
+
+
+@auth_bp.route("/login", methods=["GET", "POST"])
+def login():
+    # 인증 비활성이면 로그인 페이지 불필요 — 홈으로
+    if not _auth_active():
+        return redirect("/")
+
+    if request.method == "POST":
+        pwd = request.form.get("password", "")
+        if hmac.compare_digest(pwd, _password()):
+            session.permanent = True
+            session["authenticated"] = True
+            _log.info("웹 로그인 성공: %s", request.remote_addr)
+            nxt = request.args.get("next") or "/"
+            # 오픈 리다이렉트 방지 — 내부 경로만 허용
+            if not nxt.startswith("/"):
+                nxt = "/"
+            return redirect(nxt)
+        _log.warning("웹 로그인 실패: %s", request.remote_addr)
+        return render_template("login.html", error="비밀번호가 올바르지 않습니다."), 401
+
+    return render_template("login.html")
+
+
+@auth_bp.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("auth.login"))

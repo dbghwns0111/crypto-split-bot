@@ -300,6 +300,36 @@
     <a class="cs-settings-server-url" id="settings-server-url" href="#" target="_blank">-</a>
   </div>
 
+  <!-- ─── 섹션 0: 접근 보안 ─── -->
+  <div class="cs-settings-section">
+    <div class="cs-settings-title">
+      접근 보안
+      <span class="tier-badge" id="security-status-badge"></span>
+    </div>
+    <div class="cs-settings-card">
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">접속 비밀번호</span>
+        <div class="cs-settings-input-wrap">
+          <input type="password" class="cs-settings-input" id="settings-web-password" autocomplete="new-password" placeholder="미설정 (인증 비활성)">
+          <button class="cs-pwd-toggle" data-target="settings-web-password" title="표시/숨기기">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">허용 IP (선택)</span>
+        <div class="cs-settings-input-wrap">
+          <input type="text" class="cs-settings-input" id="settings-ip-whitelist" autocomplete="off" placeholder="비우면 모든 IP 허용 (쉼표 구분)">
+        </div>
+      </div>
+      <div class="cs-settings-notice">비밀번호 설정 시 즉시 인증이 활성화됩니다. IP 허용 목록은 쉼표로 구분하세요.</div>
+      <div class="cs-settings-actions">
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-security-save">저장</button>
+        <button class="cs-btn cs-btn-secondary cs-btn-sm" id="settings-logout" onclick="location.href='/logout'">로그아웃</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ─── 섹션 1: 빗썸 멤버십 ─── -->
   <div class="cs-settings-section">
     <div class="cs-settings-title">

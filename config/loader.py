@@ -51,6 +51,11 @@ def _inject_env(cfg: dict) -> None:
     cfg["telegram"]["bot_token"] = os.getenv("TELEGRAM_BOT_TOKEN", "")
     cfg["telegram"]["chat_id"] = os.getenv("TELEGRAM_CHAT_ID", "")
 
+    # 웹 접근 보안 — 비밀번호/세션키는 .env 에서만 로드 (settings.yaml 미저장)
+    cfg.setdefault("web", {}).setdefault("auth", {})
+    cfg["web"]["auth"]["password"] = os.getenv("WEB_PASSWORD", "")
+    cfg["web"]["auth"]["secret_key"] = os.getenv("WEB_SECRET_KEY", "")
+
 
 def get_config(yaml_path: str | Path | None = None) -> dict:
     """싱글턴 설정 dict를 반환한다. 최초 호출 시 한 번만 로드한다."""
