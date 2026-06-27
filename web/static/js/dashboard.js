@@ -24,6 +24,7 @@ const API = {
     manualPrice:      '/api/assets/manual-price',
     strategy:         '/api/strategy',
     strategySettings: '/api/strategy/settings',
+    planner:          '/api/strategy/planner',
     tradeFills:       '/api/trades/fills',
     tradePnl:         '/api/trades/pnl',
     deleteOrders:     '/api/trades/orders',
@@ -154,7 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById(id)?.addEventListener('input', () => {
             _stratInputsUserSet = true;
             _updateStratCalc();
-            if (_stratTableOpen) _calcAndRenderPriceTable();
+            if (_stratTableOpen) _calcPlannerDebounced();
         });
     });
 
@@ -1135,49 +1136,78 @@ function _togglePriceTable() {
     const wrap = document.getElementById('strat-price-table-wrap');
     const btn  = document.getElementById('strat-table-btn');
     if (wrap) wrap.style.display = _stratTableOpen ? '' : 'none';
-    if (btn)  btn.textContent = _stratTableOpen ? '차수별 예상가 숨기기 ▲' : '차수별 예상가 ▼';
+    if (btn)  btn.textContent = _stratTableOpen ? '그리드 플래너 숨기기 ▲' : '그리드 플래너 ▼';
     if (_stratTableOpen) _calcAndRenderPriceTable();
 }
 
-function _calcAndRenderPriceTable() {
-    const tbody  = document.getElementById('strat-price-tbody');
-    if (!tbody) return;
+let _plannerTimer = null;
+function _calcPlannerDebounced() {
+    clearTimeout(_plannerTimer);
+    _plannerTimer = setTimeout(_calcAndRenderPriceTable, 350);
+}
+
+function _fmtQty(q) {
+    const n = Number(q) || 0;
+    return n.toFixed(8).replace(/0+$/, '').replace(/\.$/, '') || '0';
+}
+
+async function _calcAndRenderPriceTable() {
+    const tbody = document.getElementById('strat-price-tbody');
+    if (!tbody || !_stratActiveSym) return;
 
     const mode       = document.querySelector('#strat-mode-toggle .cs-mode-btn.active')?.dataset.mode || 'pct';
     const rounds     = parseInt(document.getElementById('strat-input-rounds')?.value) || 50;
-    const triggerVal = parseFloat(document.getElementById('strat-input-trigger')?.value);
-    const pct        = mode === 'pct' ? (triggerVal || 0.5) : 0;
-    const krw        = mode === 'krw' ? (triggerVal || 10000) : 0;
-
+    const triggerVal = parseFloat(document.getElementById('strat-input-trigger')?.value) || 0;
+    const amount     = parseInt(document.getElementById('strat-input-amount')?.value) || 0;
     const startPrice = parseFloat(document.getElementById('strat-input-start-price')?.value) || 0;
-    _setEl('strat-ref-label', startPrice > 0 ? `${Math.round(startPrice).toLocaleString()}원` : '-');
 
-    if (!startPrice || startPrice <= 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="cs-trade-empty">시작가를 입력하세요</td></tr>';
-        return;
-    }
+    _setEl('strat-ref-label', startPrice > 0 ? `${Math.round(startPrice).toLocaleString()}원` : '현재가');
 
-    // 1차: buy = startPrice, sell = startPrice + trigger
-    // n차: buy = startPrice - (n-1)*trigger, sell = buy + trigger
-    const rows = [];
-    for (let n = 1; n <= rounds; n++) {
-        let buy, sell;
-        if (mode === 'krw') {
-            buy  = startPrice - (n - 1) * krw;
-            sell = buy + krw;
-        } else {
-            buy  = startPrice * Math.pow(1 - pct / 100, n - 1);
-            sell = buy * (1 + pct / 100);
+    const params = new URLSearchParams({
+        symbol:       _stratActiveSym,
+        trigger_mode: mode,
+        order_amount: amount,
+        max_rounds:   rounds,
+        start_price:  startPrice,
+    });
+    params.set(mode === 'krw' ? 'trigger_krw' : 'trigger_pct', triggerVal);
+
+    tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">계산 중…</td></tr>';
+    try {
+        const data = await _fetchJson(`${API.planner}?${params.toString()}`);
+        const rows = (data && data.rows) || [];
+        const sum  = (data && data.summary) || {};
+
+        // 요약: 자본 소진가 / 1회전 예상순수익
+        _setEl('strat-calc-exhaust', sum.exhaust_price > 0
+            ? `${Math.round(sum.exhaust_price).toLocaleString()}원 (${sum.exhaust_drop_pct}%)` : '-');
+        const netEl = document.getElementById('strat-calc-totalnet');
+        if (netEl) {
+            const t = sum.total_net || 0;
+            netEl.textContent = rows.length ? `${_sign(t)}${Math.round(t).toLocaleString()}원` : '-';
+            netEl.className = `cs-strat-calc-val ${_colorClass(t)}`;
         }
-        const dropPct = ((buy - startPrice) / startPrice * 100).toFixed(1);
-        rows.push(`<tr>
-            <td>${n}차</td>
-            <td>${Math.round(buy).toLocaleString()}원</td>
-            <td>${Math.round(sell).toLocaleString()}원</td>
-            <td style="color:var(--cs-red)">${dropPct}%</td>
-        </tr>`);
+
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">시작가·주문금액·차수·트리거를 입력하세요</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(r => {
+            const netColor = r.net >= 0 ? 'var(--cs-green)' : 'var(--cs-red)';
+            const netSign  = r.net >= 0 ? '+' : '';
+            return `<tr>
+                <td>${r.round}차</td>
+                <td>${Math.round(r.buy_price).toLocaleString()}원</td>
+                <td>${_fmtQty(r.quantity)}</td>
+                <td>${Math.round(r.sell_price).toLocaleString()}원</td>
+                <td style="color:var(--cs-red)">${r.drop_pct}%</td>
+                <td style="color:${netColor}">${netSign}${Math.round(r.net).toLocaleString()}</td>
+            </tr>`;
+        }).join('');
+    } catch (err) {
+        console.error('[CryptoSplit] planner error:', err);
+        tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">계산 실패</td></tr>';
     }
-    tbody.innerHTML = rows.join('');
 }
 
 // ── 전략 모니터링 카드 ────────────────────────────────────────────────────────

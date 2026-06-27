@@ -655,16 +655,18 @@ body {
   border-bottom: 1px solid var(--cs-border);
 }
 .cs-price-table-scroll { overflow-y: auto; max-height: 280px; }
-.cs-price-table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
-.cs-price-table th:nth-child(1) { width: 14%; }
-.cs-price-table th:nth-child(2) { width: 31%; }
-.cs-price-table th:nth-child(3) { width: 31%; }
-.cs-price-table th:nth-child(4) { width: 24%; }
+.cs-price-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+.cs-price-table th:nth-child(1) { width: 10%; }
+.cs-price-table th:nth-child(2) { width: 20%; }
+.cs-price-table th:nth-child(3) { width: 19%; }
+.cs-price-table th:nth-child(4) { width: 20%; }
+.cs-price-table th:nth-child(5) { width: 14%; }
+.cs-price-table th:nth-child(6) { width: 17%; }
 .cs-price-table th {
   background: var(--cs-card2);
   color: var(--cs-muted);
   font-weight: 600;
-  padding: 7px 10px;
+  padding: 7px 6px;
   text-align: right;
   position: sticky;
   top: 0;
@@ -672,7 +674,7 @@ body {
 }
 .cs-price-table th:first-child { text-align: center; }
 .cs-price-table td {
-  padding: 6px 10px;
+  padding: 6px 6px;
   text-align: right;
   border-bottom: 1px solid rgba(38,51,84,0.35);
   color: var(--cs-text);
