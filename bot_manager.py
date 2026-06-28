@@ -136,9 +136,14 @@ class BotManager:
                 return False, f"초기화 실패: {exc}"
 
     def stop_all(self) -> list[str]:
-        """실행 중인 모든 봇을 중지한다. 중지된 symbol 목록을 반환한다."""
+        """전체 제어가 ON(bulk_enabled)인 실행 중 봇을 모두 중지한다.
+
+        OFF로 설정된 종목(예: 잠정 중단)은 전체 명령에서 제외한다. 중지된 symbol 목록 반환.
+        """
         stopped = []
         for symbol in list(self._bots.keys()):
+            if not self.is_bulk_enabled(symbol):
+                continue
             if self._bots[symbol].is_running:
                 ok, _ = self.stop(symbol)
                 if ok:
@@ -146,6 +151,40 @@ class BotManager:
         if stopped:
             _log.info("전체 봇 중지 완료: %s", stopped)
         return stopped
+
+    def start_all(self, fresh: bool = False) -> tuple[list[str], list[str], list[str]]:
+        """전체 제어가 ON(bulk_enabled)인 봇을 모두 재시작한다.
+
+        OFF 종목은 제외(skipped), 이미 실행 중인 종목은 건너뛴다.
+        Returns: (resumed, failed, skipped)
+        """
+        resumed, failed, skipped = [], [], []
+        for symbol in list(self._bots.keys()):
+            if not self.is_bulk_enabled(symbol):
+                skipped.append(symbol)
+                continue
+            if self._bots[symbol].is_running:
+                continue
+            ok, _ = self.start(symbol, fresh=fresh)
+            (resumed if ok else failed).append(symbol)
+        if resumed:
+            _log.info("전체 봇 재시작 완료: %s (제외: %s)", resumed, skipped)
+        return resumed, failed, skipped
+
+    # ── 전체 제어 ON/OFF ───────────────────────────────────────────────────────
+
+    def is_bulk_enabled(self, symbol: str) -> bool:
+        """symbol이 전체 제어(전체 가동/중지) 대상이면 True (기본 True)."""
+        return bool(self._cfg.get("pairs", {}).get(symbol, {}).get("bulk_enabled", True))
+
+    def set_bulk_enabled(self, symbol: str, enabled: bool) -> bool:
+        """symbol의 전체 제어 ON/OFF를 메모리 cfg에 반영한다 (파일 저장은 호출자 담당)."""
+        pairs = self._cfg.get("pairs", {})
+        if symbol not in pairs:
+            return False
+        pairs[symbol]["bulk_enabled"] = bool(enabled)
+        _log.info("전체 제어 %s: %s", "ON" if enabled else "OFF", symbol)
+        return True
 
     # ── 워치독 ────────────────────────────────────────────────────────────────
 
@@ -184,6 +223,7 @@ class BotManager:
             "pending_buy_price": bot.pending_buy_price,
             "pending_sell_price": bot.pending_sell_price,
             "ticker":            bot.ticker,
+            "bulk_enabled":      self.is_bulk_enabled(symbol),
         }
 
     def get_all_status(self) -> dict[str, dict]:

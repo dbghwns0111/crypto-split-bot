@@ -213,10 +213,52 @@ def reset_bot():
 
 @api_bp.route("/bot/stop_all", methods=["POST"])
 def stop_all_bots():
-    """모든 봇 중지."""
+    """전체 제어 ON(bulk_enabled)인 봇 전체 중지. OFF 종목은 제외."""
     bot_manager = current_app.config["BOT_MANAGER"]
     stopped     = bot_manager.stop_all()
     return jsonify({"ok": True, "stopped": stopped, "count": len(stopped)})
+
+
+@api_bp.route("/bot/start_all", methods=["POST"])
+def start_all_bots():
+    """전체 제어 ON(bulk_enabled)인 봇 전체 재시작(이전 상태 복원). OFF 종목은 제외."""
+    bot_manager = current_app.config["BOT_MANAGER"]
+    resumed, failed, skipped = bot_manager.start_all(fresh=False)
+    return jsonify({
+        "ok": True, "resumed": resumed, "failed": failed, "skipped": skipped,
+        "count": len(resumed),
+    })
+
+
+@api_bp.route("/bot/bulk_enabled", methods=["POST"])
+def set_bulk_enabled():
+    """종목별 전체 제어 ON/OFF 토글. settings.yaml에 영구 저장 + 메모리 즉시 반영."""
+    import os
+    import yaml
+
+    body    = request.get_json(silent=True) or {}
+    symbol  = (body.get("symbol") or "").upper().strip()
+    enabled = bool(body.get("enabled"))
+
+    bot_manager = current_app.config["BOT_MANAGER"]
+    if not bot_manager.set_bulk_enabled(symbol, enabled):
+        return jsonify({"ok": False, "message": f"알 수 없는 심볼: {symbol}"}), 400
+
+    try:
+        yaml_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "config", "settings.yaml")
+        )
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        raw.setdefault("pairs", {}).setdefault(symbol, {})["bulk_enabled"] = enabled
+        with open(yaml_path, "w", encoding="utf-8") as f:
+            yaml.dump(raw, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+    except Exception as exc:
+        _log.error("bulk_enabled 저장 오류: %s", exc)
+        return jsonify({"ok": True, "message": f"{symbol} 전체제어 {'ON' if enabled else 'OFF'} (메모리만, 저장실패)"})
+
+    _log.info("[전체제어] %s = %s", symbol, "ON" if enabled else "OFF")
+    return jsonify({"ok": True, "message": f"{symbol} 전체제어 {'ON' if enabled else 'OFF'}"})
 
 
 @api_bp.route("/pnl/today")
@@ -365,6 +407,10 @@ def get_cumulative_pnl():
 
     rows = get_cumulative_totals()
 
+    sym_filter = (request.args.get("symbol") or "").upper().strip()
+    if sym_filter:
+        rows = [r for r in rows if r.get("symbol") == sym_filter]
+
     grand_buy  = 0.0
     grand_sell = 0.0
     symbols    = []
@@ -412,6 +458,9 @@ def get_pnl_daily():
 
     bot_manager = current_app.config["BOT_MANAGER"]
     symbols     = list(bot_manager.symbols)
+    sym_filter  = (request.args.get("symbol") or "").upper().strip()
+    if sym_filter and sym_filter in symbols:
+        symbols = [sym_filter]
 
     try:
         days = int(request.args.get("days", 30))
@@ -461,6 +510,9 @@ def get_pnl_hourly():
 
     bot_manager = current_app.config["BOT_MANAGER"]
     symbols     = list(bot_manager.symbols)
+    sym_filter  = (request.args.get("symbol") or "").upper().strip()
+    if sym_filter and sym_filter in symbols:
+        symbols = [sym_filter]
 
     try:
         days = int(request.args.get("days", 30))
@@ -491,6 +543,9 @@ def get_pnl_stats():
 
     bot_manager = current_app.config["BOT_MANAGER"]
     symbols     = list(bot_manager.symbols)
+    sym_filter  = (request.args.get("symbol") or "").upper().strip()
+    if sym_filter and sym_filter in symbols:
+        symbols = [sym_filter]
 
     try:
         days = int(request.args.get("days", 30))

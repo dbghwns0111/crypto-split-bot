@@ -203,6 +203,36 @@ body {
   border-bottom: 1px solid var(--cs-border);
   transition: background 0.1s;
 }
+
+/* 전체 제어 바 */
+.cs-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 6px;
+}
+.cs-bulk-label { font-size: 14px; font-weight: 600; color: var(--cs-text); }
+.cs-bulk-actions { display: flex; gap: 8px; }
+.cs-bulk-hint { padding: 0 16px 10px; font-size: 11px; color: var(--cs-muted); }
+
+/* 가동/중지 배지 */
+.cs-run-badge { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 6px; }
+.cs-run-badge.on  { color: var(--cs-green); background: rgba(0,200,150,0.12); }
+.cs-run-badge.off { color: var(--cs-muted); background: rgba(122,138,170,0.12); }
+
+/* ON/OFF 토글 스위치 */
+.cs-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+.cs-switch input { opacity: 0; width: 0; height: 0; }
+.cs-switch-slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: var(--cs-border); border-radius: 22px; transition: 0.2s;
+}
+.cs-switch-slider::before {
+  content: ""; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 3px;
+  background: #fff; border-radius: 50%; transition: 0.2s;
+}
+.cs-switch input:checked + .cs-switch-slider { background: var(--cs-green); }
+.cs-switch input:checked + .cs-switch-slider::before { transform: translateX(18px); }
 .cs-coin-row:active { background: var(--cs-card); }
 .cs-coin-info {
   flex: 1;

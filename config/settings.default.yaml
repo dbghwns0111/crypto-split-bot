@@ -4,7 +4,8 @@ exchange:
 pairs:
   ETH:
     ticker: KRW-ETH
-    enabled: true
+    enabled: true          # 봇 인스턴스 생성 여부
+    bulk_enabled: true     # 전체 가동/중지 명령 대상 여부 (OFF면 /resumeall·전체버튼에서 제외)
     capital: 2500000
     order_amount: 10000
     max_rounds: 50
@@ -14,6 +15,7 @@ pairs:
   USDT:
     ticker: KRW-USDT
     enabled: true
+    bulk_enabled: true
     capital: 2500000
     order_amount: 10000
     max_rounds: 50

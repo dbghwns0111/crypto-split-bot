@@ -21,6 +21,14 @@
 
   <!-- ── 탭 1: 실시간 시세 ── -->
   <div id="home-tab-realtime" class="cs-tab-panel active">
+    <div class="cs-bulk-bar">
+      <span class="cs-bulk-label">전체 제어</span>
+      <div class="cs-bulk-actions">
+        <button class="cs-btn cs-btn-success cs-btn-sm" id="bulk-start-btn">전체 가동</button>
+        <button class="cs-btn cs-btn-danger cs-btn-sm" id="bulk-stop-btn">전체 중지</button>
+      </div>
+    </div>
+    <div class="cs-bulk-hint">ON 종목만 전체 가동/중지가 적용됩니다. (개별 종목 토글)</div>
     <div id="market-price-list" class="cs-coin-list"></div>
   </div>
 
@@ -42,12 +50,19 @@
       </div>
     </div>
 
-    <!-- 기간 선택 -->
+    <!-- 기간 / 코인 선택 -->
     <div class="cs-sort-bar">
       <select class="cs-sort-select" id="pnl-period">
         <option value="7">최근 7일</option>
         <option value="30" selected>최근 30일</option>
         <option value="90">최근 90일</option>
+      </select>
+      <select class="cs-sort-select" id="pnl-symbol">
+        <option value="">전체</option>
+        <option value="BTC">BTC</option>
+        <option value="ETH">ETH</option>
+        <option value="XRP">XRP</option>
+        <option value="USDT">USDT</option>
       </select>
     </div>
 

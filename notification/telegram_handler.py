@@ -154,9 +154,10 @@ class TelegramCommandHandler:
             "           trigger_krw / max_rounds\n"
             "           order_amount\n"
             "\n"
-            "⏹ 전체 제어\n"
+            "⏹ 전체 제어  (OFF 종목 제외)\n"
             "/stopall    — 전체 봇 중지\n"
-            "/resumeall  — 중지된 봇 전체 재시작"
+            "/resumeall  — 중지된 봇 전체 재시작\n"
+            "  ※ ON/OFF는 웹 실시간 탭에서 설정"
         )
 
     def _cmd_status(self) -> str:
@@ -368,25 +369,31 @@ class TelegramCommandHandler:
 
     def _cmd_stop_all(self) -> str:
         stopped = self._bot_manager.stop_all()
+        off = [s for s in self._bot_manager.symbols if not self._bot_manager.is_bulk_enabled(s)]
         if not stopped:
-            return "실행 중인 봇이 없습니다."
-        return "⏹️ 전체 봇 중지 완료\n─────────────────\n" + ", ".join(stopped)
+            msg = "전체 제어 대상 중 실행 중인 봇이 없습니다."
+            if off:
+                msg += f"\n⏸ 제외(OFF): {', '.join(off)}"
+            return msg
+        lines = ["⏹️ 전체 봇 중지 완료", "─────────────────", ", ".join(stopped)]
+        if off:
+            lines.append(f"⏸ 제외(OFF): {', '.join(off)}")
+        return "\n".join(lines)
 
     def _cmd_resume_all(self) -> str:
-        resumed, failed = [], []
-        for sym in self._bot_manager.symbols:
-            status = self._bot_manager.get_status(sym)
-            if status.get("running"):
-                continue
-            ok, _ = self._bot_manager.start(sym, fresh=False)
-            (resumed if ok else failed).append(sym)
+        resumed, failed, skipped = self._bot_manager.start_all(fresh=False)
         if not resumed and not failed:
-            return "모든 봇이 이미 실행 중입니다."
+            msg = "재시작할 봇이 없습니다 (모두 실행 중이거나 OFF)."
+            if skipped:
+                msg += f"\n⏸ 제외(OFF): {', '.join(skipped)}"
+            return msg
         lines = ["▶ 전체 봇 재시작", "─────────────────"]
         if resumed:
             lines.append(f"재시작: {', '.join(resumed)}")
         if failed:
             lines.append(f"실패: {', '.join(failed)}")
+        if skipped:
+            lines.append(f"⏸ 제외(OFF): {', '.join(skipped)}")
         return "\n".join(lines)
 
     def _cmd_report(self) -> str:

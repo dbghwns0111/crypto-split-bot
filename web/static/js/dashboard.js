@@ -32,6 +32,9 @@ const API = {
     stop:             '/api/bot/stop',
     reset:            '/api/bot/reset',
     botGap:           '/api/bot/gap',
+    startAll:         '/api/bot/start_all',
+    stopAll:          '/api/bot/stop_all',
+    bulkEnabled:      '/api/bot/bulk_enabled',
 };
 
 const COIN_META = {
@@ -66,6 +69,8 @@ let _stratInputsUserSet = false;
 let _pnlChart        = null;
 let _pnlHourlyChart  = null;
 let _pnlPeriod       = 30;
+let _pnlSymbol       = '';      // '' = 전체
+let _pendingBulk     = null;    // 'start' | 'stop'
 
 let _tradesActiveSubTab = 'fills';
 let _tradesStart        = '';
@@ -106,6 +111,17 @@ document.addEventListener('DOMContentLoaded', () => {
         _pnlPeriod = parseInt(pnlPeriod.value) || 30;
         _fetchPnlChart();
     });
+
+    // 누적손익 코인 선택 (전체/코인별)
+    const pnlSymbol = document.getElementById('pnl-symbol');
+    if (pnlSymbol) pnlSymbol.addEventListener('change', () => {
+        _pnlSymbol = pnlSymbol.value || '';
+        _fetchCumulative();
+    });
+
+    // 실시간 전체 제어 버튼
+    document.getElementById('bulk-start-btn')?.addEventListener('click', () => _confirmBulk('start'));
+    document.getElementById('bulk-stop-btn')?.addEventListener('click',  () => _confirmBulk('stop'));
 
     // 거래소자산 새로고침 버튼
     const refreshBtn = document.getElementById('assets-refresh-btn');
@@ -282,11 +298,14 @@ async function _fetchActivePage() {
 // ── 탭 1: 실시간 시세 ────────────────────────────────────────────────────────
 
 async function _fetchMarketPrices() {
-    const data = await _fetchJson(API.marketPrices);
-    _renderMarketPrices(data);
+    const [prices, status] = await Promise.all([
+        _fetchJson(API.marketPrices),
+        _fetchJson(API.status).catch(() => ({})),
+    ]);
+    _renderMarketPrices(prices, status || {});
 }
 
-function _renderMarketPrices(data) {
+function _renderMarketPrices(data, status) {
     const list = document.getElementById('market-price-list');
     if (!list) return;
 
@@ -299,35 +318,86 @@ function _renderMarketPrices(data) {
                 <div class="cs-coin-icon ${meta.css}">${meta.letter}</div>
                 <div class="cs-coin-info">
                     <span class="cs-coin-name">${meta.name}</span>
-                    <span class="cs-coin-symbol">${sym}</span>
+                    <span class="cs-coin-symbol">${sym} <span class="cs-run-badge" id="run-${sym}"></span></span>
                 </div>
                 <div class="cs-coin-price">
                     <span class="cs-coin-price-value" id="mkt-${sym}">-</span>
-                </div>`;
+                </div>
+                <label class="cs-switch" title="전체 제어 ON/OFF">
+                    <input type="checkbox" id="bulk-${sym}" data-symbol="${sym}">
+                    <span class="cs-switch-slider"></span>
+                </label>`;
             list.appendChild(row);
+            row.querySelector(`#bulk-${sym}`)?.addEventListener('change', e =>
+                _toggleBulkEnabled(sym, e.target.checked));
         });
     }
 
-    Object.entries(data).forEach(([sym, info]) => {
+    Object.entries(data || {}).forEach(([sym, info]) => {
         const el = document.getElementById(`mkt-${sym}`);
         if (el) el.textContent = info.price ? `${Math.round(info.price).toLocaleString()}원` : '-';
     });
+
+    MARKET_COINS.forEach(sym => {
+        const st    = (status || {})[sym] || {};
+        const badge = document.getElementById(`run-${sym}`);
+        if (badge) {
+            const running = !!st.running;
+            badge.textContent = running ? '가동중' : '중지';
+            badge.className   = `cs-run-badge ${running ? 'on' : 'off'}`;
+        }
+        const tg = document.getElementById(`bulk-${sym}`);
+        if (tg && document.activeElement !== tg) {
+            tg.checked = st.bulk_enabled !== false;  // 기본 ON
+        }
+    });
+}
+
+async function _toggleBulkEnabled(symbol, enabled) {
+    try {
+        const resp = await fetch(API.bulkEnabled, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ symbol, enabled }),
+        });
+        const data = await resp.json();
+        _showAlert(data.message || `${symbol} 전체제어 ${enabled ? 'ON' : 'OFF'}`,
+                   data.ok ? 'success' : 'warning');
+    } catch {
+        _showAlert('전체제어 설정 변경 실패', 'danger');
+    }
+}
+
+function _confirmBulk(action) {
+    _pendingBulk = action;
+    if (action === 'stop') {
+        _setEl('modalTitle', '전체 중지 확인');
+        _setEl('modalBody',  '전체 제어 ON 종목의 자동매매를 모두 중지하시겠습니까?\n미체결 주문이 취소됩니다. (OFF 종목 제외)');
+        document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
+    } else {
+        _setEl('modalTitle', '전체 가동 확인');
+        _setEl('modalBody',  '전체 제어 ON 종목을 모두 재시작(이전 상태 복원)하시겠습니까?\n(OFF 종목 제외)');
+        document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
+    }
+    _modal.show();
 }
 
 // ── 탭 2: 누적손익 ────────────────────────────────────────────────────────────
 
 async function _fetchCumulative() {
-    const data = await _fetchJson(API.cumulative);
+    const sp   = _pnlSymbol ? `?symbol=${_pnlSymbol}` : '';
+    const data = await _fetchJson(`${API.cumulative}${sp}`);
     _renderCumulative(data);
     await _fetchPnlChart();
 }
 
 async function _fetchPnlChart() {
     try {
+        const sp = _pnlSymbol ? `&symbol=${_pnlSymbol}` : '';
         const [daily, stats, hourly] = await Promise.all([
-            _fetchJson(`${API.pnlDaily}?days=${_pnlPeriod}`),
-            _fetchJson(`${API.pnlStats}?days=${_pnlPeriod}`),
-            _fetchJson(`${API.pnlHourly}?days=${_pnlPeriod}`),
+            _fetchJson(`${API.pnlDaily}?days=${_pnlPeriod}${sp}`),
+            _fetchJson(`${API.pnlStats}?days=${_pnlPeriod}${sp}`),
+            _fetchJson(`${API.pnlHourly}?days=${_pnlPeriod}${sp}`),
         ]);
         _renderPnlStats(stats);
         _renderPnlChart(daily);
@@ -935,6 +1005,36 @@ async function _executeAction() {
         _pendingDeleteFn = null;
         _modal.hide();
         await fn();
+        return;
+    }
+
+    // 전체 가동/중지 처리
+    if (_pendingBulk) {
+        const act = _pendingBulk;
+        _pendingBulk = null;
+        _modal.hide();
+        const url = act === 'stop' ? API.stopAll : API.startAll;
+        try {
+            const resp = await fetch(url, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+            });
+            const data = await resp.json();
+            let msg;
+            if (act === 'stop') {
+                msg = (data.stopped && data.stopped.length)
+                    ? `전체 중지: ${data.stopped.join(', ')}` : '중지할 봇이 없습니다.';
+            } else {
+                const parts = [];
+                if (data.resumed && data.resumed.length) parts.push(`재시작: ${data.resumed.join(', ')}`);
+                if (data.skipped && data.skipped.length) parts.push(`제외(OFF): ${data.skipped.join(', ')}`);
+                msg = parts.length ? parts.join(' / ') : '재시작할 봇이 없습니다.';
+            }
+            _showAlert(msg, 'success');
+            await _fetchMarketPrices();
+            if (_activePage === 'strategy') await _fetchStrategy();
+        } catch {
+            _showAlert('요청 처리 중 오류가 발생했습니다.', 'danger');
+        }
         return;
     }
 
