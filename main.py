@@ -23,6 +23,7 @@ from notification.scheduler import NotificationScheduler
 from notification.telegram import TelegramNotifier
 from notification.telegram_handler import TelegramCommandHandler
 from utils.logger import get_logger
+from utils.single_instance import acquire_single_instance_lock
 from utils.time_sync import sync_windows_time
 from web.app import create_app
 
@@ -104,6 +105,14 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = get_config()
+
+    # 단일 인스턴스 보장 — 중복 실행 시 즉시 종료
+    # (중복 프로세스가 텔레그램을 동시 polling 하면 현황이 가동·중지 섞여 발송됨)
+    if not acquire_single_instance_lock():
+        msg = "이미 다른 CryptoSplit 인스턴스가 실행 중입니다. 중복 실행을 막기 위해 종료합니다."
+        _log.error(msg)
+        print(msg, file=sys.stderr)
+        sys.exit(1)
 
     # DB 초기화
     db_path = cfg.get("database", {}).get("path", "data/cryptosplit.db")

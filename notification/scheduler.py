@@ -19,7 +19,12 @@ class NotificationScheduler:
         self._bot_manager = bot_manager
         self._exchange    = exchange
         self._cfg         = cfg
-        self._scheduler   = BackgroundScheduler(timezone="Asia/Seoul")
+        # coalesce=True: 밀린 실행을 1회로 합침, max_instances=1: 동시 중복 실행 차단
+        # (NTP 시계 보정 등으로 동일 잡이 중복 발사되어 현황이 두 번 오는 것을 방지)
+        self._scheduler   = BackgroundScheduler(
+            timezone="Asia/Seoul",
+            job_defaults={"coalesce": True, "max_instances": 1},
+        )
         self._register_jobs()
 
     # ── 생명주기 ──────────────────────────────────────────────────────────────
