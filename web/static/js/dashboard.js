@@ -44,7 +44,7 @@ const COIN_META = {
     USDT:  { name: '테더',      letter: 'USDT', css: 'cs-coin-USDT'  },
 };
 
-const MARKET_COINS = ['BTC', 'ETH', 'USDT', 'XRP'];
+const MARKET_COINS = ['BTC', 'ETH', 'XRP', 'USDT'];
 
 const POLL = { realtime: 4000, pnl: 15000, assets: 20000, strategy: 3000 };
 
@@ -803,6 +803,21 @@ async function _savePriceEdit(sym) {
 // ── 모달 (기존 로직 유지) ─────────────────────────────────────────────────────
 
 function _openConfirm(symbol, action) {
+    // OFF 종목은 시작 차단 → ON 변경 안내 팝업
+    if (action === 'start_resume' || action === 'start_fresh') {
+        const sd = _stratData?.symbols?.find(s => s.symbol === symbol);
+        if (sd && sd.bulk_enabled === false) {
+            _pendingAction = _pendingSymbol = null;
+            _setEl('modalTitle', `${symbol} 전체제어 OFF`);
+            _setEl('modalBody',
+                `${symbol} 종목이 전체제어 OFF 상태입니다.\n` +
+                `실시간 탭에서 ${symbol}를 ON으로 변경한 뒤 시작해 주세요.`);
+            const btn = document.getElementById('confirmBtn');
+            if (btn) btn.className = 'cs-btn cs-btn-secondary';
+            _modal.show();
+            return;
+        }
+    }
     if (action === 'start_resume') {
         _openGapCheck(symbol, false);
         return;
@@ -1038,7 +1053,7 @@ async function _executeAction() {
         return;
     }
 
-    if (!_pendingAction || !_pendingSymbol) return;
+    if (!_pendingAction || !_pendingSymbol) { _modal.hide(); return; }
     const action = _pendingAction;
     const symbol = _pendingSymbol;
     _pendingAction = _pendingSymbol = null;

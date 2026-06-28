@@ -768,6 +768,7 @@ def get_strategy():
             "symbol":           sym,
             "ticker":           ticker,
             "running":          status.get("running", False),
+            "bulk_enabled":     status.get("bulk_enabled", True),
             "current_price":    round(current_price),
             "reference_price":  round(reference_price),
             "start_price":      round(start_price),

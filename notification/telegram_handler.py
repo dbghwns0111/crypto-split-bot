@@ -116,6 +116,10 @@ class TelegramCommandHandler:
             return self._cmd_pnl()
         if cmd == "set":
             return self._cmd_set(args)
+        if cmd == "on":
+            return self._cmd_bulk(args, True)
+        if cmd == "off":
+            return self._cmd_bulk(args, False)
         if cmd == "start":
             return self._cmd_start(args, fresh=True)
         if cmd == "resume":
@@ -157,7 +161,10 @@ class TelegramCommandHandler:
             "⏹ 전체 제어  (OFF 종목 제외)\n"
             "/stopall    — 전체 봇 중지\n"
             "/resumeall  — 중지된 봇 전체 재시작\n"
-            "  ※ ON/OFF는 웹 실시간 탭에서 설정"
+            "\n"
+            "🔘 전체제어 ON/OFF  (예: USDT)\n"
+            "/on USDT    — 전체 명령 대상 포함\n"
+            "/off USDT   — 전체 명령에서 제외"
         )
 
     def _cmd_status(self) -> str:
@@ -329,6 +336,37 @@ class TelegramCommandHandler:
 
         _log.info("[/set] %s.%s = %s", symbol, param, value)
         return f"✅ {symbol} {param} = {value}  (즉시 반영됨)"
+
+    def _cmd_bulk(self, args: list[str], enabled: bool) -> str:
+        """종목별 전체제어 ON/OFF (전체 가동/중지 명령 대상 포함 여부)."""
+        import os
+        import yaml
+
+        if not args:
+            cmd = "on" if enabled else "off"
+            return f"심볼을 지정하세요. 예: /{cmd} USDT"
+        symbol = args[0].upper()
+
+        if not self._bot_manager.set_bulk_enabled(symbol, enabled):
+            return f"❌ 알 수 없는 심볼: {symbol}"
+
+        try:
+            yaml_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "config", "settings.yaml")
+            )
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                raw_cfg = yaml.safe_load(f) or {}
+            raw_cfg.setdefault("pairs", {}).setdefault(symbol, {})["bulk_enabled"] = enabled
+            with open(yaml_path, "w", encoding="utf-8") as f:
+                yaml.dump(raw_cfg, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        except Exception as exc:
+            _log.error("/on·off 저장 실패: %s", exc)
+            return f"{'🟢' if enabled else '⏸'} {symbol} 전체제어 {'ON' if enabled else 'OFF'} (메모리만, 저장실패)"
+
+        _log.info("[전체제어] %s = %s", symbol, "ON" if enabled else "OFF")
+        if enabled:
+            return f"🟢 {symbol} 전체제어 ON\n전체 가동/중지 명령에 포함됩니다."
+        return f"⏸ {symbol} 전체제어 OFF\n전체 가동/중지 명령에서 제외됩니다."
 
     def _cmd_start(self, args: list[str], fresh: bool) -> str:
         if not args:
