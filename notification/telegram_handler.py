@@ -162,9 +162,9 @@ class TelegramCommandHandler:
             "/stopall    — 전체 봇 중지\n"
             "/resumeall  — 중지된 봇 전체 재시작\n"
             "\n"
-            "🔘 전체제어 ON/OFF  (예: USDT)\n"
-            "/on USDT    — 전체 명령 대상 포함\n"
-            "/off USDT   — 전체 명령에서 제외"
+            "🔘 전체제어 ON/OFF  (예: BTC)\n"
+            "/on BTC    — 전체 명령 대상 포함\n"
+            "/off BTC   — 전체 명령에서 제외"
         )
 
     def _cmd_status(self) -> str:
