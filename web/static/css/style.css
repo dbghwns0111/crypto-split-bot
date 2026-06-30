@@ -1012,6 +1012,29 @@ body {
   white-space: nowrap;
   text-transform: none;
 }
+/* 헤더 멤버십 등급 뱃지 — 항상 노출, 티어 컬러로 채움 */
+.cs-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: #fff;
+  background: var(--tier-color);
+  box-shadow: 0 0 8px var(--tier-color);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.cs-tier-badge::before {
+  content: '★';
+  font-size: 10px;
+  line-height: 1;
+}
+
 /* [Design C] 멤버십 설정 카드 왼쪽 컬러 라인 + 배경 그라디언트 */
 #membership-settings-card {
   border-left: 3px solid var(--tier-color);

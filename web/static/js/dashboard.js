@@ -183,6 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
     _initHomeTabs();
     _initTradesPage();
     _initSettingsPage();
+    _initTier();
 
     // F5 새로고침 후 이전 탭 상태 복원
     const _savedPage      = sessionStorage.getItem('cs-page')       || 'home';
@@ -1924,6 +1925,25 @@ function _applyTierColor(name) {
     root.style.setProperty('--tier-color-mid', `rgba(${r},${g},${b},0.35)`);
     const badge = document.getElementById('tier-badge-settings');
     if (badge) badge.textContent = name;
+    // 모든 페이지 헤더 등급 뱃지 갱신 (탭과 무관하게 항상 일관 표시)
+    document.querySelectorAll('.js-tier-badge').forEach(el => { el.textContent = name; });
+    // 새로고침 깜빡임 방지용 캐시
+    try { localStorage.setItem('cs-tier', name); } catch (_) {}
+}
+
+// 페이지 로드 시 등급을 즉시 적용한다 (설정 탭 진입 전에도 모든 탭에 일관 적용).
+function _initTier() {
+    // 1) 캐시된 등급 즉시 적용 — 새로고침 시 흰색 깜빡임 방지
+    let cached = null;
+    try { cached = localStorage.getItem('cs-tier'); } catch (_) {}
+    if (cached) _applyTierColor(cached);
+    // 2) 서버 권위값으로 갱신 (탭 진입 여부와 무관)
+    _fetchJson('/api/settings')
+        .then(data => {
+            const m = data?.exchange?.membership;
+            if (m) _applyTierColor(m);
+        })
+        .catch(() => {});
 }
 
 async function _fetchSettings() {

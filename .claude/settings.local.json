@@ -12,7 +12,10 @@
       "Bash(python *)",
       "WebSearch",
       "WebFetch(domain:apidocs.bithumb.com)",
-      "WebFetch(domain:api.bithumb.com)"
+      "WebFetch(domain:api.bithumb.com)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }
