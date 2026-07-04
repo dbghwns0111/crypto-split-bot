@@ -180,12 +180,23 @@ def get_orders(symbol: str, limit: int = 100) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def get_cumulative_totals() -> list[dict]:
+def get_cumulative_totals(
+    start: Optional[str] = None, end: Optional[str] = None
+) -> list[dict]:
     """심볼별 실현손익 합계 — 완료된 매도 주문과 매칭된 매수 금액만 집계한다.
     미체결 포지션(아직 팔지 않은 매수)은 포함하지 않는다.
+
+    start/end (YYYY-MM-DD) 를 주면 해당 기간에 '매도 체결'된 건만 집계한다.
+    둘 중 하나라도 없으면 전체 기간(all-time)을 집계한다.
     """
+    where  = "WHERE s.side = 'sell' AND s.status = 'filled'"
+    params: list = []
+    if start and end:
+        where += " AND date(s.filled_at) BETWEEN ? AND ?"
+        params += [start, end]
+
     rows = _conn().execute(
-        """
+        f"""
         SELECT s.symbol,
                COALESCE(SUM(b.amount), 0) AS total_buy,
                COALESCE(SUM(s.amount), 0) AS total_sell,
@@ -208,11 +219,29 @@ def get_cumulative_totals() -> list[dict]:
                 LIMIT 1
             )
         )
-        WHERE s.side = 'sell' AND s.status = 'filled'
+        {where}
         GROUP BY s.symbol
-        """
+        """,
+        params,
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_first_filled_date(symbols: list) -> Optional[str]:
+    """지정 심볼들 중 가장 이른 체결일(YYYY-MM-DD)을 반환한다. 없으면 None."""
+    if not symbols:
+        return None
+    placeholders = ",".join("?" * len(symbols))
+    row = _conn().execute(
+        f"""
+        SELECT MIN(date(filled_at)) AS d
+        FROM orders
+        WHERE status = 'filled' AND filled_at IS NOT NULL
+          AND symbol IN ({placeholders})
+        """,
+        list(symbols),
+    ).fetchone()
+    return row["d"] if row and row["d"] else None
 
 
 def get_position_cost(symbol: str) -> float:

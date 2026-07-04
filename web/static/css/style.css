@@ -925,6 +925,19 @@ body {
 .cs-trades-panel { display: none; }
 .cs-trades-panel.active { display: block; animation: cs-fade-in 0.15s ease; }
 .cs-trades-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* 투자내역 페이지 이동 컨트롤 */
+.cs-trade-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 4px 4px;
+}
+.cs-page-info {
+  font-size: 12px;
+  color: var(--cs-muted);
+  white-space: nowrap;
+}
 .cs-pnl-positive { color: var(--cs-green); font-weight: 700; }
 .cs-pnl-negative { color: var(--cs-red);   font-weight: 700; }
 .cs-pnl-zero     { color: var(--cs-muted); }

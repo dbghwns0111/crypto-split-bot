@@ -400,12 +400,47 @@ def get_investment():
     })
 
 
+def _resolve_days(days: int, symbols: list) -> int:
+    """days>0 이면 [1,365]로 클램프, days<=0(전체)이면 최초 체결일 기준 일수로 환산."""
+    if days > 0:
+        return max(1, min(days, 365))
+    from datetime import datetime
+
+    from database.order_repo import get_first_filled_date
+    from utils.time_utils import now_kst
+
+    first = get_first_filled_date(symbols)
+    if not first:
+        return 1
+    try:
+        fd = datetime.strptime(first, "%Y-%m-%d").date()
+        return max(1, min((now_kst().date() - fd).days + 1, 365))
+    except Exception:
+        return 1
+
+
 @api_bp.route("/pnl/cumulative")
 def get_cumulative_pnl():
-    """누적손익 탭: 전체 체결 기준 심볼별 매수/매도 합계."""
-    from database.order_repo import get_cumulative_totals
+    """누적손익 탭: 기간별 심볼별 매수/매도 합계. ?days=0(전체) 기본."""
+    from datetime import timedelta
 
-    rows = get_cumulative_totals()
+    from database.order_repo import get_cumulative_totals
+    from utils.time_utils import now_kst
+
+    # 기간 파싱: days<=0 = 전체(all-time, 날짜 필터 없음)
+    try:
+        days = int(request.args.get("days", 0))
+    except (TypeError, ValueError):
+        days = 0
+
+    start = end = None
+    if days > 0:
+        days  = min(days, 3650)
+        today = now_kst().date()
+        start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+        end   = today.strftime("%Y-%m-%d")
+
+    rows = get_cumulative_totals(start, end)
 
     sym_filter = (request.args.get("symbol") or "").upper().strip()
     if sym_filter:
@@ -466,7 +501,7 @@ def get_pnl_daily():
         days = int(request.args.get("days", 30))
     except (TypeError, ValueError):
         days = 30
-    days = max(1, min(days, 365))
+    days = _resolve_days(days, symbols)
 
     today      = now_kst().date()
     start_date = today - timedelta(days=days - 1)
@@ -518,7 +553,7 @@ def get_pnl_hourly():
         days = int(request.args.get("days", 30))
     except (TypeError, ValueError):
         days = 30
-    days = max(1, min(days, 365))
+    days = _resolve_days(days, symbols)
 
     today = now_kst().date()
     start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
@@ -551,7 +586,7 @@ def get_pnl_stats():
         days = int(request.args.get("days", 30))
     except (TypeError, ValueError):
         days = 30
-    days = max(1, min(days, 365))
+    days = _resolve_days(days, symbols)
 
     today = now_kst().date()
     start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
@@ -807,7 +842,7 @@ def get_trade_fills():
     if sym == "ALL":
         sym = None
 
-    rows = get_filled_orders_range(symbols, start, end, symbol_filter=sym)
+    rows = get_filled_orders_range(symbols, start, end, symbol_filter=sym, limit=100000)
     fills = []
     for o in rows:
         fills.append({
@@ -839,7 +874,7 @@ def get_trade_pnl():
     if sym == "ALL":
         sym = None
 
-    rows = get_pnl_rounds(symbols, start, end, symbol_filter=sym)
+    rows = get_pnl_rounds(symbols, start, end, symbol_filter=sym, limit=100000)
     rounds = []
     for r in rows:
         rounds.append({

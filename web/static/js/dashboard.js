@@ -81,6 +81,13 @@ let _tradesDeleteMode   = false;
 let _selectedOrderIds   = new Set();
 let _pendingDeleteFn    = null;
 
+// 투자내역 페이징 — 기간 전체 데이터를 받아 요약은 전체로, 표는 페이지 단위로 렌더
+const TRADES_PAGE_SIZE = 50;
+let _fillsAll  = [];
+let _pnlAll    = [];
+let _fillsPage = 1;
+let _pnlPage   = 1;
+
 // ── 초기화 ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -108,8 +115,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // 누적손익 기간 선택 (차트/통계)
     const pnlPeriod = document.getElementById('pnl-period');
     if (pnlPeriod) pnlPeriod.addEventListener('change', () => {
-        _pnlPeriod = parseInt(pnlPeriod.value) || 30;
-        _fetchPnlChart();
+        const v = parseInt(pnlPeriod.value);
+        _pnlPeriod = Number.isNaN(v) ? 30 : v;   // 0 = 전체
+        _fetchCumulative();                       // 요약도 기간 반영
     });
 
     // 누적손익 코인 선택 (전체/코인별)
@@ -386,8 +394,9 @@ function _confirmBulk(action) {
 // ── 탭 2: 누적손익 ────────────────────────────────────────────────────────────
 
 async function _fetchCumulative() {
-    const sp   = _pnlSymbol ? `?symbol=${_pnlSymbol}` : '';
-    const data = await _fetchJson(`${API.cumulative}${sp}`);
+    const p = new URLSearchParams({ days: _pnlPeriod });
+    if (_pnlSymbol) p.set('symbol', _pnlSymbol);
+    const data = await _fetchJson(`${API.cumulative}?${p}`);
     _renderCumulative(data);
     await _fetchPnlChart();
 }
@@ -1524,6 +1533,15 @@ function _initTradesPage() {
     document.getElementById('trades-delete-selected-btn')?.addEventListener('click', _confirmDeleteSelected);
     document.getElementById('trades-delete-range-btn')?.addEventListener('click', _confirmDeleteRange);
 
+    // 페이지 이동 버튼 (이벤트 위임)
+    document.addEventListener('click', e => {
+        const btn = e.target.closest('.cs-page-btn');
+        if (!btn) return;
+        const step = btn.dataset.dir === 'next' ? 1 : -1;
+        if (btn.dataset.pager === 'fills') { _fillsPage += step; _renderTradeFills(); }
+        else                               { _pnlPage   += step; _renderTradePnl();   }
+    });
+
     // 체크박스 변경 이벤트 (이벤트 위임)
     document.addEventListener('change', e => {
         const cb = e.target.closest('.cs-trade-check');
@@ -1692,26 +1710,50 @@ async function _doDeleteRange() {
 async function _fetchTradeFills() {
     const params = new URLSearchParams({ start: _tradesStart, end: _tradesEnd, symbol: _tradesSym });
     const data   = await _fetchJson(`${API.tradeFills}?${params}`);
-    _renderTradeFills(data.fills || []);
+    _fillsAll  = data.fills || [];
+    _fillsPage = 1;
+    _renderTradeFills();
 }
 
 async function _fetchTradePnl() {
     const params = new URLSearchParams({ start: _tradesStart, end: _tradesEnd, symbol: _tradesSym });
     const data   = await _fetchJson(`${API.tradePnl}?${params}`);
-    _renderTradePnl(data.rounds || []);
+    _pnlAll  = data.rounds || [];
+    _pnlPage = 1;
+    _renderTradePnl();
 }
 
-function _renderTradeFills(fills) {
+// 페이지 이동 컨트롤 HTML (총 건수 + 이전/다음). 총 건수가 페이지 크기 이하면 빈 문자열.
+function _tradePagerHtml(kind, page, total) {
+    const totalPages = Math.max(1, Math.ceil(total / TRADES_PAGE_SIZE));
+    if (total <= TRADES_PAGE_SIZE) {
+        return `<div class="cs-trade-pager"><span class="cs-page-info">총 ${total.toLocaleString()}건</span></div>`;
+    }
+    return `<div class="cs-trade-pager">
+        <button class="cs-btn cs-btn-secondary cs-btn-sm cs-page-btn" data-pager="${kind}" data-dir="prev" ${page <= 1 ? 'disabled' : ''}>이전</button>
+        <span class="cs-page-info">${page} / ${totalPages} 페이지 · 총 ${total.toLocaleString()}건</span>
+        <button class="cs-btn cs-btn-secondary cs-btn-sm cs-page-btn" data-pager="${kind}" data-dir="next" ${page >= totalPages ? 'disabled' : ''}>다음</button>
+    </div>`;
+}
+
+function _renderTradeFills() {
     const list = document.getElementById('trades-fills-list');
     if (!list) return;
 
+    const fills = _fillsAll;
     if (fills.length === 0) {
         list.innerHTML = '<p class="cs-trade-empty">조회된 체결 내역이 없습니다</p>';
         return;
     }
 
+    // 페이지 범위 보정 후 현재 페이지 슬라이스만 렌더 (요약/삭제는 전체 대상)
+    const totalPages = Math.max(1, Math.ceil(fills.length / TRADES_PAGE_SIZE));
+    _fillsPage = Math.min(Math.max(_fillsPage, 1), totalPages);
+    const startIdx = (_fillsPage - 1) * TRADES_PAGE_SIZE;
+    const pageItems = fills.slice(startIdx, startIdx + TRADES_PAGE_SIZE);
+
     const checkTh = _tradesDeleteMode ? '<th class="cs-trade-check-th"></th>' : '';
-    const rows = fills.map(t => {
+    const rows = pageItems.map(t => {
         const isSell   = t.side === 'sell';
         const sideCls  = isSell ? 'cs-trade-side-sell' : 'cs-trade-side-buy';
         const priceStr = t.filled_price > 0 ? Math.round(t.filled_price).toLocaleString() + '원' : '-';
@@ -1745,14 +1787,15 @@ function _renderTradeFills(fills) {
             </tr></thead>
             <tbody>${rows}</tbody>
         </table>
-    </div>`;
+    </div>${_tradePagerHtml('fills', _fillsPage, fills.length)}`;
 }
 
-function _renderTradePnl(rounds) {
+function _renderTradePnl() {
     const list  = document.getElementById('trades-pnl-list');
     const sumEl = document.getElementById('trades-pnl-summary');
     if (!list) return;
 
+    const rounds = _pnlAll;
     if (rounds.length === 0) {
         list.innerHTML = '<p class="cs-trade-empty">조회된 손익 내역이 없습니다</p>';
         if (sumEl) sumEl.style.display = 'none';
@@ -1814,8 +1857,14 @@ function _renderTradePnl(rounds) {
         </div>`;
     }
 
+    // 페이지 범위 보정 후 현재 페이지 슬라이스만 렌더 (요약은 위에서 전체로 계산)
+    const totalPages = Math.max(1, Math.ceil(rounds.length / TRADES_PAGE_SIZE));
+    _pnlPage = Math.min(Math.max(_pnlPage, 1), totalPages);
+    const startIdx = (_pnlPage - 1) * TRADES_PAGE_SIZE;
+    const pageItems = rounds.slice(startIdx, startIdx + TRADES_PAGE_SIZE);
+
     const checkTh = _tradesDeleteMode ? '<th class="cs-trade-check-th"></th>' : '';
-    const rows = rounds.map(r => {
+    const rows = pageItems.map(r => {
         const buyP   = r.buy_price  > 0 ? Math.round(r.buy_price).toLocaleString()  + '원' : '-';
         const sellP  = r.sell_price > 0 ? Math.round(r.sell_price).toLocaleString() + '원' : '-';
         const qty    = r.quantity || 0;
@@ -1854,7 +1903,7 @@ function _renderTradePnl(rounds) {
             </tr></thead>
             <tbody>${rows}</tbody>
         </table>
-    </div>`;
+    </div>${_tradePagerHtml('pnl', _pnlPage, rounds.length)}`;
 }
 
 // ── 설정 페이지 ───────────────────────────────────────────────────────────────
