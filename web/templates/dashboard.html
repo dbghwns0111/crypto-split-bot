@@ -92,7 +92,9 @@
 
     <!-- 일별 수익 차트 -->
     <div class="cs-chart-box">
-      <canvas id="pnl-daily-chart"></canvas>
+      <div class="cs-chart-canvas-wrap">
+        <canvas id="pnl-daily-chart"></canvas>
+      </div>
     </div>
 
     <!-- 시간대별/요일별 수익 분포 -->
@@ -104,7 +106,9 @@
           <button class="cs-mode-btn" data-mode="weekday">요일별</button>
         </div>
       </div>
-      <canvas id="pnl-hourly-chart"></canvas>
+      <div class="cs-chart-canvas-wrap">
+        <canvas id="pnl-hourly-chart"></canvas>
+      </div>
     </div>
 
     <div class="cs-symbol-list" id="pnl-symbol-list"></div>

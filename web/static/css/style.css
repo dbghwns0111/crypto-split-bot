@@ -471,6 +471,9 @@ body {
   background: var(--cs-card);
   border: 1px solid var(--cs-border);
   border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .cs-chart-box--sm {
   height: 180px;
@@ -479,14 +482,21 @@ body {
   font-size: 11px;
   color: var(--cs-muted);
   margin-bottom: 6px;
+  flex-shrink: 0;
 }
 .cs-chart-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 6px;
+  flex-shrink: 0;
 }
 .cs-chart-title-row .cs-chart-title { margin-bottom: 0; }
+.cs-chart-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
 
 /* ── 버튼 ─────────────────────────────────────────────────────────────────── */
 .cs-btn {

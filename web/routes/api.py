@@ -537,7 +537,7 @@ def get_pnl_daily():
 
 @api_bp.route("/pnl/hourly")
 def get_pnl_hourly():
-    """시간대별(0-23시) 손익 통계. ?days=30 기본."""
+    """시간대별(0-23시) 평균손익 통계 (기간 합산을 일수로 나눈 값). ?days=30 기본."""
     from datetime import timedelta
 
     from database.order_repo import get_hourly_pnl
@@ -560,17 +560,19 @@ def get_pnl_hourly():
     end   = today.strftime("%Y-%m-%d")
 
     rows = get_hourly_pnl(symbols, start, end)
+    # 시간대별 평균손익: 기간 내 매일 각 시간대가 1회씩 존재하므로 days로 나눈다.
+    avg_pnl = [round(r["realized_pnl"] / days) for r in rows]
     return jsonify({
         "days":         days,
         "hours":        [r["hour"] for r in rows],
         "trade_counts": [r["trade_count"] for r in rows],
-        "realized_pnl": [r["realized_pnl"] for r in rows],
+        "avg_pnl":      avg_pnl,
     })
 
 
 @api_bp.route("/pnl/weekday")
 def get_pnl_weekday():
-    """요일별(월-일) 손익 통계. ?days=30 기본."""
+    """요일별(월-일) 평균손익 통계 (기간 합산을 해당 요일 등장 횟수로 나눈 값). ?days=30 기본."""
     from datetime import timedelta
 
     from database.order_repo import get_weekday_pnl
@@ -593,11 +595,27 @@ def get_pnl_weekday():
     end   = today.strftime("%Y-%m-%d")
 
     rows = get_weekday_pnl(symbols, start, end)
+
+    # 요일별 평균손익: 기간 내 해당 요일이 등장한 횟수로 나눈다 (0=월 ... 6=일, date.weekday()와 동일).
+    from datetime import datetime as _dt
+    s_date = _dt.strptime(start, "%Y-%m-%d").date()
+    e_date = _dt.strptime(end, "%Y-%m-%d").date()
+    occurrence = [0] * 7
+    d = s_date
+    while d <= e_date:
+        occurrence[d.weekday()] += 1
+        d += timedelta(days=1)
+
+    avg_pnl = [
+        round(r["realized_pnl"] / occurrence[r["weekday"]]) if occurrence[r["weekday"]] > 0 else 0
+        for r in rows
+    ]
+
     return jsonify({
         "days":         days,
         "weekdays":     [r["weekday"] for r in rows],
         "trade_counts": [r["trade_count"] for r in rows],
-        "realized_pnl": [r["realized_pnl"] for r in rows],
+        "avg_pnl":      avg_pnl,
     })
 
 

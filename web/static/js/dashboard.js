@@ -553,7 +553,7 @@ function _renderDistChart() {
     const canvas = document.getElementById('pnl-hourly-chart');
     if (!canvas || typeof Chart === 'undefined' || !data) return;
 
-    _setEl('dist-chart-title', _hourlyChartMode === 'weekday' ? '요일별 수익 분포' : '시간대별 수익 분포');
+    _setEl('dist-chart-title', _hourlyChartMode === 'weekday' ? '요일별 평균 수익 분포' : '시간대별 평균 수익 분포');
 
     const css    = getComputedStyle(document.documentElement);
     const green  = (css.getPropertyValue('--cs-green')  || '#00c896').trim();
@@ -564,14 +564,14 @@ function _renderDistChart() {
     const labels = _hourlyChartMode === 'weekday'
         ? (data.weekdays || []).map(w => WEEKDAY_LABELS[w] ?? w)
         : (data.hours    || []).map(h => `${h}시`);
-    const pnls      = data.realized_pnl || [];
+    const pnls      = data.avg_pnl || [];
     const barColors = pnls.map(v => (v >= 0 ? green : red));
 
     _distTradeCounts = data.trade_counts || [];
 
     if (_pnlHourlyChart) {
         _pnlHourlyChart.data.labels = labels;
-        _pnlHourlyChart.data.datasets[0].label = _hourlyChartMode === 'weekday' ? '요일별 손익' : '시간대별 손익';
+        _pnlHourlyChart.data.datasets[0].label = _hourlyChartMode === 'weekday' ? '요일별 평균손익' : '시간대별 평균손익';
         _pnlHourlyChart.data.datasets[0].data = pnls;
         _pnlHourlyChart.data.datasets[0].backgroundColor = barColors;
         _pnlHourlyChart.update();
@@ -583,7 +583,7 @@ function _renderDistChart() {
         data: {
             labels,
             datasets: [{
-                label: _hourlyChartMode === 'weekday' ? '요일별 손익' : '시간대별 손익',
+                label: _hourlyChartMode === 'weekday' ? '요일별 평균손익' : '시간대별 평균손익',
                 data: pnls,
                 backgroundColor: barColors,
             }],
