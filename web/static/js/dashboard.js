@@ -20,6 +20,7 @@ const API = {
     pnlDaily:         '/api/pnl/daily',
     pnlStats:         '/api/pnl/stats',
     pnlHourly:        '/api/pnl/hourly',
+    pnlWeekday:       '/api/pnl/weekday',
     assets:           '/api/assets/exchange',
     manualPrice:      '/api/assets/manual-price',
     strategy:         '/api/strategy',
@@ -71,6 +72,13 @@ let _pnlHourlyChart  = null;
 let _pnlPeriod       = 30;
 let _pnlSymbol       = '';      // '' = 전체
 let _pendingBulk     = null;    // 'start' | 'stop'
+
+let _hourlyChartMode = 'hour';  // 'hour' | 'weekday'
+let _lastHourlyData  = null;
+let _lastWeekdayData = null;
+let _distTradeCounts = [];
+
+let _stratGridChart  = null;
 
 let _tradesActiveSubTab = 'fills';
 let _tradesStart        = '';
@@ -125,6 +133,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pnlSymbol) pnlSymbol.addEventListener('change', () => {
         _pnlSymbol = pnlSymbol.value || '';
         _fetchCumulative();
+    });
+
+    // 시간대별/요일별 분포 토글
+    const distToggle = document.getElementById('dist-mode-toggle');
+    if (distToggle) distToggle.addEventListener('click', (e) => {
+        const btn = e.target.closest('.cs-mode-btn');
+        if (!btn) return;
+        _hourlyChartMode = btn.dataset.mode;
+        distToggle.querySelectorAll('.cs-mode-btn').forEach(b =>
+            b.classList.toggle('active', b === btn));
+        _renderDistChart();
     });
 
     // 실시간 전체 제어 버튼
@@ -404,14 +423,17 @@ async function _fetchCumulative() {
 async function _fetchPnlChart() {
     try {
         const sp = _pnlSymbol ? `&symbol=${_pnlSymbol}` : '';
-        const [daily, stats, hourly] = await Promise.all([
+        const [daily, stats, hourly, weekday] = await Promise.all([
             _fetchJson(`${API.pnlDaily}?days=${_pnlPeriod}${sp}`),
             _fetchJson(`${API.pnlStats}?days=${_pnlPeriod}${sp}`),
             _fetchJson(`${API.pnlHourly}?days=${_pnlPeriod}${sp}`),
+            _fetchJson(`${API.pnlWeekday}?days=${_pnlPeriod}${sp}`),
         ]);
         _renderPnlStats(stats);
         _renderPnlChart(daily);
-        _renderHourlyChart(hourly);
+        _lastHourlyData  = hourly;
+        _lastWeekdayData = weekday;
+        _renderDistChart();
     } catch (err) {
         console.error('[CryptoSplit] pnl chart error:', err);
     }
@@ -532,9 +554,14 @@ function _renderPnlChart(data) {
     });
 }
 
-function _renderHourlyChart(data) {
+const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
+
+function _renderDistChart() {
+    const data = _hourlyChartMode === 'weekday' ? _lastWeekdayData : _lastHourlyData;
     const canvas = document.getElementById('pnl-hourly-chart');
     if (!canvas || typeof Chart === 'undefined' || !data) return;
+
+    _setEl('dist-chart-title', _hourlyChartMode === 'weekday' ? '요일별 수익 분포' : '시간대별 수익 분포');
 
     const css    = getComputedStyle(document.documentElement);
     const green  = (css.getPropertyValue('--cs-green')  || '#00c896').trim();
@@ -542,12 +569,17 @@ function _renderHourlyChart(data) {
     const muted  = (css.getPropertyValue('--cs-muted')  || '#7a8aaa').trim();
     const border = (css.getPropertyValue('--cs-border') || '#263354').trim();
 
-    const labels    = (data.hours || []).map(h => `${h}시`);
+    const labels = _hourlyChartMode === 'weekday'
+        ? (data.weekdays || []).map(w => WEEKDAY_LABELS[w] ?? w)
+        : (data.hours    || []).map(h => `${h}시`);
     const pnls      = data.realized_pnl || [];
     const barColors = pnls.map(v => (v >= 0 ? green : red));
 
+    _distTradeCounts = data.trade_counts || [];
+
     if (_pnlHourlyChart) {
         _pnlHourlyChart.data.labels = labels;
+        _pnlHourlyChart.data.datasets[0].label = _hourlyChartMode === 'weekday' ? '요일별 손익' : '시간대별 손익';
         _pnlHourlyChart.data.datasets[0].data = pnls;
         _pnlHourlyChart.data.datasets[0].backgroundColor = barColors;
         _pnlHourlyChart.update();
@@ -559,7 +591,7 @@ function _renderHourlyChart(data) {
         data: {
             labels,
             datasets: [{
-                label: '시간대별 손익',
+                label: _hourlyChartMode === 'weekday' ? '요일별 손익' : '시간대별 손익',
                 data: pnls,
                 backgroundColor: barColors,
             }],
@@ -573,7 +605,7 @@ function _renderHourlyChart(data) {
                     callbacks: {
                         label: (ctx) => `${Math.round(ctx.parsed.y).toLocaleString()}원`,
                         afterLabel: (ctx) => {
-                            const cnt = (data.trade_counts || [])[ctx.dataIndex] || 0;
+                            const cnt = _distTradeCounts[ctx.dataIndex] || 0;
                             return cnt > 0 ? `완료 ${cnt}회` : '';
                         },
                     },
@@ -1254,6 +1286,101 @@ async function _saveStratSettings() {
     } catch { _showAlert('저장 중 오류가 발생했습니다.', 'danger'); }
 }
 
+// ── 그리드 가격 차트 ──────────────────────────────────────────────────────────
+
+function _renderGridChart(rows, currentRound, currentPrice) {
+    const canvas = document.getElementById('strat-grid-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    if (!rows.length) {
+        if (_stratGridChart) { _stratGridChart.destroy(); _stratGridChart = null; }
+        return;
+    }
+
+    const css    = getComputedStyle(document.documentElement);
+    const green  = (css.getPropertyValue('--cs-green')  || '#00c896').trim();
+    const red    = (css.getPropertyValue('--cs-red')    || '#ff4d6d').trim();
+    const accent = (css.getPropertyValue('--cs-accent') || '#4f8ef7').trim();
+    const muted  = (css.getPropertyValue('--cs-muted')  || '#7a8aaa').trim();
+    const border = (css.getPropertyValue('--cs-border') || '#263354').trim();
+
+    const labels     = rows.map(r => `${r.round}차`);
+    const sellPrices = rows.map(r => r.sell_price);
+    const buyPrices  = rows.map(r => r.buy_price);
+    const buyColors  = rows.map(r => (r.round <= currentRound ? green : muted));
+    const buyRadius  = rows.map(r => (r.round <= currentRound ? 4 : 2));
+
+    const datasets = [
+        {
+            label: '매도가',
+            data: sellPrices,
+            borderColor: green,
+            backgroundColor: green,
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0,
+            order: 3,
+        },
+        {
+            label: '매수가',
+            data: buyPrices,
+            borderColor: red,
+            backgroundColor: red,
+            borderWidth: 1.5,
+            pointRadius: buyRadius,
+            pointBackgroundColor: buyColors,
+            pointBorderColor: buyColors,
+            tension: 0,
+            order: 2,
+        },
+    ];
+    if (currentPrice > 0) {
+        datasets.push({
+            label: '현재가',
+            data: rows.map(() => currentPrice),
+            borderColor: accent,
+            backgroundColor: accent,
+            borderWidth: 1.5,
+            borderDash: [5, 4],
+            pointRadius: 0,
+            tension: 0,
+            order: 1,
+        });
+    }
+
+    if (_stratGridChart) {
+        _stratGridChart.data.labels   = labels;
+        _stratGridChart.data.datasets = datasets;
+        _stratGridChart.update();
+        return;
+    }
+
+    _stratGridChart = new Chart(canvas, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: muted, boxWidth: 12, font: { size: 11 } } },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString()}원`,
+                    },
+                },
+            },
+            scales: {
+                x: { ticks: { color: muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } },
+                     grid: { display: false } },
+                y: { ticks: { color: muted, font: { size: 10 },
+                         callback: (v) => `${(v / 1000).toFixed(0)}k` },
+                     grid: { color: border } },
+            },
+        },
+    });
+}
+
 // ── 차수별 예상가 테이블 ──────────────────────────────────────────────────────
 
 function _togglePriceTable() {
@@ -1302,6 +1429,9 @@ async function _calcAndRenderPriceTable() {
         const data = await _fetchJson(`${API.planner}?${params.toString()}`);
         const rows = (data && data.rows) || [];
         const sum  = (data && data.summary) || {};
+
+        const symData = _stratData?.symbols?.find(s => s.symbol === _stratActiveSym);
+        _renderGridChart(rows, symData?.current_round || 0, symData?.current_price || 0);
 
         // 요약: 자본 소진가 / 1회전 예상순수익
         _setEl('strat-calc-exhaust', sum.exhaust_price > 0

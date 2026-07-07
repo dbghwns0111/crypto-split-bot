@@ -438,6 +438,59 @@ def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
     return [by_hour.get(h, {"hour": h, "trade_count": 0, "realized_pnl": 0.0}) for h in range(24)]
 
 
+def get_weekday_pnl(symbols: list, start: str, end: str) -> list[dict]:
+    """기간 내 요일별(월~일) 실현손익을 반환한다. 누락 요일은 0으로 채워 7개 반환.
+
+    weekday: 0=월 ... 6=일 (SQLite strftime('%w')는 0=일이므로 +6 % 7로 변환).
+    """
+    empty = [{"weekday": w, "trade_count": 0, "realized_pnl": 0.0} for w in range(7)]
+    if not symbols:
+        return empty
+    ph = ",".join("?" * len(symbols))
+    rows = _conn().execute(
+        f"""
+        SELECT
+            (CAST(strftime('%w', s.filled_at) AS INTEGER) + 6) % 7 AS weekday,
+            COUNT(*) AS trade_count,
+            SUM(
+                CASE WHEN b.filled_price IS NOT NULL AND b.filled_price > 0
+                     THEN (s.filled_price - b.filled_price) * s.quantity
+                          - (b.amount + s.amount) * 0.0005
+                     ELSE 0 END
+            ) AS realized_pnl
+        FROM orders s
+        LEFT JOIN orders b ON (
+            b.id = (
+                SELECT id FROM orders
+                WHERE symbol  = s.symbol
+                  AND round_no = s.round_no
+                  AND side    = 'buy'
+                  AND status  = 'filled'
+                  AND filled_at <= s.filled_at
+                ORDER BY filled_at DESC
+                LIMIT 1
+            )
+        )
+        WHERE s.side   = 'sell'
+          AND s.status = 'filled'
+          AND s.symbol IN ({ph})
+          AND DATE(s.filled_at) BETWEEN ? AND ?
+        GROUP BY weekday
+        ORDER BY weekday
+        """,
+        (*symbols, start, end),
+    ).fetchall()
+    by_weekday = {
+        r["weekday"]: {
+            "weekday":      r["weekday"],
+            "trade_count":  int(r["trade_count"] or 0),
+            "realized_pnl": round(float(r["realized_pnl"] or 0)),
+        }
+        for r in rows
+    }
+    return [by_weekday.get(w, {"weekday": w, "trade_count": 0, "realized_pnl": 0.0}) for w in range(7)]
+
+
 def delete_orders_by_ids(ids: list) -> tuple:
     """DB id 목록으로 주문을 삭제한다. (삭제 건수, 영향받은 [(symbol, date)] 목록) 반환."""
     if not ids:

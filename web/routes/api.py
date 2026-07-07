@@ -568,6 +568,39 @@ def get_pnl_hourly():
     })
 
 
+@api_bp.route("/pnl/weekday")
+def get_pnl_weekday():
+    """요일별(월-일) 손익 통계. ?days=30 기본."""
+    from datetime import timedelta
+
+    from database.order_repo import get_weekday_pnl
+    from utils.time_utils import now_kst
+
+    bot_manager = current_app.config["BOT_MANAGER"]
+    symbols     = list(bot_manager.symbols)
+    sym_filter  = (request.args.get("symbol") or "").upper().strip()
+    if sym_filter and sym_filter in symbols:
+        symbols = [sym_filter]
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+    days = _resolve_days(days, symbols)
+
+    today = now_kst().date()
+    start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+    end   = today.strftime("%Y-%m-%d")
+
+    rows = get_weekday_pnl(symbols, start, end)
+    return jsonify({
+        "days":         days,
+        "weekdays":     [r["weekday"] for r in rows],
+        "trade_counts": [r["trade_count"] for r in rows],
+        "realized_pnl": [r["realized_pnl"] for r in rows],
+    })
+
+
 @api_bp.route("/pnl/stats")
 def get_pnl_stats():
     """성과 통계 요약 (승률/프로핏팩터/평균손익 등). ?days=30 기본."""

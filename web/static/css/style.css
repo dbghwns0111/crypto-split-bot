@@ -480,6 +480,13 @@ body {
   color: var(--cs-muted);
   margin-bottom: 6px;
 }
+.cs-chart-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.cs-chart-title-row .cs-chart-title { margin-bottom: 0; }
 
 /* ── 버튼 ─────────────────────────────────────────────────────────────────── */
 .cs-btn {
@@ -682,6 +689,12 @@ body {
   font-size: 12px;
   color: var(--cs-muted);
   background: var(--cs-card2);
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-price-table-chart {
+  position: relative;
+  height: 170px;
+  padding: 10px 12px 4px;
   border-bottom: 1px solid var(--cs-border);
 }
 .cs-price-table-scroll { overflow-y: auto; max-height: 280px; }

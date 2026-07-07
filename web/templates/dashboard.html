@@ -95,9 +95,15 @@
       <canvas id="pnl-daily-chart"></canvas>
     </div>
 
-    <!-- 시간대별 수익 분포 -->
+    <!-- 시간대별/요일별 수익 분포 -->
     <div class="cs-chart-box cs-chart-box--sm">
-      <div class="cs-chart-title">시간대별 수익 분포</div>
+      <div class="cs-chart-title-row">
+        <div class="cs-chart-title" id="dist-chart-title">시간대별 수익 분포</div>
+        <div class="cs-mode-toggle" id="dist-mode-toggle">
+          <button class="cs-mode-btn active" data-mode="hour">시간대별</button>
+          <button class="cs-mode-btn" data-mode="weekday">요일별</button>
+        </div>
+      </div>
       <canvas id="pnl-hourly-chart"></canvas>
     </div>
 
@@ -213,6 +219,10 @@
 
     <div class="cs-price-table-wrap" id="strat-price-table-wrap" style="display:none">
       <div class="cs-price-table-info">시작가: <span id="strat-ref-label">-</span> · 수수료·포인트 반영</div>
+      <div class="cs-price-table-chart">
+        <div class="cs-chart-title">그리드 가격 차트 — 매수가·매도가·현재가</div>
+        <canvas id="strat-grid-chart"></canvas>
+      </div>
       <div class="cs-price-table-scroll">
         <table class="cs-price-table">
           <thead>
