@@ -687,6 +687,48 @@ body {
 /* 액션 버튼 */
 .cs-strat-actions { display: flex; gap: 8px; margin-top: 12px; }
 
+/* 차수별 예상가 테이블 */
+.cs-price-table-wrap {
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.cs-price-table-info {
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--cs-muted);
+  background: var(--cs-card2);
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-price-table-scroll { overflow-y: auto; max-height: 280px; }
+.cs-price-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+.cs-price-table th:nth-child(1) { width: 10%; }
+.cs-price-table th:nth-child(2) { width: 20%; }
+.cs-price-table th:nth-child(3) { width: 19%; }
+.cs-price-table th:nth-child(4) { width: 20%; }
+.cs-price-table th:nth-child(5) { width: 14%; }
+.cs-price-table th:nth-child(6) { width: 17%; }
+.cs-price-table th {
+  background: var(--cs-card2);
+  color: var(--cs-muted);
+  font-weight: 600;
+  padding: 7px 6px;
+  text-align: right;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.cs-price-table th:first-child { text-align: center; }
+.cs-price-table td {
+  padding: 6px 6px;
+  text-align: right;
+  border-bottom: 1px solid rgba(38,51,84,0.35);
+  color: var(--cs-text);
+}
+.cs-price-table td:first-child { text-align: center; color: var(--cs-muted); }
+.cs-price-table tbody tr:hover { background: var(--cs-card2); }
+
 /* 전략 모니터링 카드 */
 .cs-strat-card {
   background: var(--cs-card);

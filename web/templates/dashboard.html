@@ -206,9 +206,30 @@
           <span class="cs-strat-calc-label">최대 하락커버</span>
           <span class="cs-strat-calc-val" id="strat-calc-cover">-</span>
         </div>
+        <div class="cs-strat-calc-row">
+          <span class="cs-strat-calc-label">자본 소진가</span>
+          <span class="cs-strat-calc-val" id="strat-calc-exhaust">-</span>
+        </div>
+        <div class="cs-strat-calc-row">
+          <span class="cs-strat-calc-label">1회전 예상순수익</span>
+          <span class="cs-strat-calc-val cs-green" id="strat-calc-totalnet">-</span>
+        </div>
       </div>
       <div class="cs-strat-actions">
         <button class="cs-btn cs-btn-primary cs-btn-sm" id="strat-save-btn">저장</button>
+        <button class="cs-btn cs-btn-secondary cs-btn-sm" id="strat-table-btn">그리드 플래너 ▼</button>
+      </div>
+    </div>
+
+    <div class="cs-price-table-wrap" id="strat-price-table-wrap" style="display:none">
+      <div class="cs-price-table-info">시작가: <span id="strat-ref-label">-</span> · 수수료·포인트 반영</div>
+      <div class="cs-price-table-scroll">
+        <table class="cs-price-table">
+          <thead>
+            <tr><th>차수</th><th>매수가</th><th>수량</th><th>매도가</th><th>하락률</th><th>순수익</th></tr>
+          </thead>
+          <tbody id="strat-price-tbody"></tbody>
+        </table>
       </div>
     </div>
   </div>
