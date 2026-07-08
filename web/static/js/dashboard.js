@@ -495,11 +495,11 @@ function _renderPnlChart(data) {
     if (!canvas || typeof Chart === 'undefined' || !data) return;
 
     const css        = getComputedStyle(document.documentElement);
-    const green      = (css.getPropertyValue('--cs-green') || '#00c896').trim();
-    const red        = (css.getPropertyValue('--cs-red')   || '#ff4d6d').trim();
-    const accent     = (css.getPropertyValue('--cs-accent')|| '#4f8ef7').trim();
-    const muted      = (css.getPropertyValue('--cs-muted') || '#7a8aaa').trim();
-    const border     = (css.getPropertyValue('--cs-border')|| '#263354').trim();
+    const green      = (css.getPropertyValue('--cs-green') || '#00A870').trim();
+    const red        = (css.getPropertyValue('--cs-red')   || '#F04452').trim();
+    const accent     = (css.getPropertyValue('--cs-accent')|| '#3182F6').trim();
+    const muted      = (css.getPropertyValue('--cs-muted') || '#6B7684').trim();
+    const border     = (css.getPropertyValue('--cs-border')|| '#E5E8EB').trim();
 
     const labels     = (data.labels || []).map(d => d.slice(5));  // MM-DD
     const totals     = data.total || [];
@@ -577,10 +577,10 @@ function _renderDistChart() {
     _setEl('dist-chart-title', _hourlyChartMode === 'weekday' ? '요일별 평균 수익 분포' : '시간대별 평균 수익 분포');
 
     const css    = getComputedStyle(document.documentElement);
-    const green  = (css.getPropertyValue('--cs-green')  || '#00c896').trim();
-    const red    = (css.getPropertyValue('--cs-red')    || '#ff4d6d').trim();
-    const muted  = (css.getPropertyValue('--cs-muted')  || '#7a8aaa').trim();
-    const border = (css.getPropertyValue('--cs-border') || '#263354').trim();
+    const green  = (css.getPropertyValue('--cs-green')  || '#00A870').trim();
+    const red    = (css.getPropertyValue('--cs-red')    || '#F04452').trim();
+    const muted  = (css.getPropertyValue('--cs-muted')  || '#6B7684').trim();
+    const border = (css.getPropertyValue('--cs-border') || '#E5E8EB').trim();
 
     const labels = _hourlyChartMode === 'weekday'
         ? (data.weekdays || []).map(w => WEEKDAY_LABELS[w] ?? w)
