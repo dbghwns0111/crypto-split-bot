@@ -16,6 +16,11 @@
   --tier-color:     #9E9E9E;
   --tier-color-dim: rgba(158,158,158,0.12);
   --tier-color-mid: rgba(158,158,158,0.35);
+
+  /* 카드 입체감(그림자) 스케일 */
+  --cs-shadow-sm: 0 2px 6px rgba(0,0,0,0.22);
+  --cs-shadow-md: 0 6px 18px rgba(0,0,0,0.30);
+  --cs-shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
 }
 
 /* ── 리셋 & 기본 ─────────────────────────────────────────────────────────── */
@@ -109,6 +114,7 @@ body {
   z-index: 1000;
 }
 .cs-nav-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -123,6 +129,17 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 .cs-nav-item.active { color: var(--cs-accent); }
+.cs-nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 3px;
+  background: var(--cs-accent);
+  border-radius: 0 0 3px 3px;
+}
 .cs-nav-icon { width: 24px; height: 24px; }
 .cs-nav-label { font-size: 11px; font-weight: 600; white-space: nowrap; }
 
@@ -154,6 +171,7 @@ body {
 .cs-home-tab.active {
   color: var(--cs-accent);
   border-bottom-color: var(--cs-accent);
+  background: rgba(79, 142, 247, 0.06);
 }
 
 /* ── 탭 패널 ─────────────────────────────────────────────────────────────── */
@@ -180,6 +198,7 @@ body {
   color: #fff;
   flex-shrink: 0;
   letter-spacing: -0.5px;
+  object-fit: cover;
 }
 .cs-coin-BTC   { background: #f7931a; }
 .cs-coin-ETH   { background: #627eea; }
@@ -204,6 +223,27 @@ body {
   transition: background 0.1s;
 }
 
+/* 로딩 스켈레톤 */
+.cs-skeleton-block {
+  position: relative;
+  overflow: hidden;
+  background: var(--cs-card2);
+  border-radius: 6px;
+}
+.cs-skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  animation: cs-shimmer 1.4s infinite;
+}
+@keyframes cs-shimmer {
+  100% { transform: translateX(100%); }
+}
+.cs-skeleton-icon  { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; }
+.cs-skeleton-line  { height: 12px; border-radius: 4px; }
+
 /* 전체 제어 바 */
 .cs-bulk-bar {
   display: flex;
@@ -216,9 +256,7 @@ body {
 .cs-bulk-hint { padding: 0 16px 10px; font-size: 11px; color: var(--cs-muted); }
 
 /* 가동/중지 배지 */
-.cs-run-badge { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 6px; }
-.cs-run-badge.on  { color: var(--cs-green); background: rgba(0,200,150,0.12); }
-.cs-run-badge.off { color: var(--cs-muted); background: rgba(122,138,170,0.12); }
+/* 실행중/중지 상태 배지는 .cs-badge(아래 상태 배지 섹션) + on/off 클래스로 통일 */
 
 /* ON/OFF 토글 스위치 */
 .cs-switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
@@ -296,6 +334,7 @@ body {
   border: 1px solid var(--cs-border);
   border-radius: 12px;
   overflow: hidden;
+  box-shadow: var(--cs-shadow-sm);
 }
 .cs-symbol-card-header {
   display: flex;
@@ -375,6 +414,7 @@ body {
   border: 1px solid var(--cs-border);
   border-radius: 12px;
   overflow: hidden;
+  box-shadow: var(--cs-shadow-sm);
 }
 .cs-asset-coin-header {
   display: flex;
@@ -409,22 +449,42 @@ body {
 .cs-save-price-btn   { background: var(--cs-accent); color: #fff; }
 .cs-cancel-price-btn { background: var(--cs-card2); color: var(--cs-muted); border: 1px solid var(--cs-border); }
 
-/* ── 상태 배지 ───────────────────────────────────────────────────────────── */
+/* ── 상태 배지 (실행중/중지 등 on-off 상태를 표시하는 곳에서 공용) ───────────── */
 .cs-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 9px;
+  gap: 5px;
+  padding: 3px 10px;
   border-radius: 20px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
 }
-.cs-badge-running {
+.cs-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cs-badge-running, .cs-badge.on {
   background: rgba(0, 200, 150, 0.15);
   color: var(--cs-green);
 }
-.cs-badge-stopped {
+.cs-badge-running::before, .cs-badge.on::before {
+  background: var(--cs-green);
+  animation: cs-pulse 2s infinite;
+}
+.cs-badge-stopped, .cs-badge.off {
   background: rgba(100, 116, 139, 0.15);
   color: var(--cs-muted);
+}
+.cs-badge-stopped::before, .cs-badge.off::before {
+  background: var(--cs-muted);
+}
+@keyframes cs-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(0, 200, 150, 0.5); }
+  70%  { box-shadow: 0 0 0 5px rgba(0, 200, 150, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 200, 150, 0); }
 }
 
 /* ── 색상 유틸 ───────────────────────────────────────────────────────────── */
@@ -447,6 +507,7 @@ body {
   background: var(--cs-card);
   border: 1px solid var(--cs-border);
   border-radius: 12px;
+  box-shadow: var(--cs-shadow-sm);
 }
 .cs-stat-label {
   font-size: 12px;
@@ -474,6 +535,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: var(--cs-shadow-sm);
 }
 .cs-chart-box--sm {
   height: 180px;
@@ -509,10 +571,11 @@ body {
   font-weight: 600;
   border: none;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: opacity 0.15s, transform 0.1s, filter 0.15s;
   white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
 }
+.cs-btn:hover  { filter: brightness(1.08); }
 .cs-btn:active { opacity: 0.8; transform: scale(0.97); }
 .cs-btn-sm { padding: 5px 11px; font-size: 12px; border-radius: 6px; }
 .cs-btn-primary   { background: var(--cs-accent); color: #fff; }
@@ -590,18 +653,20 @@ body {
   margin-bottom: 10px;
   flex-wrap: wrap;
 }
-.cs-strat-tab {
+/* 공용 칩 버튼 — 심볼탭/기간필터 등 "여러 개 중 하나 선택" UI에서 공유 */
+.cs-chip {
   background: var(--cs-card2);
   color: var(--cs-muted);
   border: 1px solid var(--cs-border);
   border-radius: 6px;
-  padding: 5px 16px;
+  padding: 5px 15px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
 }
-.cs-strat-tab.active {
+.cs-chip:hover { color: var(--cs-text); border-color: var(--cs-accent); }
+.cs-chip.active {
   background: var(--cs-accent);
   color: #fff;
   border-color: var(--cs-accent);
@@ -614,6 +679,7 @@ body {
   border-radius: 10px;
   padding: 4px 14px 12px;
   margin-bottom: 10px;
+  box-shadow: var(--cs-shadow-sm);
 }
 .cs-strat-row {
   display: flex;
@@ -693,6 +759,7 @@ body {
   border: 1px solid var(--cs-border);
   border-radius: 10px;
   overflow: hidden;
+  box-shadow: var(--cs-shadow-sm);
 }
 .cs-price-table-info {
   padding: 7px 12px;
@@ -736,6 +803,7 @@ body {
   border-radius: 10px;
   margin-bottom: 10px;
   overflow: hidden;
+  box-shadow: var(--cs-shadow-sm);
 }
 .cs-cb-banner {
   background: var(--cs-red);
@@ -892,24 +960,6 @@ body {
   gap: 6px;
   margin-bottom: 8px;
 }
-.cs-trades-quick-btn {
-  background: var(--cs-card2);
-  color: var(--cs-muted);
-  border: 1px solid var(--cs-border);
-  border-radius: 6px;
-  padding: 4px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.cs-trades-quick-btn:hover { color: var(--cs-text); border-color: var(--cs-accent); }
-.cs-trades-quick-btn.active {
-  background: var(--cs-accent);
-  color: #fff;
-  border-color: var(--cs-accent);
-  font-weight: 700;
-}
 .cs-trades-filter-row {
   display: flex;
   align-items: center;
@@ -1027,22 +1077,7 @@ body {
   align-items: center;
   gap: 8px;
 }
-/* [Design D] 멤버십 티어 뱃지 */
-.tier-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
-  border: 1px solid var(--tier-color);
-  color: var(--tier-color);
-  background: var(--tier-color-dim);
-  white-space: nowrap;
-  text-transform: none;
-}
-/* 헤더 멤버십 등급 뱃지 — 항상 노출, 티어 컬러로 채움 */
+/* 멤버십 등급 뱃지 — 헤더/설정 탭 공통, 티어 컬러로 채움 */
 .cs-tier-badge {
   display: inline-flex;
   align-items: center;
@@ -1081,6 +1116,7 @@ body {
   border: 1px solid var(--cs-border);
   border-radius: 10px;
   padding: 4px 14px 12px;
+  box-shadow: var(--cs-shadow-sm);
 }
 .cs-settings-row {
   display: flex;

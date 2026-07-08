@@ -45,6 +45,19 @@ const COIN_META = {
     USDT:  { name: '테더',      letter: 'USDT', css: 'cs-coin-USDT'  },
 };
 
+const COIN_ICON_SVG = {
+    BTC:  '/static/images/coins/btc.svg',
+    ETH:  '/static/images/coins/eth.svg',
+    XRP:  '/static/images/coins/xrp.svg',
+    USDT: '/static/images/coins/usdt.svg',
+};
+
+function _coinIconHtml(sym, meta) {
+    const src = COIN_ICON_SVG[sym];
+    if (src) return `<img class="cs-coin-icon" src="${src}" alt="${sym}" width="40" height="40">`;
+    return `<div class="cs-coin-icon ${meta.css}">${meta.letter}</div>`;
+}
+
 const MARKET_COINS = ['BTC', 'ETH', 'XRP', 'USDT'];
 
 const POLL = { realtime: 4000, pnl: 15000, assets: 20000, strategy: 3000 };
@@ -164,12 +177,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 전략현황: 심볼탭 / 체결내역탭 클릭 (이벤트 위임)
     document.addEventListener('click', e => {
-        const symBtn = e.target.closest('#strat-sym-tabs .cs-strat-tab');
+        const symBtn = e.target.closest('#strat-sym-tabs .cs-chip');
         if (symBtn) {
             _stratModeUserSet   = false;
             _stratInputsUserSet = false;
             _stratActiveSym = symBtn.dataset.sym;
-            document.querySelectorAll('#strat-sym-tabs .cs-strat-tab').forEach(b =>
+            document.querySelectorAll('#strat-sym-tabs .cs-chip').forEach(b =>
                 b.classList.toggle('active', b.dataset.sym === _stratActiveSym));
             const symData = _stratData?.symbols?.find(s => s.symbol === _stratActiveSym);
             if (symData) _renderStratSettings(symData);
@@ -335,16 +348,17 @@ function _renderMarketPrices(data, status) {
     const list = document.getElementById('market-price-list');
     if (!list) return;
 
-    if (list.children.length === 0) {
+    if (!list.dataset.built) {
+        list.innerHTML = '';
         MARKET_COINS.forEach(sym => {
             const meta = COIN_META[sym] || { name: sym, letter: sym.slice(0, 3), css: '' };
             const row  = document.createElement('div');
             row.className = 'cs-coin-row';
             row.innerHTML = `
-                <div class="cs-coin-icon ${meta.css}">${meta.letter}</div>
+                ${_coinIconHtml(sym, meta)}
                 <div class="cs-coin-info">
                     <span class="cs-coin-name">${meta.name}</span>
-                    <span class="cs-coin-symbol">${sym} <span class="cs-run-badge" id="run-${sym}"></span></span>
+                    <span class="cs-coin-symbol">${sym} <span class="cs-badge" id="run-${sym}"></span></span>
                 </div>
                 <div class="cs-coin-price">
                     <span class="cs-coin-price-value" id="mkt-${sym}">-</span>
@@ -357,6 +371,7 @@ function _renderMarketPrices(data, status) {
             row.querySelector(`#bulk-${sym}`)?.addEventListener('change', e =>
                 _toggleBulkEnabled(sym, e.target.checked));
         });
+        list.dataset.built = 'true';
     }
 
     Object.entries(data || {}).forEach(([sym, info]) => {
@@ -370,7 +385,7 @@ function _renderMarketPrices(data, status) {
         if (badge) {
             const running = !!st.running;
             badge.textContent = running ? '가동중' : '중지';
-            badge.className   = `cs-run-badge ${running ? 'on' : 'off'}`;
+            badge.className   = `cs-badge ${running ? 'on' : 'off'}`;
         }
         const tg = document.getElementById(`bulk-${sym}`);
         if (tg && document.activeElement !== tg) {
@@ -669,7 +684,7 @@ function _makePnlCard(sym) {
     card.className = 'cs-symbol-card';
     card.innerHTML = `
         <div class="cs-symbol-card-header">
-            <div class="cs-coin-icon ${meta.css}">${meta.letter}</div>
+            ${_coinIconHtml(sym, meta)}
             <span class="cs-symbol-card-title">${meta.name}(${sym})</span>
         </div>
         <div class="cs-symbol-card-body">
@@ -741,7 +756,7 @@ function _makeAssetCoinCard(sym) {
     card.className = 'cs-asset-coin-card';
     card.innerHTML = `
         <div class="cs-asset-coin-header">
-            <div class="cs-coin-icon ${meta.css}">${meta.letter}</div>
+            ${_coinIconHtml(sym, meta)}
             <span class="cs-asset-coin-title">${sym}</span>
         </div>
         <div class="cs-asset-coin-body">
@@ -1190,13 +1205,13 @@ function _initStratSymTabs(symbols) {
     if (c.children.length === 0) {
         symbols.forEach(s => {
             const btn = document.createElement('button');
-            btn.className = 'cs-strat-tab';
+            btn.className = 'cs-chip';
             btn.dataset.sym = s.symbol;
             btn.textContent = s.symbol;
             c.appendChild(btn);
         });
     }
-    c.querySelectorAll('.cs-strat-tab').forEach(b =>
+    c.querySelectorAll('.cs-chip').forEach(b =>
         b.classList.toggle('active', b.dataset.sym === _stratActiveSym));
 }
 
@@ -1385,7 +1400,7 @@ function _makeStratMonitorCard(sym) {
     card.innerHTML = `
         <div class="cs-cb-banner" id="strat-card-${sym}-cb" style="display:none"></div>
         <div class="cs-strat-card-header">
-            <div class="cs-coin-icon ${meta.css}">${meta.letter}</div>
+            ${_coinIconHtml(sym, meta)}
             <span class="cs-strat-card-title">${meta.name}(${sym})</span>
             <span class="cs-badge cs-badge-stopped" id="strat-card-${sym}-badge">
                 <span id="strat-card-${sym}-badge-label">-</span>
@@ -1523,7 +1538,7 @@ function _initTradesPage() {
     }
 
     // 퀵 날짜 버튼 클릭
-    document.querySelectorAll('.cs-trades-quick-btn').forEach(btn => {
+    document.querySelectorAll('.cs-chip').forEach(btn => {
         btn.addEventListener('click', () => _applyQuickRange(btn.dataset.range));
     });
 
@@ -1531,7 +1546,7 @@ function _initTradesPage() {
     ['trades-start', 'trades-end'].forEach(id => {
         document.getElementById(id)?.addEventListener('change', () => {
             _tradesQuickRange = null;
-            document.querySelectorAll('.cs-trades-quick-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.cs-chip').forEach(b => b.classList.remove('active'));
         });
     });
 
@@ -1625,7 +1640,7 @@ function _applyQuickRange(range, doFetch = true) {
     _tradesEnd      = todayStr;
     _tradesQuickRange = range;
 
-    document.querySelectorAll('.cs-trades-quick-btn').forEach(b =>
+    document.querySelectorAll('.cs-chip').forEach(b =>
         b.classList.toggle('active', b.dataset.range === range));
 
     if (doFetch) _fetchTradesActive();
@@ -2063,7 +2078,7 @@ async function _fetchSettings() {
         if (secBadge) {
             const active = sec.enabled && sec.has_password;
             secBadge.textContent = active ? '보안 활성' : '비활성';
-            secBadge.style.color = active ? '#2ea043' : '#8b949e';
+            secBadge.className   = `cs-badge ${active ? 'on' : 'off'}`;
         }
 
         _settingsLoaded = true;

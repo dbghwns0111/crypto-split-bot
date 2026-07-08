@@ -29,7 +29,18 @@
       </div>
     </div>
     <div class="cs-bulk-hint">ON 종목만 전체 가동/중지가 적용됩니다. (개별 종목 토글)</div>
-    <div id="market-price-list" class="cs-coin-list"></div>
+    <div id="market-price-list" class="cs-coin-list">
+      {% for _ in range(4) %}
+      <div class="cs-coin-row">
+        <div class="cs-skeleton-block cs-skeleton-icon"></div>
+        <div class="cs-coin-info">
+          <div class="cs-skeleton-block cs-skeleton-line" style="width:70px;"></div>
+          <div class="cs-skeleton-block cs-skeleton-line" style="width:44px; height:10px;"></div>
+        </div>
+        <div class="cs-skeleton-block cs-skeleton-line" style="width:64px; height:16px;"></div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 
   <!-- ── 탭 2: 누적손익 ── -->
@@ -257,10 +268,10 @@
   <!-- 공유 필터바 -->
   <div class="cs-trades-filter-bar">
     <div class="cs-trades-quick-row">
-      <button class="cs-trades-quick-btn active" data-range="day">일</button>
-      <button class="cs-trades-quick-btn" data-range="week">주</button>
-      <button class="cs-trades-quick-btn" data-range="month">월</button>
-      <button class="cs-trades-quick-btn" data-range="all">전체</button>
+      <button class="cs-chip active" data-range="day">일</button>
+      <button class="cs-chip" data-range="week">주</button>
+      <button class="cs-chip" data-range="month">월</button>
+      <button class="cs-chip" data-range="all">전체</button>
     </div>
     <div class="cs-trades-filter-row">
       <input type="date" class="cs-trades-date-input" id="trades-start">
@@ -308,7 +319,7 @@
   <div class="cs-settings-section">
     <div class="cs-settings-title">
       접근 보안
-      <span class="tier-badge" id="security-status-badge"></span>
+      <span class="cs-badge" id="security-status-badge"></span>
     </div>
     <div class="cs-settings-card">
       <div class="cs-settings-row">
@@ -338,7 +349,7 @@
   <div class="cs-settings-section">
     <div class="cs-settings-title">
       빗썸 멤버십
-      <span class="tier-badge" id="tier-badge-settings"></span>
+      <span class="cs-tier-badge" id="tier-badge-settings"></span>
     </div>
     <div class="cs-settings-card" id="membership-settings-card">
       <div class="cs-settings-row">
