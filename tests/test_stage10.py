@@ -1,13 +1,15 @@
 """10단계: 웹 대시보드 테스트."""
 
 import json
-from unittest.mock import MagicMock, patch
+import os
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
 from database.connection import close_connection, configure, get_connection
 from database.models import create_tables
-from database.pnl_repo import add_trade_pnl
+from database.order_repo import save_order, update_order_fill
+from database.pnl_repo import add_trade_pnl, get_daily_pnl
 from web.routes.api import clear_price_cache
 
 
@@ -163,7 +165,7 @@ def test_start_bot_calls_manager(client):
     c.post("/api/bot/start",
            data=json.dumps({"symbol": "ETH"}),
            content_type="application/json")
-    bm.start.assert_called_once_with("ETH")
+    bm.start.assert_called_once_with("ETH", fresh=False, virtual_catchup=False)
 
 
 def test_start_bot_symbol_uppercased(client):
@@ -171,7 +173,7 @@ def test_start_bot_symbol_uppercased(client):
     c.post("/api/bot/start",
            data=json.dumps({"symbol": "eth"}),
            content_type="application/json")
-    bm.start.assert_called_once_with("ETH")
+    bm.start.assert_called_once_with("ETH", fresh=False, virtual_catchup=False)
 
 
 def test_start_bot_missing_symbol_returns_400(client):
@@ -359,31 +361,32 @@ def test_dashboard_contains_bootstrap(client):
     assert "bootstrap" in html.lower()
 
 
-def test_dashboard_has_status_badge_placeholders(client):
+def test_dashboard_has_symbol_data_attr(client):
+    # 코인 목록은 JS(dashboard.js)가 런타임에 그리므로, 서버는
+    # #cs-symbols의 data-symbols 속성으로 심볼 목록만 전달한다.
     c, bm, ex = client
     html = c.get("/").data.decode()
-    assert 'id="badge-ETH"'  in html
-    assert 'id="badge-USDT"' in html
+    assert 'id="cs-symbols"' in html
+    assert 'data-symbols="ETH,USDT"' in html
 
 
-def test_dashboard_has_price_placeholders(client):
+def test_dashboard_has_market_price_list(client):
     c, bm, ex = client
     html = c.get("/").data.decode()
-    assert 'id="price-ETH"'  in html
-    assert 'id="price-USDT"' in html
+    assert 'id="market-price-list"' in html
 
 
-def test_dashboard_has_start_stop_buttons(client):
+def test_dashboard_has_bulk_start_stop_buttons(client):
     c, bm, ex = client
     html = c.get("/").data.decode()
-    assert 'id="btn-ETH"'  in html
-    assert 'id="btn-USDT"' in html
+    assert 'id="bulk-start-btn"' in html
+    assert 'id="bulk-stop-btn"'  in html
 
 
-def test_dashboard_has_portfolio_section(client):
+def test_dashboard_has_assets_section(client):
     c, bm, ex = client
     html = c.get("/").data.decode()
-    assert 'id="bal-KRW"' in html
+    assert 'id="assets-krw-avail"' in html
 
 
 def test_dashboard_single_symbol(fresh_db):
@@ -394,5 +397,250 @@ def test_dashboard_single_symbol(fresh_db):
     app.config["TESTING"] = True
     with app.test_client() as c:
         html = c.get("/").data.decode()
-        assert "ETH" in html
-        assert "USDT" not in html
+        assert 'data-symbols="ETH"' in html
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DELETE /api/trades/orders
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _insert_filled_order(symbol, order_id, side, price, qty, round_no, filled_date):
+    row_id = save_order(symbol, order_id, side, price, qty, round(price * qty, 2), round_no)
+    update_order_fill(order_id, price, qty, filled_at=f"{filled_date} 10:00:00")
+    return row_id
+
+
+def test_delete_orders_by_ids_removes_rows(client):
+    c, bm, ex = client
+    row_id = _insert_filled_order("ETH", "ord-1", "buy", 3_000_000, 0.01, 1, "2026-07-01")
+    resp = c.delete("/api/trades/orders",
+                     data=json.dumps({"ids": [row_id]}),
+                     content_type="application/json")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["count"] == 1
+
+
+def test_delete_orders_by_ids_resets_daily_pnl(client):
+    c, bm, ex = client
+    row_id = _insert_filled_order("ETH", "ord-2", "sell", 3_100_000, 0.01, 1, "2026-07-02")
+    add_trade_pnl("ETH", 5_000, 500, date="2026-07-02")
+    assert get_daily_pnl("ETH", "2026-07-02") is not None
+
+    c.delete("/api/trades/orders",
+             data=json.dumps({"ids": [row_id]}),
+             content_type="application/json")
+
+    assert get_daily_pnl("ETH", "2026-07-02") is None
+
+
+def test_delete_orders_by_range_requires_dates(client):
+    c, bm, ex = client
+    resp = c.delete("/api/trades/orders",
+                     data=json.dumps({"symbol": "ETH"}),
+                     content_type="application/json")
+    assert resp.status_code == 400
+    assert resp.get_json()["ok"] is False
+
+
+def test_delete_orders_by_range_filters_by_symbol(client):
+    c, bm, ex = client
+    _insert_filled_order("ETH",  "ord-3", "buy", 3_000_000, 0.01, 1, "2026-07-03")
+    _insert_filled_order("USDT", "ord-4", "buy", 1_380, 10, 1, "2026-07-03")
+
+    resp = c.delete("/api/trades/orders",
+                     data=json.dumps({"start": "2026-07-01", "end": "2026-07-10", "symbol": "ETH"}),
+                     content_type="application/json")
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["count"] == 1  # USDT 주문은 삭제되지 않음
+
+
+def test_delete_orders_no_ids_or_range_deletes_nothing(client):
+    c, bm, ex = client
+    resp = c.delete("/api/trades/orders",
+                     data=json.dumps({"ids": []}),
+                     content_type="application/json")
+    assert resp.status_code == 200
+    assert resp.get_json()["count"] == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GET /api/settings — 시크릿 마스킹
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _secrets_cfg():
+    return {
+        "exchange": {"access_key": "AKIA1234567890", "secret_key": "SECRETVALUE123", "membership": "화이트"},
+        "telegram": {"bot_token": "123456:ABCDEFghijk", "chat_id": "999999"},
+    }
+
+
+@pytest.fixture
+def client_with_secrets(fresh_db):
+    from web.app import create_app
+    bm = _make_bot_manager()
+    ex = _make_exchange()
+    flask_app = create_app(bm, ex, _secrets_cfg())
+    flask_app.config["TESTING"] = True
+    with flask_app.test_client() as c:
+        yield c
+
+
+def test_get_settings_masks_access_key(client_with_secrets):
+    data = client_with_secrets.get("/api/settings").get_json()
+    assert data["exchange"]["access_key"] == "AKIA****"
+    assert "1234567890" not in data["exchange"]["access_key"]
+
+
+def test_get_settings_masks_secret_key_fully(client_with_secrets):
+    data = client_with_secrets.get("/api/settings").get_json()
+    assert data["exchange"]["secret_key"] == "****"
+
+
+def test_get_settings_masks_bot_token(client_with_secrets):
+    data = client_with_secrets.get("/api/settings").get_json()
+    assert data["telegram"]["bot_token"] == "123456****"
+
+
+def test_get_settings_empty_key_masks_to_empty_string(client):
+    c, bm, ex = client
+    data = c.get("/api/settings").get_json()
+    assert data["exchange"]["access_key"] == ""
+    assert data["exchange"]["secret_key"] == ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# POST /api/settings — .env / settings.yaml 쓰기 (실제 파일은 건드리지 않음)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_save_settings_env_field_calls_dotenv_set_key(client):
+    c, bm, ex = client
+    try:
+        with patch("dotenv.set_key") as mock_set_key:
+            resp = c.post("/api/settings",
+                          data=json.dumps({"access_key": "AKIA1234567890"}),
+                          content_type="application/json")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert data["needs_restart"] is True
+
+        mock_set_key.assert_called_once()
+        call_env_key, call_value = mock_set_key.call_args[0][1], mock_set_key.call_args[0][2]
+        assert call_env_key == "BITHUMB_ACCESS_KEY"
+        assert call_value   == "AKIA1234567890"
+        # 프로세스 환경변수에도 즉시 반영되는지 확인
+        assert os.environ.get("BITHUMB_ACCESS_KEY") == "AKIA1234567890"
+    finally:
+        os.environ.pop("BITHUMB_ACCESS_KEY", None)
+
+
+def test_save_settings_blank_env_field_skipped(client):
+    c, bm, ex = client
+    with patch("dotenv.set_key") as mock_set_key:
+        resp = c.post("/api/settings",
+                      data=json.dumps({"access_key": ""}),
+                      content_type="application/json")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["needs_restart"] is False
+    mock_set_key.assert_not_called()
+
+
+def test_save_settings_yaml_field_writes_new_value(client):
+    c, bm, ex = client
+    existing = {"strategy": {"order_timeout": 300, "price_poll_interval": 1}}
+    m = mock_open()
+    with patch("builtins.open", m), \
+         patch("yaml.safe_load", return_value=existing), \
+         patch("yaml.dump") as mock_dump:
+        resp = c.post("/api/settings",
+                      data=json.dumps({"order_timeout": 600}),
+                      content_type="application/json")
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
+    dumped = mock_dump.call_args[0][0]
+    assert dumped["strategy"]["order_timeout"] == 600
+
+
+def test_save_settings_yaml_write_failure_returns_500(client):
+    c, bm, ex = client
+    with patch("builtins.open", side_effect=OSError("disk full")):
+        resp = c.post("/api/settings",
+                      data=json.dumps({"order_timeout": 600}),
+                      content_type="application/json")
+    assert resp.status_code == 500
+    assert resp.get_json()["ok"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# POST /api/strategy/settings — 전략 설정 yaml 반영 (실제 파일은 건드리지 않음)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _strategy_cfg():
+    return {
+        "pairs": {
+            "ETH": {
+                "ticker": "KRW-ETH", "trigger_mode": "pct", "trigger_pct": 0.5,
+                "trigger_krw": 15000.0, "max_rounds": 50, "order_amount": 10000,
+            },
+        },
+    }
+
+
+@pytest.fixture
+def client_with_strategy_cfg(fresh_db):
+    from web.app import create_app
+    bm = _make_bot_manager()
+    ex = _make_exchange()
+    flask_app = create_app(bm, ex, _strategy_cfg())
+    flask_app.config["TESTING"] = True
+    with flask_app.test_client() as c:
+        yield c, bm
+
+
+def test_strategy_settings_missing_symbol_returns_400(client_with_strategy_cfg):
+    c, bm = client_with_strategy_cfg
+    resp = c.post("/api/strategy/settings",
+                  data=json.dumps({}),
+                  content_type="application/json")
+    assert resp.status_code == 400
+
+
+def test_strategy_settings_unknown_symbol_returns_400(client_with_strategy_cfg):
+    c, bm = client_with_strategy_cfg
+    resp = c.post("/api/strategy/settings",
+                  data=json.dumps({"symbol": "DOGE", "max_rounds": 10}),
+                  content_type="application/json")
+    assert resp.status_code == 400
+
+
+def test_strategy_settings_updates_yaml_and_memory_cfg(client_with_strategy_cfg):
+    c, bm = client_with_strategy_cfg
+    existing = {"pairs": {"ETH": {"trigger_mode": "pct", "trigger_pct": 0.5,
+                                   "trigger_krw": 15000.0, "max_rounds": 50,
+                                   "order_amount": 10000}}}
+    m = mock_open()
+    with patch("builtins.open", m), \
+         patch("yaml.safe_load", return_value=existing), \
+         patch("yaml.dump") as mock_dump:
+        resp = c.post("/api/strategy/settings",
+                      data=json.dumps({"symbol": "ETH", "max_rounds": 80}),
+                      content_type="application/json")
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
+    dumped = mock_dump.call_args[0][0]
+    assert dumped["pairs"]["ETH"]["max_rounds"] == 80
+
+
+def test_strategy_settings_yaml_failure_returns_500(client_with_strategy_cfg):
+    c, bm = client_with_strategy_cfg
+    with patch("builtins.open", side_effect=OSError("disk full")):
+        resp = c.post("/api/strategy/settings",
+                      data=json.dumps({"symbol": "ETH", "max_rounds": 80}),
+                      content_type="application/json")
+    assert resp.status_code == 500
+    assert resp.get_json()["ok"] is False

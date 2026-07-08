@@ -131,6 +131,11 @@ def init_auth(app, cfg: dict) -> None:
     from datetime import timedelta
     app.permanent_session_lifetime = timedelta(days=session_days)
 
+    # 세션 쿠키 보안 속성 — SameSite로 크로스사이트 요청에 쿠키가 실리지 않게 한다.
+    # Secure는 강제하지 않는다: 현재 서버가 평문 HTTP라 강제 시 쿠키가 아예
+    # 전송되지 않아 로그인이 깨진다(HTTPS 도입 시 별도로 True 전환 필요).
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
     app.register_blueprint(auth_bp)
     app.before_request(_guard)
 

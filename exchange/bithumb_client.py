@@ -95,7 +95,10 @@ class BithumbClient(ExchangeBase):
             if b.get("currency")
         ]
 
-    @with_retry(max_retries=3, base_delay=1.0)
+    # 주문 배치는 재시도하지 않는다 — 타임아웃 등 애매한 실패 시 자동
+    # 재시도하면 실제로는 접수된 주문에 중복 주문을 낼 위험이 있다.
+    # (인증 오류는 with_retry 내부에서 여전히 즉시 raise된다)
+    @with_retry(max_retries=0)
     def buy_limit(self, ticker: str, price: float, quantity: float) -> dict:
         """지정가 매수 주문을 실행한다."""
         raw = self._private.buy_limit_order(ticker, price=price, volume=quantity)
@@ -103,7 +106,7 @@ class BithumbClient(ExchangeBase):
                   ticker, price, quantity, raw.get("uuid"))
         return _normalize_order(raw)
 
-    @with_retry(max_retries=3, base_delay=1.0)
+    @with_retry(max_retries=0)
     def sell_limit(self, ticker: str, price: float, quantity: float) -> dict:
         """지정가 매도 주문을 실행한다."""
         raw = self._private.sell_limit_order(ticker, price=price, volume=quantity)

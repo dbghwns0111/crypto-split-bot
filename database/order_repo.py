@@ -1,10 +1,17 @@
 """주문 CRUD 레포지토리."""
 
 import sqlite3
+import time
 from typing import Optional
 
 from database.connection import get_connection
+from utils.logger import get_logger
 from utils.time_utils import now_kst_str
+
+_log = get_logger("database.order_repo")
+
+# save_order 일시적 오류(락 등) 재시도 간격(초)
+_SAVE_ORDER_RETRY_DELAYS = (0.1, 0.3)
 
 
 def _conn() -> sqlite3.Connection:
@@ -20,19 +27,45 @@ def save_order(
     amount: float,
     round_no: int,
 ) -> int:
-    """신규 주문을 저장하고 row id를 반환한다."""
+    """신규 주문을 저장하고 row id를 반환한다.
+
+    거래소 주문은 이미 체결/접수된 상태에서 호출되므로, DB 저장 실패로
+    주문 기록이 유실되지 않도록 일시적 오류(락 등)에 짧게 재시도하고,
+    그래도 실패하면 주문 정보를 CRITICAL 로그로 남긴 뒤 예외를 올린다.
+    """
     now = now_kst_str()
-    cur = _conn().execute(
-        """
-        INSERT INTO orders
-            (symbol, order_id, side, price, quantity, amount,
-             status, round_no, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
-        """,
-        (symbol, order_id, side, price, quantity, amount, round_no, now, now),
+    attempts = len(_SAVE_ORDER_RETRY_DELAYS) + 1
+    last_exc: Optional[Exception] = None
+
+    for attempt in range(attempts):
+        try:
+            cur = _conn().execute(
+                """
+                INSERT INTO orders
+                    (symbol, order_id, side, price, quantity, amount,
+                     status, round_no, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
+                """,
+                (symbol, order_id, side, price, quantity, amount, round_no, now, now),
+            )
+            _conn().commit()
+            return cur.lastrowid
+        except sqlite3.OperationalError as exc:
+            last_exc = exc
+            if attempt < attempts - 1:
+                delay = _SAVE_ORDER_RETRY_DELAYS[attempt]
+                _log.warning(
+                    "save_order DB 쓰기 실패 (시도 %d/%d), %.1f초 후 재시도: %s %s %s",
+                    attempt + 1, attempts, delay, symbol, order_id, exc,
+                )
+                time.sleep(delay)
+
+    _log.critical(
+        "save_order 최종 실패 — 거래소에는 주문이 존재할 수 있으나 DB 기록 유실: "
+        "symbol=%s order_id=%s side=%s price=%s quantity=%s amount=%s round_no=%s 오류=%s",
+        symbol, order_id, side, price, quantity, amount, round_no, last_exc,
     )
-    _conn().commit()
-    return cur.lastrowid
+    raise last_exc
 
 
 def update_order(
