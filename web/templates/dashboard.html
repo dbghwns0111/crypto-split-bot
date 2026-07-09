@@ -13,6 +13,20 @@
   </header>
 
   <div id="home-tab-realtime" class="cs-tab-panel active">
+    <div class="cs-home-summary" id="home-summary">
+      <div class="cs-home-summary-item">
+        <span class="cs-home-summary-label">총 매수금액</span>
+        <span class="cs-home-summary-value" id="home-sum-buy">-</span>
+      </div>
+      <div class="cs-home-summary-item">
+        <span class="cs-home-summary-label">총 평가금액</span>
+        <span class="cs-home-summary-value" id="home-sum-eval">-</span>
+      </div>
+      <div class="cs-home-summary-item">
+        <span class="cs-home-summary-label">오늘 총손익</span>
+        <span class="cs-home-summary-value cs-neutral" id="home-sum-pnl">-</span>
+      </div>
+    </div>
     <div class="cs-bulk-bar">
       <span class="cs-bulk-label">전체 제어</span>
       <div class="cs-bulk-actions">
@@ -156,6 +170,20 @@
       </div>
     </div>
 
+    <!-- 전일/전주 대비 비교 -->
+    <div class="cs-compare-row" id="pnl-compare-row">
+      <div class="cs-compare-item">
+        <span class="cs-compare-label">오늘 손익</span>
+        <span class="cs-compare-value" id="pnl-cmp-today">-</span>
+        <span class="cs-compare-diff" id="pnl-cmp-today-diff">-</span>
+      </div>
+      <div class="cs-compare-item">
+        <span class="cs-compare-label">이번주 손익</span>
+        <span class="cs-compare-value" id="pnl-cmp-week">-</span>
+        <span class="cs-compare-diff" id="pnl-cmp-week-diff">-</span>
+      </div>
+    </div>
+
     <!-- 기간 / 코인 선택 -->
     <div class="cs-sort-bar">
       <select class="cs-sort-select" id="pnl-period">
@@ -223,6 +251,9 @@
   <!-- 체결/실현손익 공유 필터바 (요약·보유자산 탭에서는 숨김) -->
   <div id="trades-filter-wrap" style="display:none">
     <div class="cs-trades-filter-bar">
+      <div class="cs-preset-row" id="trades-preset-row">
+        <button class="cs-preset-add-btn" id="trades-preset-save-btn">+ 프리셋 저장</button>
+      </div>
       <div class="cs-trades-quick-row">
         <button class="cs-chip active" data-range="day">일</button>
         <button class="cs-chip" data-range="week">주</button>

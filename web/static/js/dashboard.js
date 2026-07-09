@@ -20,6 +20,7 @@ const API = {
     assets:           '/api/assets/exchange',
     manualPrice:      '/api/assets/manual-price',
     strategy:         '/api/strategy',
+    investment:       '/api/investment',
     strategySettings: '/api/strategy/settings',
     planner:          '/api/strategy/planner',
     tradeFills:       '/api/trades/fills',
@@ -67,6 +68,9 @@ let _activePage    = 'home';
 let _timer         = null;
 const BOT_SYMBOLS  = [];
 
+let _homeSummary = null;   // 총매수/총평가 (저빈도 갱신)
+let _homeTick    = 0;
+
 let _stratData      = null;
 let _stratActiveSym = null;
 let _stratTableOpen = false;
@@ -90,6 +94,7 @@ let _tradesEnd          = '';
 let _tradesSym          = 'all';
 let _tradesQuickRange   = 'day';
 let _tradesDeleteMode   = false;
+const TRADES_PRESET_KEY = 'cs-trades-presets';
 let _selectedOrderIds   = new Set();
 let _pendingDeleteFn    = null;
 
@@ -252,6 +257,7 @@ function _initBottomNav() {
 function _switchPage(page) {
     if (page === _activePage) return;
     _activePage = page;
+    if (page === 'home') _homeTick = 0;
     sessionStorage.setItem('cs-page', page);
     document.querySelectorAll('.cs-page').forEach(el =>
         el.classList.toggle('active', el.id === `page-${page}`)
@@ -286,6 +292,9 @@ async function _fetchActivePage() {
     try {
         if (_activePage === 'home') {
             await _fetchStrategy();
+            _renderHomeSummary();
+            if (_homeTick % 5 === 0) await _fetchHomeSummary();
+            _homeTick++;
         } else if (_activePage === 'strategy') {
             await _fetchStrategy();
         } else if (_activePage === 'trades') {
@@ -311,6 +320,30 @@ async function _fetchActivePage() {
 // 홈은 전략현황이 쓰던 것과 동일한 /api/strategy를 소스로 삼는다 — 가격/실행
 // 상태/차수/트리거를 홈과 전략현황 두 곳에서 따로 조회하던 중복을 없앤다.
 // 실제 카드 렌더링은 _renderStratMonitor()/_makeStratMonitorCard()가 담당.
+
+async function _fetchHomeSummary() {
+    try {
+        const data = await _fetchJson(API.investment);
+        _homeSummary = data.summary || null;
+        _renderHomeSummary();
+    } catch (err) {
+        console.error('[CryptoSplit] home summary error:', err);
+    }
+}
+
+function _renderHomeSummary() {
+    const s = _homeSummary;
+    _setEl('home-sum-buy',  s ? _fmt(s.total_buy)  : '-');
+    _setEl('home-sum-eval', s ? _fmt(s.total_eval) : '-');
+
+    const pnlEl = document.getElementById('home-sum-pnl');
+    if (pnlEl) {
+        const symbols = _stratData?.symbols || [];
+        const todayTotal = symbols.reduce((sum, x) => sum + (x.today_net_pnl || 0), 0);
+        pnlEl.textContent = `${_sign(todayTotal)}${Math.round(todayTotal).toLocaleString()}원`;
+        pnlEl.className = `cs-home-summary-value ${_colorClass(todayTotal)}`;
+    }
+}
 
 async function _toggleBulkEnabled(symbol, enabled) {
     try {
@@ -354,17 +387,19 @@ async function _fetchCumulative() {
 async function _fetchPnlChart() {
     try {
         const sp = _pnlSymbol ? `&symbol=${_pnlSymbol}` : '';
-        const [daily, stats, hourly, weekday] = await Promise.all([
+        const [daily, stats, hourly, weekday, cmp14] = await Promise.all([
             _fetchJson(`${API.pnlDaily}?days=${_pnlPeriod}${sp}`),
             _fetchJson(`${API.pnlStats}?days=${_pnlPeriod}${sp}`),
             _fetchJson(`${API.pnlHourly}?days=${_pnlPeriod}${sp}`),
             _fetchJson(`${API.pnlWeekday}?days=${_pnlPeriod}${sp}`),
+            _fetchJson(`${API.pnlDaily}?days=14${sp}`),
         ]);
         _renderPnlStats(stats);
         _renderPnlChart(daily);
         _lastHourlyData  = hourly;
         _lastWeekdayData = weekday;
         _renderDistChart();
+        _renderPnlComparison(cmp14);
     } catch (err) {
         console.error('[CryptoSplit] pnl chart error:', err);
     }
@@ -406,6 +441,50 @@ function _renderPnlStats(data) {
     const worst = o.worst_trade ?? 0;
     _setEl('stat-bestworst',
         `최고 ${_sign(best)}${Math.round(best).toLocaleString()} / 최저 ${Math.round(worst).toLocaleString()}`);
+}
+
+function _renderPnlComparison(data) {
+    const totals = data?.total || [];
+    const n = totals.length;
+
+    const todayVal = n >= 1 ? totals[n - 1] : null;
+    const yestVal  = n >= 2 ? totals[n - 2] : null;
+
+    const todayEl     = document.getElementById('pnl-cmp-today');
+    const todayDiffEl = document.getElementById('pnl-cmp-today-diff');
+    if (todayEl && todayVal !== null) {
+        todayEl.textContent = `${_sign(todayVal)}${Math.round(todayVal).toLocaleString()}원`;
+        todayEl.className   = `cs-compare-value ${_colorClass(todayVal)}`;
+    }
+    if (todayDiffEl) {
+        if (yestVal !== null) {
+            const diff = todayVal - yestVal;
+            todayDiffEl.textContent = `전일 대비 ${diff >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(diff)).toLocaleString()}원`;
+            todayDiffEl.className   = `cs-compare-diff ${_colorClass(diff)}`;
+        } else {
+            todayDiffEl.textContent = '전일 데이터 없음';
+            todayDiffEl.className   = 'cs-compare-diff cs-neutral';
+        }
+    }
+
+    const thisWeek  = totals.slice(Math.max(0, n - 7)).reduce((a, b) => a + b, 0);
+    const weekEl     = document.getElementById('pnl-cmp-week');
+    const weekDiffEl = document.getElementById('pnl-cmp-week-diff');
+    if (weekEl) {
+        weekEl.textContent = `${_sign(thisWeek)}${Math.round(thisWeek).toLocaleString()}원`;
+        weekEl.className   = `cs-compare-value ${_colorClass(thisWeek)}`;
+    }
+    if (weekDiffEl) {
+        if (n >= 14) {
+            const lastWeek = totals.slice(n - 14, n - 7).reduce((a, b) => a + b, 0);
+            const diff     = thisWeek - lastWeek;
+            weekDiffEl.textContent = `전주 대비 ${diff >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(diff)).toLocaleString()}원`;
+            weekDiffEl.className   = `cs-compare-diff ${_colorClass(diff)}`;
+        } else {
+            weekDiffEl.textContent = '전주 데이터 없음';
+            weekDiffEl.className   = 'cs-compare-diff cs-neutral';
+        }
+    }
 }
 
 function _renderPnlChart(data) {
@@ -1092,6 +1171,12 @@ function _colorClass(n) {
     return 'cs-neutral';
 }
 
+function _escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 // ── 전략현황 ──────────────────────────────────────────────────────────────────
 
 async function _fetchStrategy() {
@@ -1363,6 +1448,15 @@ function _makeStratMonitorCard(sym) {
                 <span class="cs-strat-trigger-val cs-positive" id="strat-card-${sym}-sell-trig">-</span>
             </div>
         </div>
+        <div class="cs-strat-gauge-wrap" id="strat-card-${sym}-gauge-wrap" style="display:none">
+            <div class="cs-strat-gauge-track">
+                <div class="cs-strat-gauge-dot" id="strat-card-${sym}-gauge-dot" style="left:50%"></div>
+            </div>
+            <div class="cs-strat-gauge-labels">
+                <span>매수 임박</span>
+                <span>매도 임박</span>
+            </div>
+        </div>
         <div id="strat-card-${sym}-orders"></div>
         <div class="cs-strat-card-footer">
             <span class="cs-strat-pnl-label">오늘 순수익</span>
@@ -1418,6 +1512,21 @@ function _updateStratMonitorCard(s) {
         ? `${s.buy_trigger_price.toLocaleString()}원` : '-');
     _setEl(`strat-card-${sym}-sell-trig`, s.sell_trigger_price > 0
         ? `${s.sell_trigger_price.toLocaleString()}원` : '-');
+
+    const gaugeWrap = document.getElementById(`strat-card-${sym}-gauge-wrap`);
+    const gaugeDot  = document.getElementById(`strat-card-${sym}-gauge-dot`);
+    if (gaugeWrap && gaugeDot) {
+        const buy = s.buy_trigger_price, sell = s.sell_trigger_price, cur = s.current_price;
+        if (buy > 0 && sell > buy && cur > 0) {
+            const pct = Math.max(0, Math.min(100, (cur - buy) / (sell - buy) * 100));
+            gaugeDot.style.left = `${pct}%`;
+            gaugeDot.style.background =
+                pct <= 15 ? 'var(--cs-red)' : pct >= 85 ? 'var(--cs-green)' : 'var(--cs-accent)';
+            gaugeWrap.style.display = '';
+        } else {
+            gaugeWrap.style.display = 'none';
+        }
+    }
 
     const ordersEl = document.getElementById(`strat-card-${sym}-orders`);
     if (ordersEl) {
@@ -1512,6 +1621,15 @@ function _initTradesPage() {
         _fetchTradesActive();
     });
 
+    _renderPresetChips();
+    document.getElementById('trades-preset-row')?.addEventListener('click', e => {
+        const delBtn = e.target.closest('.cs-preset-chip-del');
+        if (delBtn) { _deletePreset(parseInt(delBtn.dataset.idx)); return; }
+        const chip = e.target.closest('.cs-preset-chip');
+        if (chip) { _applyPreset(parseInt(chip.dataset.idx)); return; }
+        if (e.target.closest('#trades-preset-save-btn')) _saveCurrentPreset();
+    });
+
     document.getElementById('trades-delete-mode-btn')?.addEventListener('click', _toggleDeleteMode);
     document.getElementById('trades-select-all-btn')?.addEventListener('click', _selectAllOrders);
     document.getElementById('trades-delete-selected-btn')?.addEventListener('click', _confirmDeleteSelected);
@@ -1588,6 +1706,77 @@ function _applyQuickRange(range, doFetch = true) {
         b.classList.toggle('active', b.dataset.range === range));
 
     if (doFetch) _fetchTradesActive();
+}
+
+// ── 손익 필터 프리셋 (localStorage 저장) ─────────────────────────────────────
+
+function _loadPresets() {
+    try {
+        const raw = localStorage.getItem(TRADES_PRESET_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+}
+
+function _savePresets(presets) {
+    try { localStorage.setItem(TRADES_PRESET_KEY, JSON.stringify(presets.slice(0, 20))); } catch {}
+}
+
+function _renderPresetChips() {
+    const row = document.getElementById('trades-preset-row');
+    if (!row) return;
+    const presets = _loadPresets();
+    const chipsHtml = presets.map((p, i) => `
+        <span class="cs-preset-chip" data-idx="${i}">
+            <span class="cs-preset-chip-name">${_escapeHtml(p.name)}</span>
+            <span class="cs-preset-chip-del" data-idx="${i}" title="삭제">×</span>
+        </span>`).join('');
+    row.innerHTML = `${chipsHtml}<button class="cs-preset-add-btn" id="trades-preset-save-btn">+ 프리셋 저장</button>`;
+}
+
+function _saveCurrentPreset() {
+    const name = prompt('프리셋 이름을 입력하세요 (예: 이번달 ETH)');
+    if (!name || !name.trim()) return;
+    const start = document.getElementById('trades-start')?.value || '';
+    const end   = document.getElementById('trades-end')?.value   || '';
+    const sym   = document.getElementById('trades-sym-select')?.value || 'all';
+    const presets = _loadPresets();
+    presets.push({ name: name.trim().slice(0, 20), range: _tradesQuickRange, start, end, sym });
+    _savePresets(presets);
+    _renderPresetChips();
+    _showAlert('프리셋이 저장되었습니다.', 'success');
+}
+
+function _applyPreset(idx) {
+    const p = _loadPresets()[idx];
+    if (!p) return;
+
+    if (p.range) {
+        _applyQuickRange(p.range, false);
+    } else {
+        const startEl = document.getElementById('trades-start');
+        const endEl   = document.getElementById('trades-end');
+        if (startEl) startEl.value = p.start;
+        if (endEl)   endEl.value   = p.end;
+        _tradesStart      = p.start;
+        _tradesEnd        = p.end;
+        _tradesQuickRange = null;
+        document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b => b.classList.remove('active'));
+    }
+
+    const symSel = document.getElementById('trades-sym-select');
+    if (symSel) symSel.value = p.sym || 'all';
+    _tradesSym = p.sym || 'all';
+
+    _selectedOrderIds.clear();
+    _updateDeleteCount();
+    _fetchTradesActive();
+}
+
+function _deletePreset(idx) {
+    const presets = _loadPresets();
+    presets.splice(idx, 1);
+    _savePresets(presets);
+    _renderPresetChips();
 }
 
 function _toggleDeleteMode() {

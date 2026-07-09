@@ -1265,3 +1265,184 @@ body {
   margin-bottom: 6px;
   margin-top: 2px;
 }
+
+/* ── 토스트형 알림 (Bootstrap alert 재정의) ─────────────────────────────── */
+.cs-alert-container .alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--cs-card);
+  color: var(--cs-text);
+  border: 1px solid var(--cs-border);
+  border-left: 4px solid var(--cs-accent);
+  border-radius: 12px;
+  box-shadow: var(--cs-shadow-lg);
+  padding: 13px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  animation: cs-toast-in 0.25s ease;
+}
+.cs-alert-container .alert-success { border-left-color: var(--cs-green); }
+.cs-alert-container .alert-danger  { border-left-color: var(--cs-red); }
+.cs-alert-container .alert-warning { border-left-color: #B45309; }
+.cs-alert-container .alert::before {
+  font-size: 13px;
+  font-weight: 800;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cs-card2);
+}
+.cs-alert-container .alert-success::before { content: '✓'; color: var(--cs-green); }
+.cs-alert-container .alert-danger::before  { content: '✕'; color: var(--cs-red); }
+.cs-alert-container .alert-warning::before { content: '!'; color: #B45309; }
+.cs-alert-container .alert-info::before    { content: 'i'; color: var(--cs-accent); }
+.cs-alert-container .btn-close {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.35;
+  flex-shrink: 0;
+}
+.cs-alert-container .btn-close:hover { opacity: 0.75; }
+
+@keyframes cs-toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 홈: 총자산 요약 스트립 ──────────────────────────────────────────────── */
+.cs-home-summary {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 4px;
+}
+.cs-home-summary-item {
+  flex: 1;
+  min-width: 0;
+  background: var(--cs-card);
+  border: 1px solid var(--cs-border);
+  border-radius: 14px;
+  padding: 12px 8px;
+  box-shadow: var(--cs-shadow-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.cs-home-summary-label { font-size: 12px; color: var(--cs-muted); }
+.cs-home-summary-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── 전략 모니터링 카드: 트리거 임박 게이지 ─────────────────────────────── */
+.cs-strat-gauge-wrap {
+  padding: 10px 14px 12px;
+  background: var(--cs-card2);
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-strat-gauge-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(240,68,82,0.28), rgba(49,130,246,0.18), rgba(0,168,112,0.28));
+}
+.cs-strat-gauge-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--cs-accent);
+  border: 2px solid var(--cs-card2);
+  box-shadow: var(--cs-shadow-sm);
+  transform: translate(-50%, -50%);
+  transition: left 0.4s ease, background 0.2s ease;
+}
+.cs-strat-gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--cs-muted);
+}
+
+/* ── 손익 요약: 전일/전주 대비 비교 ─────────────────────────────────────── */
+.cs-compare-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--cs-border);
+}
+.cs-compare-item {
+  flex: 1;
+  min-width: 0;
+  background: var(--cs-card2);
+  border: 1px solid var(--cs-border);
+  border-radius: 12px;
+  padding: 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cs-compare-label { font-size: 12px; color: var(--cs-muted); }
+.cs-compare-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cs-compare-diff { font-size: 12px; font-weight: 600; }
+
+/* ── 손익 필터: 프리셋 ─────────────────────────────────────────────────── */
+.cs-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  margin-bottom: 8px;
+  padding-bottom: 2px;
+}
+.cs-preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  background: var(--cs-card2);
+  color: var(--cs-text);
+  border: 1px solid var(--cs-border);
+  border-radius: 999px;
+  padding: 5px 8px 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.cs-preset-chip:hover { border-color: var(--cs-accent); }
+.cs-preset-chip-del {
+  color: var(--cs-muted);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.cs-preset-chip-del:hover { color: var(--cs-red); }
+.cs-preset-add-btn {
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--cs-muted);
+  border: 1px dashed var(--cs-border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cs-preset-add-btn:hover { color: var(--cs-accent); border-color: var(--cs-accent); }
