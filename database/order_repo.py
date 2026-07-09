@@ -190,6 +190,31 @@ def get_today_trade_counts(symbol: str, date: Optional[str] = None) -> dict:
     }
 
 
+def get_today_totals(symbols: list, date: Optional[str] = None) -> dict:
+    """지정 심볼들의 오늘 매수/매도 체결 총액을 반환한다 (가상 캐치업 제외)."""
+    from utils.time_utils import today_kst_str
+    if not symbols:
+        return {"total_buy": 0.0, "total_sell": 0.0}
+    d = date or today_kst_str()
+    placeholders = ",".join("?" * len(symbols))
+    row = _conn().execute(
+        f"""
+        SELECT
+            SUM(CASE WHEN side = 'buy'  THEN amount ELSE 0 END) AS total_buy,
+            SUM(CASE WHEN side = 'sell' THEN amount ELSE 0 END) AS total_sell
+        FROM orders
+        WHERE symbol IN ({placeholders}) AND status = 'filled'
+          AND DATE(filled_at) = ?
+          AND order_id NOT LIKE 'virt-%'
+        """,
+        (*symbols, d),
+    ).fetchone()
+    return {
+        "total_buy":  float(row["total_buy"]  or 0) if row else 0.0,
+        "total_sell": float(row["total_sell"] or 0) if row else 0.0,
+    }
+
+
 def get_filled_orders(symbol: str, date: str) -> list[dict]:
     """특정 날짜(YYYY-MM-DD)의 체결 완료 주문 목록을 반환한다."""
     rows = _conn().execute(

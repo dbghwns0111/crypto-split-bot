@@ -263,13 +263,27 @@ def set_bulk_enabled():
 
 @api_bp.route("/pnl/today")
 def get_today_pnl():
-    """오늘 손익 조회."""
-    from database.pnl_repo  import get_daily_summary
-    from utils.time_utils   import today_kst_str
+    """오늘 손익 + 오늘 매수/매도 총액 조회 (홈 KPI 스트립)."""
+    from database.order_repo import get_today_totals
+    from database.pnl_repo   import get_daily_summary
+    from utils.time_utils    import today_kst_str
 
-    date    = today_kst_str()
-    summary = get_daily_summary(date)
-    return jsonify({"date": date, "symbols": summary})
+    bot_manager = current_app.config["BOT_MANAGER"]
+    date        = today_kst_str()
+    summary     = get_daily_summary(date)
+    totals      = get_today_totals(list(bot_manager.symbols), date)
+    net_pnl     = sum(
+        float(s.get("realized_pnl", 0) or 0) - float(s.get("fee_total", 0) or 0)
+        for s in summary
+    )
+
+    return jsonify({
+        "date":       date,
+        "symbols":    summary,
+        "total_buy":  round(totals["total_buy"]),
+        "total_sell": round(totals["total_sell"]),
+        "net_pnl":    round(net_pnl),
+    })
 
 
 @api_bp.route("/portfolio")

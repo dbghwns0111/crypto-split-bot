@@ -289,6 +289,40 @@ def test_pnl_today_includes_pnl_data(client):
     assert eth_pnl["realized_pnl"] == 5_000.0
 
 
+def test_pnl_today_net_pnl_is_realized_minus_fee(client):
+    c, bm, ex = client
+    add_trade_pnl("ETH", 5_000, 500)
+    data = c.get("/api/pnl/today").get_json()
+    assert data["net_pnl"] == 4_500
+
+
+def test_pnl_today_totals_sum_todays_filled_orders(client):
+    c, bm, ex = client
+    from utils.time_utils import today_kst_str
+    today = today_kst_str()
+    _insert_filled_order("ETH", "ord-t1", "buy",  3_000_000, 0.01, 1, today)
+    _insert_filled_order("ETH", "ord-t2", "sell", 3_100_000, 0.01, 1, today)
+    data = c.get("/api/pnl/today").get_json()
+    assert data["total_buy"]  == 30_000
+    assert data["total_sell"] == 31_000
+
+
+def test_pnl_today_totals_exclude_virtual_catchup(client):
+    c, bm, ex = client
+    from utils.time_utils import today_kst_str
+    today = today_kst_str()
+    _insert_filled_order("ETH", "virt-1", "buy", 3_000_000, 0.01, 1, today)
+    data = c.get("/api/pnl/today").get_json()
+    assert data["total_buy"] == 0
+
+
+def test_pnl_today_totals_exclude_other_days(client):
+    c, bm, ex = client
+    _insert_filled_order("ETH", "ord-old", "buy", 3_000_000, 0.01, 1, "2026-01-01")
+    data = c.get("/api/pnl/today").get_json()
+    assert data["total_buy"] == 0
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # GET /api/portfolio
 # ═══════════════════════════════════════════════════════════════════════════════

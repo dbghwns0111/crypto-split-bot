@@ -21,6 +21,7 @@ const API = {
     manualPrice:      '/api/assets/manual-price',
     strategy:         '/api/strategy',
     investment:       '/api/investment',
+    todayPnl:         '/api/pnl/today',
     strategySettings: '/api/strategy/settings',
     planner:          '/api/strategy/planner',
     tradeFills:       '/api/trades/fills',
@@ -68,8 +69,7 @@ let _activePage    = 'home';
 let _timer         = null;
 const BOT_SYMBOLS  = [];
 
-let _homeSummary = null;   // 총매수/총평가 (저빈도 갱신)
-let _homeTick    = 0;
+let _homeToday = null;   // 오늘 매수/매도 총액 (DB 조회, 매 틱 갱신)
 
 let _stratData      = null;
 let _stratActiveSym = null;
@@ -257,7 +257,6 @@ function _initBottomNav() {
 function _switchPage(page) {
     if (page === _activePage) return;
     _activePage = page;
-    if (page === 'home') _homeTick = 0;
     sessionStorage.setItem('cs-page', page);
     document.querySelectorAll('.cs-page').forEach(el =>
         el.classList.toggle('active', el.id === `page-${page}`)
@@ -291,10 +290,8 @@ function _restartPolling() {
 async function _fetchActivePage() {
     try {
         if (_activePage === 'home') {
-            await _fetchStrategy();
+            await Promise.all([_fetchStrategy(), _fetchHomeSummary()]);
             _renderHomeSummary();
-            if (_homeTick % 5 === 0) await _fetchHomeSummary();
-            _homeTick++;
         } else if (_activePage === 'strategy') {
             await _fetchStrategy();
         } else if (_activePage === 'trades') {
@@ -323,18 +320,16 @@ async function _fetchActivePage() {
 
 async function _fetchHomeSummary() {
     try {
-        const data = await _fetchJson(API.investment);
-        _homeSummary = data.summary || null;
-        _renderHomeSummary();
+        _homeToday = await _fetchJson(API.todayPnl);
     } catch (err) {
         console.error('[CryptoSplit] home summary error:', err);
     }
 }
 
 function _renderHomeSummary() {
-    const s = _homeSummary;
-    _setEl('home-sum-buy',  s ? _fmt(s.total_buy)  : '-');
-    _setEl('home-sum-eval', s ? _fmt(s.total_eval) : '-');
+    const t = _homeToday;
+    _setEl('home-sum-buy',  t ? _fmt(t.total_buy)  : '-');
+    _setEl('home-sum-sell', t ? _fmt(t.total_sell) : '-');
 
     const pnlEl = document.getElementById('home-sum-pnl');
     if (pnlEl) {
