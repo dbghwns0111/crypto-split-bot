@@ -1626,6 +1626,7 @@ function _initTradesPage() {
     });
 
     document.getElementById('trades-delete-mode-btn')?.addEventListener('click', _toggleDeleteMode);
+    document.getElementById('trades-export-btn')?.addEventListener('click', _exportTradesCsv);
     document.getElementById('trades-select-all-btn')?.addEventListener('click', _selectAllOrders);
     document.getElementById('trades-delete-selected-btn')?.addEventListener('click', _confirmDeleteSelected);
     document.getElementById('trades-delete-range-btn')?.addEventListener('click', _confirmDeleteRange);
@@ -2077,6 +2078,63 @@ function _renderTradePnl() {
             <tbody>${rows}</tbody>
         </table>
     </div>${_tradePagerHtml('pnl', _pnlPage, rounds.length)}`;
+}
+
+// ── CSV 내보내기 ──────────────────────────────────────────────────────────────
+
+function _csvCell(v) {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function _downloadCsv(filename, headers, rows) {
+    const lines = [headers, ...rows].map(row => row.map(_csvCell).join(','));
+    const csv   = '﻿' + lines.join('\r\n');  // BOM: Windows 엑셀 한글 깨짐 방지
+    const blob  = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url   = URL.createObjectURL(blob);
+    const a     = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+function _tradesRangeLabel() {
+    const sym = _tradesSym && _tradesSym !== 'all' ? _tradesSym : '전체';
+    return `${sym}_${_tradesStart || '전체'}_${_tradesEnd || '전체'}`;
+}
+
+function _exportTradesCsv() {
+    if (_tradesActiveSubTab === 'fills') {
+        if (_fillsAll.length === 0) { _showAlert('내보낼 데이터가 없습니다.', 'warning'); return; }
+        const headers = ['심볼', '구분', '체결가', '수량', '주문금액', '차수', '체결시각'];
+        const rows = _fillsAll.map(t => [
+            t.symbol,
+            t.side === 'sell' ? '매도' : '매수',
+            t.filled_price > 0 ? Math.round(t.filled_price) : '',
+            t.quantity || '',
+            t.amount > 0 ? Math.round(t.amount) : '',
+            t.round_no ?? '',
+            t.filled_at ? t.filled_at.slice(0, 19).replace('T', ' ') : '',
+        ]);
+        _downloadCsv(`체결내역_${_tradesRangeLabel()}.csv`, headers, rows);
+    } else if (_tradesActiveSubTab === 'pnl') {
+        if (_pnlAll.length === 0) { _showAlert('내보낼 데이터가 없습니다.', 'warning'); return; }
+        const headers = ['심볼', '차수', '매수가', '매도가', '수량', '주문금액', '실현손익', '체결시각'];
+        const rows = _pnlAll.map(r => [
+            r.symbol,
+            r.round_no ?? '',
+            r.buy_price  > 0 ? Math.round(r.buy_price)  : '',
+            r.sell_price > 0 ? Math.round(r.sell_price) : '',
+            r.quantity || '',
+            r.buy_amount > 0 ? Math.round(r.buy_amount) : '',
+            r.pnl != null ? Math.round(r.pnl) : '',
+            r.filled_at ? r.filled_at.slice(0, 19).replace('T', ' ') : '',
+        ]);
+        _downloadCsv(`실현손익_${_tradesRangeLabel()}.csv`, headers, rows);
+    }
 }
 
 // ── 설정 페이지 ───────────────────────────────────────────────────────────────
