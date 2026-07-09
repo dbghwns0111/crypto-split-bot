@@ -20,6 +20,7 @@ import secrets
 import threading
 import time
 
+import requests
 from flask import (
     Blueprint,
     current_app,
@@ -31,6 +32,7 @@ from flask import (
     url_for,
 )
 
+from database import auth_repo
 from utils.logger import get_logger
 
 _log = get_logger("web.auth")
@@ -46,51 +48,82 @@ _LOCAL_IPS = {"127.0.0.1", "::1", "localhost"}
 _CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # ── 로그인 무차별 대입(brute-force) 방어 ──────────────────────────────────────
-# 인터넷에 노출된 로그인 화면 보호용. 외부 의존성 없는 인메모리 IP별 시도 제한.
+# 인터넷에 노출된 로그인 화면 보호용. DB(login_attempts)에 영속화해 앱 재시작
+# 후에도 잠금이 유지된다. 실패 시각 리스트 대신 "고정 윈도우(fail_count +
+# window_start)"로 단순화 — 15분/5회/10분 정책은 기존과 동일하게 유지된다.
 _LOGIN_MAX_FAILS = 5       # 잠금 발동까지 허용하는 연속 실패 횟수
 _LOGIN_WINDOW    = 900     # 실패 횟수 집계 윈도우 (초) — 15분
 _LOGIN_LOCK      = 600     # 초과 시 잠금 지속 시간 (초) — 10분
 
 _login_lock = threading.Lock()
-# ip -> {"fails": [타임스탬프...], "locked_until": float}
-_login_attempts: dict[str, dict] = {}
 
 
 def _login_locked_remaining(ip: str) -> int:
     """해당 IP가 잠금 상태면 남은 초를, 아니면 0을 반환한다."""
     if ip in _LOCAL_IPS:
         return 0
-    now = time.monotonic()
-    with _login_lock:
-        rec = _login_attempts.get(ip)
-        if not rec:
-            return 0
-        locked_until = rec.get("locked_until", 0)
-        if locked_until > now:
-            return int(locked_until - now)
+    rec = auth_repo.get_attempt(ip)
+    if not rec:
         return 0
+    remaining = (rec.get("locked_until") or 0) - time.time()
+    return int(remaining) if remaining > 0 else 0
 
 
 def _login_record_fail(ip: str) -> None:
     """로그인 실패를 기록하고, 윈도우 내 임계치 초과 시 잠금을 건다."""
     if ip in _LOCAL_IPS:
         return
-    now = time.monotonic()
+    now = time.time()
     with _login_lock:
-        rec = _login_attempts.setdefault(ip, {"fails": [], "locked_until": 0})
-        # 윈도우 밖의 오래된 실패 기록 제거
-        rec["fails"] = [t for t in rec["fails"] if now - t < _LOGIN_WINDOW]
-        rec["fails"].append(now)
-        if len(rec["fails"]) >= _LOGIN_MAX_FAILS:
-            rec["locked_until"] = now + _LOGIN_LOCK
-            rec["fails"] = []
+        rec = auth_repo.get_attempt(ip)
+        if rec and (now - (rec.get("window_start") or 0)) < _LOGIN_WINDOW:
+            fail_count   = int(rec.get("fail_count") or 0) + 1
+            window_start = rec.get("window_start") or now
+        else:
+            fail_count   = 1
+            window_start = now
+        locked_until = (rec.get("locked_until") or 0) if rec else 0
+
+        if fail_count >= _LOGIN_MAX_FAILS:
+            locked_until = now + _LOGIN_LOCK
+            fail_count   = 0
             _log.warning("로그인 잠금 발동: %s (%d초)", ip, _LOGIN_LOCK)
+            _notify_lock(ip)
+
+        auth_repo.upsert_attempt(ip, fail_count, window_start, locked_until)
 
 
 def _login_clear(ip: str) -> None:
     """로그인 성공 시 해당 IP의 실패/잠금 기록을 초기화한다."""
     with _login_lock:
-        _login_attempts.pop(ip, None)
+        auth_repo.clear_attempt(ip)
+
+
+def _notify_lock(ip: str) -> None:
+    """브루트포스 잠금 발동을 텔레그램으로 1회성 비동기 알림한다.
+
+    notification.telegram.TelegramNotifier는 백그라운드 큐 스레드를 새로
+    띄우는 구조라 반복될 수 있는 잠금 이벤트에는 부적합 — 여기서는 순수
+    HTTP 전송만 데몬 스레드로 fire-and-forget 실행한다(로그인 응답 지연 방지).
+    """
+    cfg     = current_app.config.get("CFG", {}) or {}
+    token   = cfg.get("telegram", {}).get("bot_token", "")
+    chat_id = cfg.get("telegram", {}).get("chat_id", "")
+    if not token or not chat_id:
+        return
+    text = f"⚠️ 로그인 무차별 대입 시도 감지 — IP {ip} 잠금 처리됨 ({_LOGIN_LOCK}초)"
+
+    def _send():
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": text},
+                timeout=10,
+            )
+        except Exception as exc:
+            _log.warning("브루트포스 알림 전송 실패: %s", exc)
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def _auth_cfg() -> dict:

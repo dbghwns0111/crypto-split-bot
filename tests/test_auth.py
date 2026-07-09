@@ -1,9 +1,11 @@
 """웹 인증(web/auth.py) 테스트 — CSRF, IP 화이트리스트, 세션, 브루트포스."""
 import re
-from unittest.mock import MagicMock
+import time
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from database import auth_repo
 from database.connection import close_connection, configure, get_connection
 from database.models import create_tables
 
@@ -271,3 +273,75 @@ class TestReauth:
             headers={"X-CSRF-Token": token},
         )
         assert resp.status_code == 200
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 브루트포스 방어 영속화 + 알림
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ATTACKER_IP = "203.0.113.5"  # 127.0.0.1은 자기잠금 방지로 항상 예외 처리되므로 테스트엔 비-로컬 IP 사용
+
+
+def _post_login(c, password, ip=ATTACKER_IP):
+    return c.post("/login", data={"password": password}, environ_overrides={"REMOTE_ADDR": ip})
+
+
+class TestBruteForcePersistence:
+    def test_failed_login_recorded_in_db(self, auth_client):
+        _post_login(auth_client, "wrong")
+        rec = auth_repo.get_attempt(ATTACKER_IP)
+        assert rec is not None
+        assert rec["fail_count"] == 1
+
+    def test_successful_login_clears_record(self, auth_client):
+        _post_login(auth_client, "wrong")
+        assert auth_repo.get_attempt(ATTACKER_IP) is not None
+        _post_login(auth_client, AUTH_PASSWORD)
+        assert auth_repo.get_attempt(ATTACKER_IP) is None
+
+    def test_lock_after_max_fails(self, auth_client):
+        for _ in range(5):
+            _post_login(auth_client, "wrong")
+        rec = auth_repo.get_attempt(ATTACKER_IP)
+        assert rec["locked_until"] > time.time()
+        assert rec["fail_count"] == 0  # 잠금 발동 시 카운트 리셋
+
+        resp = _post_login(auth_client, AUTH_PASSWORD)
+        assert resp.status_code == 429  # 잠금 중엔 올바른 비밀번호도 거부
+
+    def test_lock_persists_with_fresh_flask_app_same_db(self, auth_app):
+        # 같은 (스레드로컬) DB 커넥션을 공유하는 새 Flask 앱 인스턴스를 만들어
+        # "앱 재시작 후에도 잠금 유지"를 검증한다 — 인메모리 dict였다면 새
+        # 앱 인스턴스에서는 당연히 사라졌을 상태다.
+        with auth_app.test_client() as c:
+            for _ in range(5):
+                _post_login(c, "wrong")
+
+        from web.app import create_app
+        bm2 = _make_bot_manager()
+        app2 = create_app(bm2, MagicMock(), _auth_cfg())
+        app2.config["TESTING"] = True
+        with app2.test_client() as c2:
+            resp = _post_login(c2, AUTH_PASSWORD)
+            assert resp.status_code == 429
+
+    def test_lock_triggers_telegram_notification(self, auth_client):
+        cfg = auth_client.application.config["CFG"]
+        cfg["telegram"] = {"bot_token": "test-token", "chat_id": "12345"}
+
+        with patch("web.auth.requests.post") as mock_post:
+            for _ in range(5):
+                _post_login(auth_client, "wrong")
+            time.sleep(0.3)  # 데몬 스레드(fire-and-forget) 완료 대기
+
+        assert mock_post.called
+        args, kwargs = mock_post.call_args
+        assert "test-token" in args[0]
+        assert kwargs["json"]["chat_id"] == "12345"
+
+    def test_no_notification_when_telegram_not_configured(self, auth_client):
+        with patch("web.auth.requests.post") as mock_post:
+            for _ in range(5):
+                _post_login(auth_client, "wrong")
+            time.sleep(0.2)
+        assert not mock_post.called

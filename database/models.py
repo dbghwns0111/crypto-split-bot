@@ -62,6 +62,15 @@ def create_tables(conn: sqlite3.Connection) -> None:
             avg_buy_price REAL NOT NULL DEFAULT 0,
             updated_at    TEXT NOT NULL
         );
+
+        -- ── 로그인 브루트포스 방어(실패 횟수/잠금) ────────────────────────
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            ip           TEXT PRIMARY KEY,
+            fail_count   INTEGER NOT NULL DEFAULT 0,
+            window_start REAL,
+            locked_until REAL,
+            updated_at   TEXT NOT NULL
+        );
     """)
     conn.commit()
 
