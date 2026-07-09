@@ -357,6 +357,17 @@ async function _toggleBulkEnabled(symbol, enabled) {
     }
 }
 
+function _setReauthVisible(show) {
+    const row = document.getElementById('confirm-reauth-row');
+    const inp = document.getElementById('confirm-reauth-input');
+    if (row) row.style.display = show ? '' : 'none';
+    if (inp) inp.value = '';
+}
+
+function _reauthPassword() {
+    return document.getElementById('confirm-reauth-input')?.value || '';
+}
+
 function _confirmBulk(action) {
     _pendingBulk = action;
     if (action === 'stop') {
@@ -368,6 +379,7 @@ function _confirmBulk(action) {
         _setEl('modalBody',  '전체 제어 ON 종목을 모두 재시작(이전 상태 복원)하시겠습니까?\n(OFF 종목 제외)');
         document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
     }
+    _setReauthVisible(true);
     _modal.show();
 }
 
@@ -851,6 +863,7 @@ async function _savePriceEdit(sym) {
 // ── 모달 (기존 로직 유지) ─────────────────────────────────────────────────────
 
 function _openConfirm(symbol, action) {
+    _setReauthVisible(false);
     // OFF 종목은 시작 차단 → ON 변경 안내 팝업
     if (action === 'start_resume' || action === 'start_fresh') {
         const sd = _stratData?.symbols?.find(s => s.symbol === symbol);
@@ -1073,12 +1086,20 @@ async function _executeAction() {
     // 전체 가동/중지 처리
     if (_pendingBulk) {
         const act = _pendingBulk;
+        const reauth = _reauthPassword();
         _pendingBulk = null;
         _modal.hide();
         const url = act === 'stop' ? API.stopAll : API.startAll;
         try {
-            const resp = await _apiFetch(url, { method: 'POST', body: '{}' });
+            const resp = await _apiFetch(url, {
+                method: 'POST',
+                body: JSON.stringify({ _reauth_password: reauth }),
+            });
             const data = await resp.json();
+            if (data.error === 'reauth_required') {
+                _showAlert(data.message || '비밀번호를 다시 확인해주세요.', 'danger');
+                return;
+            }
             let msg;
             if (act === 'stop') {
                 msg = (data.stopped && data.stopped.length)
@@ -1830,6 +1851,7 @@ function _confirmDeleteSelected() {
     _setEl('modalTitle', '선택 내역 삭제');
     _setEl('modalBody',  `선택한 ${n}건의 내역을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 수익 통계에 영향을 줄 수 있습니다.`);
     document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
+    _setReauthVisible(false);
     _pendingDeleteFn = _doDeleteSelected;
     _modal.show();
 }
@@ -1842,6 +1864,7 @@ function _confirmDeleteRange() {
     _setEl('modalTitle', '기간 전체 삭제');
     _setEl('modalBody',  `${start} ~ ${end} 기간의 ${symLabel} 내역을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 수익 통계에 영향을 줄 수 있습니다.`);
     document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
+    _setReauthVisible(true);
     _pendingDeleteFn = _doDeleteRange;
     _modal.show();
 }
@@ -1868,10 +1891,11 @@ async function _doDeleteRange() {
     const start = _tradesStart || document.getElementById('trades-start')?.value || '';
     const end   = _tradesEnd   || document.getElementById('trades-end')?.value   || '';
     const sym   = _tradesSym || 'all';
+    const reauth = _reauthPassword();
     try {
         const resp = await _apiFetch(API.deleteOrders, {
             method:  'DELETE',
-            body:    JSON.stringify({ start, end, symbol: sym }),
+            body:    JSON.stringify({ start, end, symbol: sym, _reauth_password: reauth }),
         });
         const data = await resp.json();
         _showAlert(data.message, data.ok ? 'success' : 'danger');

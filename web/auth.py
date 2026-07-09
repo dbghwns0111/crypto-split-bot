@@ -12,6 +12,7 @@
   설정 탭에서 변경하면 앱 재시작 없이 즉시 반영된다.
 """
 
+import hashlib
 import hmac
 import ipaddress
 import os
@@ -146,11 +147,20 @@ def _csrf_token() -> str:
     return token
 
 
-def verify_reauth(supplied: str) -> bool:
-    """민감 작업 재인증 — 인증이 활성 상태이고 비밀번호가 일치할 때만 True."""
+def reauth_ok(supplied: str) -> bool:
+    """민감 작업(전체 시작/중지, 기간 전체 삭제 등) 재인증 통과 여부.
+
+    비밀번호 인증 자체가 비활성이면(검사 대상이 없으므로) 통과시킨다 — 기존
+    fail-open 철학과 동일. 인증이 활성 상태면 비밀번호가 정확히 일치해야 통과.
+    """
     if not _auth_active():
-        return False
+        return True
     return hmac.compare_digest(str(supplied or ""), _password())
+
+
+def _pw_fingerprint() -> str:
+    """현재 비밀번호의 짧은 지문 — 세션에 저장해 비밀번호 변경 시 세션 무효화에 사용."""
+    return hashlib.sha256(_password().encode("utf-8")).hexdigest()[:16]
 
 
 def init_auth(app, cfg: dict) -> None:
@@ -211,7 +221,15 @@ def _guard():
     if request.endpoint == "serve_project_image":
         return None
     if session.get("authenticated"):
-        # ── 3. CSRF 토큰 (상태 변경 API 요청만) ─────────────────────────────
+        # ── 3. 비밀번호 변경 감지 — 지문 불일치 시 세션 무효화 ───────────────
+        if session.get("pw_fp") != _pw_fingerprint():
+            _log.info("비밀번호 변경 감지 — 세션 무효화: %s", remote)
+            session.clear()
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "unauthorized"}), 401
+            return redirect(url_for("auth.login", next=request.path))
+
+        # ── 4. CSRF 토큰 (상태 변경 API 요청만) ─────────────────────────────
         if request.method in _CSRF_METHODS and request.path.startswith("/api/"):
             supplied = request.headers.get("X-CSRF-Token", "")
             if not supplied or not hmac.compare_digest(supplied, str(session.get("csrf_token", ""))):
@@ -250,6 +268,7 @@ def login():
             session.permanent = True
             session["authenticated"] = True
             session["csrf_token"] = secrets.token_hex(32)  # 로그인 시 토큰 회전
+            session["pw_fp"] = _pw_fingerprint()
             _log.info("웹 로그인 성공: %s", remote)
             nxt = request.args.get("next") or "/"
             # 오픈 리다이렉트 방지 — 내부 경로만 허용

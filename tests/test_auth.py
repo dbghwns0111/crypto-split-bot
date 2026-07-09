@@ -82,7 +82,12 @@ class TestCsrf:
     def test_post_with_valid_csrf_token_allowed(self, auth_client):
         _login(auth_client)
         token = _csrf_token(auth_client)
-        resp = auth_client.post("/api/bot/stop_all", json={}, headers={"X-CSRF-Token": token})
+        # bulk_enabled는 재인증(step-up) 대상이 아닌 순수 CSRF 시나리오용 엔드포인트
+        resp = auth_client.post(
+            "/api/bot/bulk_enabled",
+            json={"symbol": "ETH", "enabled": True},
+            headers={"X-CSRF-Token": token},
+        )
         assert resp.status_code == 200
 
     def test_get_requests_not_csrf_protected(self, auth_client):
@@ -170,3 +175,99 @@ class TestIpWhitelistSettingsValidation:
         )
         assert resp.status_code == 400
         assert resp.get_json()["ok"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 세션 무효화 (비밀번호 변경 감지)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestSessionInvalidation:
+    def test_session_survives_when_password_unchanged(self, auth_client):
+        _login(auth_client)
+        resp = auth_client.get("/api/status")
+        assert resp.status_code == 200
+
+    def test_session_invalidated_after_password_change(self, auth_app):
+        with auth_app.test_client() as c:
+            _login(c)
+            assert c.get("/api/status").status_code == 200
+
+            # 비밀번호 변경 (설정 재로드 없이 라이브 cfg 직접 변경 — 실제 저장 경로와 동일한 딕셔너리 갱신)
+            auth_app.config["CFG"]["web"]["auth"]["password"] = "changed-password"
+
+            resp = c.get("/api/status")
+            assert resp.status_code == 401  # 세션 무효화 → 재로그인 필요
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 민감 작업 재인증 (step-up)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestReauth:
+    def test_reauth_not_required_when_auth_disabled(self):
+        from web.app import create_app
+        bm = _make_bot_manager()
+        flask_app = create_app(bm, MagicMock(), {})  # 비밀번호 미설정 = 인증 비활성
+        flask_app.config["TESTING"] = True
+        with flask_app.test_client() as c:
+            resp = c.post("/api/bot/stop_all", json={})  # _reauth_password 없이도 통과
+            assert resp.status_code == 200
+
+    def test_stop_all_without_reauth_password_rejected(self, auth_client):
+        _login(auth_client)
+        token = _csrf_token(auth_client)
+        resp = auth_client.post("/api/bot/stop_all", json={}, headers={"X-CSRF-Token": token})
+        assert resp.status_code == 403
+        assert resp.get_json()["error"] == "reauth_required"
+
+    def test_stop_all_with_wrong_reauth_password_rejected(self, auth_client):
+        _login(auth_client)
+        token = _csrf_token(auth_client)
+        resp = auth_client.post(
+            "/api/bot/stop_all",
+            json={"_reauth_password": "wrong"},
+            headers={"X-CSRF-Token": token},
+        )
+        assert resp.status_code == 403
+
+    def test_stop_all_with_correct_reauth_password_allowed(self, auth_client):
+        _login(auth_client)
+        token = _csrf_token(auth_client)
+        resp = auth_client.post(
+            "/api/bot/stop_all",
+            json={"_reauth_password": AUTH_PASSWORD},
+            headers={"X-CSRF-Token": token},
+        )
+        assert resp.status_code == 200
+
+    def test_delete_range_without_reauth_password_rejected(self, auth_client):
+        _login(auth_client)
+        token = _csrf_token(auth_client)
+        resp = auth_client.delete(
+            "/api/trades/orders",
+            json={"start": "2026-01-01", "end": "2026-01-02", "symbol": "all"},
+            headers={"X-CSRF-Token": token},
+        )
+        assert resp.status_code == 403
+        assert resp.get_json()["error"] == "reauth_required"
+
+    def test_delete_range_with_correct_reauth_password_allowed(self, auth_client):
+        _login(auth_client)
+        token = _csrf_token(auth_client)
+        resp = auth_client.delete(
+            "/api/trades/orders",
+            json={"start": "2026-01-01", "end": "2026-01-02", "symbol": "all",
+                  "_reauth_password": AUTH_PASSWORD},
+            headers={"X-CSRF-Token": token},
+        )
+        assert resp.status_code == 200
+
+    def test_delete_by_ids_does_not_require_reauth(self, auth_client):
+        _login(auth_client)
+        token = _csrf_token(auth_client)
+        resp = auth_client.delete(
+            "/api/trades/orders",
+            json={"ids": []},
+            headers={"X-CSRF-Token": token},
+        )
+        assert resp.status_code == 200

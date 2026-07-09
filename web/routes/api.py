@@ -214,6 +214,12 @@ def reset_bot():
 @api_bp.route("/bot/stop_all", methods=["POST"])
 def stop_all_bots():
     """전체 제어 ON(bulk_enabled)인 봇 전체 중지. OFF 종목은 제외."""
+    from web.auth import reauth_ok
+
+    body = request.get_json(silent=True) or {}
+    if not reauth_ok(body.get("_reauth_password")):
+        return jsonify({"ok": False, "error": "reauth_required", "message": "비밀번호를 다시 확인해주세요."}), 403
+
     bot_manager = current_app.config["BOT_MANAGER"]
     stopped     = bot_manager.stop_all()
     return jsonify({"ok": True, "stopped": stopped, "count": len(stopped)})
@@ -222,6 +228,12 @@ def stop_all_bots():
 @api_bp.route("/bot/start_all", methods=["POST"])
 def start_all_bots():
     """전체 제어 ON(bulk_enabled)인 봇 전체 재시작(이전 상태 복원). OFF 종목은 제외."""
+    from web.auth import reauth_ok
+
+    body = request.get_json(silent=True) or {}
+    if not reauth_ok(body.get("_reauth_password")):
+        return jsonify({"ok": False, "error": "reauth_required", "message": "비밀번호를 다시 확인해주세요."}), 403
+
     bot_manager = current_app.config["BOT_MANAGER"]
     resumed, failed, skipped = bot_manager.start_all(fresh=False)
     return jsonify({
@@ -1430,6 +1442,10 @@ def delete_trade_orders():
     if ids is not None:
         count, affected = delete_orders_by_ids([int(i) for i in ids])
     else:
+        from web.auth import reauth_ok
+        if not reauth_ok(body.get("_reauth_password")):
+            return jsonify({"ok": False, "error": "reauth_required", "message": "비밀번호를 다시 확인해주세요."}), 403
+
         start = (body.get("start") or "").strip()
         end   = (body.get("end")   or "").strip()
         sym   = (body.get("symbol") or "").upper().strip() or None

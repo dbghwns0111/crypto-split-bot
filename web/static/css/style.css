@@ -1446,3 +1446,14 @@ body {
   white-space: nowrap;
 }
 .cs-preset-add-btn:hover { color: var(--cs-accent); border-color: var(--cs-accent); }
+
+/* ── 확인 모달: 민감 작업 재인증(비밀번호) ──────────────────────────────── */
+.cs-confirm-reauth {
+  padding: 0 20px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cs-confirm-reauth-label { font-size: 13px; color: var(--cs-muted); font-weight: 600; }
+.cs-confirm-reauth #confirm-reauth-input,
+.cs-confirm-reauth input.cs-settings-input { width: 100%; }
