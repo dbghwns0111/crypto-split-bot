@@ -13,8 +13,6 @@ const TIER_COLORS = {
 
 const API = {
     status:           '/api/status',
-    pnl:              '/api/pnl/today',
-    portfolio:        '/api/portfolio',
     marketPrices:     '/api/market/prices',
     cumulative:       '/api/pnl/cumulative',
     pnlDaily:         '/api/pnl/daily',
@@ -1128,7 +1126,6 @@ async function _executeAction() {
         });
         const data = await resp.json();
         _showAlert(data.message, data.ok ? 'success' : 'warning');
-        if (_activeTab === 'status') await _fetchInvestment();
         if (_activePage === 'strategy') await _fetchStrategy();
     } catch {
         _showAlert('요청 처리 중 오류가 발생했습니다.', 'danger');
@@ -1469,7 +1466,7 @@ function _updateStratMonitorCard(s) {
 
     const badge = document.getElementById(`strat-card-${sym}-badge`);
     if (badge) badge.className = `cs-badge ${s.running ? 'cs-badge-running' : 'cs-badge-stopped'}`;
-    _setEl(`strat-card-${sym}-badge-label`, s.running ? '실행중' : '중지됨');
+    _setEl(`strat-card-${sym}-badge-label`, s.running ? '가동중' : '중지');
 
     _setEl(`strat-card-${sym}-price`, s.current_price > 0 ? `${s.current_price.toLocaleString()}원` : '-');
     _setEl(`strat-card-${sym}-ref`,   s.reference_price > 0 ? `${s.reference_price.toLocaleString()}원` : '-');
@@ -1628,8 +1625,13 @@ function _applyQuickRange(range, doFetch = true) {
             start = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-01`;
             break;
         case 'all':
-        default:
-            start = '2026-06-01';
+        default: {
+            // 봇 최초 체결일을 정확히 알 수 없으므로(별도 API 없음) 넉넉한
+            // 상한(10년 전)으로 잡는다 — 하드코딩된 특정 날짜보다 안전.
+            const d = new Date(today);
+            d.setFullYear(d.getFullYear() - 10);
+            start = fmt(d);
+        }
     }
 
     const startEl = document.getElementById('trades-start');
