@@ -1291,10 +1291,25 @@ def save_settings():
             cfg.setdefault("web", {}).setdefault("auth", {})
 
             if "ip_whitelist" in body:
+                import ipaddress
+
                 wl_raw = body.get("ip_whitelist") or []
                 if isinstance(wl_raw, str):
                     wl_raw = [p for p in wl_raw.replace("\n", ",").split(",")]
                 wl = [str(ip).strip() for ip in wl_raw if str(ip).strip()]
+
+                invalid = []
+                for entry in wl:
+                    try:
+                        ipaddress.ip_network(entry, strict=False)
+                    except ValueError:
+                        invalid.append(entry)
+                if invalid:
+                    return jsonify({
+                        "ok": False,
+                        "message": f"잘못된 IP/CIDR 형식: {', '.join(invalid)}",
+                    }), 400
+
                 raw["web"]["auth"]["ip_whitelist"] = wl
                 cfg["web"]["auth"]["ip_whitelist"] = wl
 

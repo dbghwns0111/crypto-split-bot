@@ -13,6 +13,7 @@
 """
 
 import hmac
+import ipaddress
 import os
 import secrets
 import threading
@@ -106,6 +107,26 @@ def _ip_whitelist() -> list[str]:
     return [str(ip).strip() for ip in wl if str(ip).strip()]
 
 
+def _ip_allowed(remote: str, whitelist: list[str]) -> bool:
+    """remote가 화이트리스트에 포함되는지 확인한다. 항목은 단일 IP 또는 CIDR(a.b.c.d/n) 모두 허용."""
+    if remote in _LOCAL_IPS:
+        return True
+    try:
+        addr = ipaddress.ip_address(remote)
+    except ValueError:
+        return False
+    for entry in whitelist:
+        try:
+            if "/" in entry:
+                if addr in ipaddress.ip_network(entry, strict=False):
+                    return True
+            elif addr == ipaddress.ip_address(entry):
+                return True
+        except ValueError:
+            _log.warning("잘못된 형식의 화이트리스트 항목 무시: %s", entry)
+    return False
+
+
 def _auth_active() -> bool:
     """비밀번호 인증이 실제로 활성 상태인지.
 
@@ -175,7 +196,7 @@ def _guard():
 
     # ── 1. IP 화이트리스트 (비밀번호와 독립) ───────────────────────────────
     whitelist = _ip_whitelist()
-    if whitelist and remote not in whitelist and remote not in _LOCAL_IPS:
+    if whitelist and not _ip_allowed(remote, whitelist):
         _log.warning("화이트리스트 외 IP 접근 차단: %s", remote)
         if request.path.startswith("/api/"):
             return jsonify({"ok": False, "error": "forbidden"}), 403
