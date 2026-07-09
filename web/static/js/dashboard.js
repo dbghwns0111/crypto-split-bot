@@ -60,6 +60,7 @@ const POLL = { realtime: 4000, pnl: 15000, assets: 20000, strategy: 3000 };
 
 // ── 상태 ──────────────────────────────────────────────────────────────────────
 
+let _csrfToken      = '';
 let _modal         = null;
 let _gapModal      = null;
 let _gapSymbol     = null;
@@ -108,6 +109,8 @@ let _pnlPage   = 1;
 // ── 초기화 ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+    _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
     // 심볼 목록 읽기
     const symEl = document.getElementById('cs-symbols');
     if (symEl) {
@@ -342,9 +345,8 @@ function _renderHomeSummary() {
 
 async function _toggleBulkEnabled(symbol, enabled) {
     try {
-        const resp = await fetch(API.bulkEnabled, {
+        const resp = await _apiFetch(API.bulkEnabled, {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ symbol, enabled }),
         });
         const data = await resp.json();
@@ -833,9 +835,8 @@ async function _savePriceEdit(sym) {
     if (!price || price <= 0) return;
 
     try {
-        const resp = await fetch(API.manualPrice, {
+        const resp = await _apiFetch(API.manualPrice, {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ symbol: sym, avg_buy_price: price }),
         });
         if (!resp.ok) throw new Error('저장 실패');
@@ -1047,9 +1048,8 @@ async function _executeGapAction() {
     if (mode === 'virtual') body.virtual_catchup = true;
 
     try {
-        const resp = await fetch(API.start, {
+        const resp = await _apiFetch(API.start, {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(body),
         });
         const data = await resp.json();
@@ -1077,9 +1077,7 @@ async function _executeAction() {
         _modal.hide();
         const url = act === 'stop' ? API.stopAll : API.startAll;
         try {
-            const resp = await fetch(url, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-            });
+            const resp = await _apiFetch(url, { method: 'POST', body: '{}' });
             const data = await resp.json();
             let msg;
             if (act === 'stop') {
@@ -1112,9 +1110,8 @@ async function _executeAction() {
     if (action === 'start_fresh') body.fresh = true;
 
     try {
-        const resp = await fetch(url, {
+        const resp = await _apiFetch(url, {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(body),
         });
         const data = await resp.json();
@@ -1126,6 +1123,15 @@ async function _executeAction() {
 }
 
 // ── 유틸 ──────────────────────────────────────────────────────────────────────
+
+// 상태 변경(POST/PUT/PATCH/DELETE) 요청 전용 — CSRF 토큰 자동 부여
+function _apiFetch(url, opts = {}) {
+    const headers = Object.assign(
+        { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrfToken },
+        opts.headers || {},
+    );
+    return fetch(url, Object.assign({}, opts, { headers }));
+}
 
 async function _fetchJson(url, opts = null) {
     const res = await fetch(url, opts || {});
@@ -1281,9 +1287,8 @@ async function _saveStratSettings() {
         return;
     }
     try {
-        const resp = await fetch(API.strategySettings, {
+        const resp = await _apiFetch(API.strategySettings, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ symbol: _stratActiveSym, trigger_mode: mode,
                                    trigger_pct: pct, trigger_krw: krw,
                                    max_rounds: rounds, order_amount: amount,
@@ -1844,9 +1849,8 @@ function _confirmDeleteRange() {
 async function _doDeleteSelected() {
     const ids = [..._selectedOrderIds];
     try {
-        const resp = await fetch(API.deleteOrders, {
+        const resp = await _apiFetch(API.deleteOrders, {
             method:  'DELETE',
-            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ ids }),
         });
         const data = await resp.json();
@@ -1865,9 +1869,8 @@ async function _doDeleteRange() {
     const end   = _tradesEnd   || document.getElementById('trades-end')?.value   || '';
     const sym   = _tradesSym || 'all';
     try {
-        const resp = await fetch(API.deleteOrders, {
+        const resp = await _apiFetch(API.deleteOrders, {
             method:  'DELETE',
-            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ start, end, symbol: sym }),
         });
         const data = await resp.json();
@@ -2291,9 +2294,8 @@ async function _saveSettings(body) {
         return;
     }
     try {
-        const resp = await fetch('/api/settings', {
+        const resp = await _apiFetch('/api/settings', {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(filtered),
         });
         const data = await resp.json();
@@ -2312,9 +2314,8 @@ async function _saveSecurity() {
     const body = { ip_whitelist: wl };
     if (pwd) body.web_password = pwd;
     try {
-        const resp = await fetch('/api/settings', {
+        const resp = await _apiFetch('/api/settings', {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(body),
         });
         const data = await resp.json();
@@ -2330,7 +2331,7 @@ async function _saveSecurity() {
 
 async function _testTelegram() {
     try {
-        const resp = await fetch('/api/settings/telegram/test', { method: 'POST' });
+        const resp = await _apiFetch('/api/settings/telegram/test', { method: 'POST' });
         const data = await resp.json();
         _showAlert(data.message, data.ok ? 'success' : 'danger');
     } catch { _showAlert('전송 중 오류가 발생했습니다.', 'danger'); }

@@ -14,6 +14,7 @@
 
 import hmac
 import os
+import secrets
 import threading
 import time
 
@@ -38,6 +39,9 @@ auth_bp = Blueprint("auth", __name__)
 _EXEMPT_ENDPOINTS = {"auth.login", "auth.logout", "static"}
 
 _LOCAL_IPS = {"127.0.0.1", "::1", "localhost"}
+
+# CSRF 보호 대상 HTTP 메서드 (상태 변경 요청)
+_CSRF_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # ── 로그인 무차별 대입(brute-force) 방어 ──────────────────────────────────────
 # 인터넷에 노출된 로그인 화면 보호용. 외부 의존성 없는 인메모리 IP별 시도 제한.
@@ -112,6 +116,22 @@ def _auth_active() -> bool:
     return bool(_password())
 
 
+def _csrf_token() -> str:
+    """현재 세션의 CSRF 토큰을 반환한다 (없으면 새로 생성해 세션에 저장)."""
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_hex(32)
+        session["csrf_token"] = token
+    return token
+
+
+def verify_reauth(supplied: str) -> bool:
+    """민감 작업 재인증 — 인증이 활성 상태이고 비밀번호가 일치할 때만 True."""
+    if not _auth_active():
+        return False
+    return hmac.compare_digest(str(supplied or ""), _password())
+
+
 def init_auth(app, cfg: dict) -> None:
     """Flask 앱에 인증 가드와 로그인/로그아웃 라우트를 설치한다."""
     auth = (cfg.get("web", {}) or {}).get("auth", {}) or {}
@@ -138,6 +158,7 @@ def init_auth(app, cfg: dict) -> None:
 
     app.register_blueprint(auth_bp)
     app.before_request(_guard)
+    app.context_processor(lambda: {"csrf_token": _csrf_token()})
 
     if auth.get("enabled", True) and not (
         os.getenv("WEB_PASSWORD", "") or auth.get("password", "")
@@ -169,6 +190,12 @@ def _guard():
     if request.endpoint == "serve_project_image":
         return None
     if session.get("authenticated"):
+        # ── 3. CSRF 토큰 (상태 변경 API 요청만) ─────────────────────────────
+        if request.method in _CSRF_METHODS and request.path.startswith("/api/"):
+            supplied = request.headers.get("X-CSRF-Token", "")
+            if not supplied or not hmac.compare_digest(supplied, str(session.get("csrf_token", ""))):
+                _log.warning("CSRF 토큰 불일치/누락: %s %s (%s)", request.method, request.path, remote)
+                return jsonify({"ok": False, "error": "csrf_failed"}), 403
         return None
 
     # 미인증 — API 는 401, 페이지는 로그인으로 리다이렉트
@@ -201,6 +228,7 @@ def login():
             _login_clear(remote)
             session.permanent = True
             session["authenticated"] = True
+            session["csrf_token"] = secrets.token_hex(32)  # 로그인 시 토큰 회전
             _log.info("웹 로그인 성공: %s", remote)
             nxt = request.args.get("next") or "/"
             # 오픈 리다이렉트 방지 — 내부 경로만 허용
