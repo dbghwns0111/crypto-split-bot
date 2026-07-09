@@ -12,8 +12,6 @@ const TIER_COLORS = {
 };
 
 const API = {
-    status:           '/api/status',
-    marketPrices:     '/api/market/prices',
     cumulative:       '/api/pnl/cumulative',
     pnlDaily:         '/api/pnl/daily',
     pnlStats:         '/api/pnl/stats',
@@ -55,8 +53,6 @@ function _coinIconHtml(sym, meta) {
     if (src) return `<img class="cs-coin-icon" src="${src}" alt="${sym}" width="40" height="40">`;
     return `<div class="cs-coin-icon ${meta.css}">${meta.letter}</div>`;
 }
-
-const MARKET_COINS = ['BTC', 'ETH', 'XRP', 'USDT'];
 
 const POLL = { realtime: 4000, pnl: 15000, assets: 20000, strategy: 3000 };
 
@@ -289,7 +285,7 @@ function _restartPolling() {
 async function _fetchActivePage() {
     try {
         if (_activePage === 'home') {
-            await _fetchMarketPrices();
+            await _fetchStrategy();
         } else if (_activePage === 'strategy') {
             await _fetchStrategy();
         } else if (_activePage === 'trades') {
@@ -311,65 +307,10 @@ async function _fetchActivePage() {
     }
 }
 
-// ── 탭 1: 실시간 시세 ────────────────────────────────────────────────────────
-
-async function _fetchMarketPrices() {
-    const [prices, status] = await Promise.all([
-        _fetchJson(API.marketPrices),
-        _fetchJson(API.status).catch(() => ({})),
-    ]);
-    _renderMarketPrices(prices, status || {});
-}
-
-function _renderMarketPrices(data, status) {
-    const list = document.getElementById('market-price-list');
-    if (!list) return;
-
-    if (!list.dataset.built) {
-        list.innerHTML = '';
-        MARKET_COINS.forEach(sym => {
-            const meta = COIN_META[sym] || { name: sym, letter: sym.slice(0, 3), css: '' };
-            const row  = document.createElement('div');
-            row.className = 'cs-coin-row';
-            row.innerHTML = `
-                ${_coinIconHtml(sym, meta)}
-                <div class="cs-coin-info">
-                    <span class="cs-coin-name">${meta.name}</span>
-                    <span class="cs-coin-symbol">${sym} <span class="cs-badge" id="run-${sym}"></span></span>
-                </div>
-                <div class="cs-coin-price">
-                    <span class="cs-coin-price-value" id="mkt-${sym}">-</span>
-                </div>
-                <label class="cs-switch" title="전체 제어 ON/OFF">
-                    <input type="checkbox" id="bulk-${sym}" data-symbol="${sym}">
-                    <span class="cs-switch-slider"></span>
-                </label>`;
-            list.appendChild(row);
-            row.querySelector(`#bulk-${sym}`)?.addEventListener('change', e =>
-                _toggleBulkEnabled(sym, e.target.checked));
-        });
-        list.dataset.built = 'true';
-    }
-
-    Object.entries(data || {}).forEach(([sym, info]) => {
-        const el = document.getElementById(`mkt-${sym}`);
-        if (el) el.textContent = info.price ? `${Math.round(info.price).toLocaleString()}원` : '-';
-    });
-
-    MARKET_COINS.forEach(sym => {
-        const st    = (status || {})[sym] || {};
-        const badge = document.getElementById(`run-${sym}`);
-        if (badge) {
-            const running = !!st.running;
-            badge.textContent = running ? '가동중' : '중지';
-            badge.className   = `cs-badge ${running ? 'on' : 'off'}`;
-        }
-        const tg = document.getElementById(`bulk-${sym}`);
-        if (tg && document.activeElement !== tg) {
-            tg.checked = st.bulk_enabled !== false;  // 기본 ON
-        }
-    });
-}
+// ── 홈: 코인 카드(가격+상태+제어) ─────────────────────────────────────────────
+// 홈은 전략현황이 쓰던 것과 동일한 /api/strategy를 소스로 삼는다 — 가격/실행
+// 상태/차수/트리거를 홈과 전략현황 두 곳에서 따로 조회하던 중복을 없앤다.
+// 실제 카드 렌더링은 _renderStratMonitor()/_makeStratMonitorCard()가 담당.
 
 async function _toggleBulkEnabled(symbol, enabled) {
     try {
@@ -1077,8 +1018,7 @@ async function _executeAction() {
                 msg = parts.length ? parts.join(' / ') : '재시작할 봇이 없습니다.';
             }
             _showAlert(msg, 'success');
-            await _fetchMarketPrices();
-            if (_activePage === 'strategy') await _fetchStrategy();
+            await _fetchStrategy();
         } catch {
             _showAlert('요청 처리 중 오류가 발생했습니다.', 'danger');
         }
@@ -1359,8 +1299,12 @@ async function _calcAndRenderPriceTable() {
 // ── 전략 모니터링 카드 ────────────────────────────────────────────────────────
 
 function _renderStratMonitor(symbols) {
-    const list = document.getElementById('strat-monitor-list');
+    const list = document.getElementById('market-price-list');
     if (!list) return;
+    if (!list.dataset.built) {
+        list.innerHTML = '';
+        list.dataset.built = 'true';
+    }
     symbols.forEach(s => {
         if (!document.getElementById(`strat-card-${s.symbol}`))
             list.appendChild(_makeStratMonitorCard(s.symbol));
@@ -1395,6 +1339,13 @@ function _makeStratMonitorCard(sym) {
                 <span class="cs-strat-price-label">시작가</span>
                 <span class="cs-strat-price-val" id="strat-card-${sym}-start">-</span>
             </div>
+            <div class="cs-strat-price-row">
+                <span class="cs-strat-price-label" title="전체 가동/전체 중지 버튼을 눌렀을 때 이 종목도 함께 적용할지 설정합니다">전체 가동/중지 대상</span>
+                <label class="cs-switch" title="전체 가동/전체 중지 버튼을 눌렀을 때 이 종목도 함께 적용할지 설정합니다">
+                    <input type="checkbox" id="bulk-${sym}" data-symbol="${sym}">
+                    <span class="cs-switch-slider"></span>
+                </label>
+            </div>
         </div>
         <div class="cs-strat-progress-wrap">
             <div class="cs-strat-progress-bar">
@@ -1425,6 +1376,8 @@ function _makeStratMonitorCard(sym) {
             <button class="cs-btn cs-btn-warning   cs-btn-sm"                    data-action="reset"        data-symbol="${sym}" id="strat-card-${sym}-reset-btn"  style="display:none">🗑️ 초기화</button>
             <button class="cs-btn cs-btn-danger    cs-btn-sm"                    data-action="stop"         data-symbol="${sym}" id="strat-card-${sym}-stop-btn"   style="display:none">■ 자동매매 중지</button>
         </div>`;
+    card.querySelector(`#bulk-${sym}`)?.addEventListener('change', e =>
+        _toggleBulkEnabled(sym, e.target.checked));
     return card;
 }
 
@@ -1450,6 +1403,11 @@ function _updateStratMonitorCard(s) {
     _setEl(`strat-card-${sym}-price`, s.current_price > 0 ? `${s.current_price.toLocaleString()}원` : '-');
     _setEl(`strat-card-${sym}-ref`,   s.reference_price > 0 ? `${s.reference_price.toLocaleString()}원` : '-');
     _setEl(`strat-card-${sym}-start`, s.start_price > 0 ? `${s.start_price.toLocaleString()}원` : '-');
+
+    const bulkTg = document.getElementById(`bulk-${sym}`);
+    if (bulkTg && document.activeElement !== bulkTg) {
+        bulkTg.checked = s.bulk_enabled !== false;  // 기본 ON
+    }
 
     const barEl = document.getElementById(`strat-card-${sym}-bar`);
     if (barEl) barEl.style.width = s.max_rounds > 0
