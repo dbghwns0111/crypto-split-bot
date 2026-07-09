@@ -68,7 +68,6 @@ let _gapSymbol     = null;
 let _pendingAction = null;
 let _pendingSymbol = null;
 let _activePage    = 'home';
-let _activeTab     = 'realtime';
 let _timer         = null;
 const BOT_SYMBOLS  = [];
 
@@ -89,7 +88,7 @@ let _lastHourlyData  = null;
 let _lastWeekdayData = null;
 let _distTradeCounts = [];
 
-let _tradesActiveSubTab = 'fills';
+let _tradesActiveSubTab = 'summary';
 let _tradesStart        = '';
 let _tradesEnd          = '';
 let _tradesSym          = 'all';
@@ -216,15 +215,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('strat-table-btn')?.addEventListener('click', _togglePriceTable);
 
     _initBottomNav();
-    _initHomeTabs();
     _initTradesPage();
     _initSettingsPage();
     _initTier();
 
     // F5 새로고침 후 이전 탭 상태 복원
     const _savedPage      = sessionStorage.getItem('cs-page')       || 'home';
-    const _savedTab       = sessionStorage.getItem('cs-tab')        || 'realtime';
-    const _savedTradesTab = sessionStorage.getItem('cs-trades-tab') || 'fills';
+    const _savedTradesTab = sessionStorage.getItem('cs-trades-tab') || 'summary';
 
     if (_savedPage !== 'home') {
         _activePage = _savedPage;
@@ -232,20 +229,17 @@ document.addEventListener('DOMContentLoaded', () => {
             el.classList.toggle('active', el.id === `page-${_activePage}`));
         document.querySelectorAll('.cs-nav-item').forEach(el =>
             el.classList.toggle('active', el.dataset.page === _activePage));
-    } else if (_savedTab !== 'realtime') {
-        _activeTab = _savedTab;
-        document.querySelectorAll('.cs-home-tab[data-tab]').forEach(el =>
-            el.classList.toggle('active', el.dataset.tab === _savedTab));
-        document.querySelectorAll('.cs-tab-panel').forEach(el =>
-            el.classList.toggle('active', el.id === `home-tab-${_savedTab}`));
     }
 
-    if (_activePage === 'trades' && _savedTradesTab !== 'fills') {
+    if (_activePage === 'trades' && _savedTradesTab !== 'summary') {
         _tradesActiveSubTab = _savedTradesTab;
         document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(b =>
             b.classList.toggle('active', b.dataset.tradesTab === _savedTradesTab));
         document.querySelectorAll('.cs-trades-panel').forEach(p =>
             p.classList.toggle('active', p.id === `trades-tab-${_savedTradesTab}`));
+        const filterWrap = document.getElementById('trades-filter-wrap');
+        if (filterWrap) filterWrap.style.display =
+            (_savedTradesTab === 'fills' || _savedTradesTab === 'pnl') ? '' : 'none';
     }
 
     _startPolling();
@@ -272,35 +266,18 @@ function _switchPage(page) {
     _restartPolling();
 }
 
-// ── 홈 서브탭 ─────────────────────────────────────────────────────────────────
-
-function _initHomeTabs() {
-    document.querySelectorAll('.cs-home-tab[data-tab]').forEach(btn => {
-        btn.addEventListener('click', () => _switchHomeTab(btn.dataset.tab));
-    });
-}
-
-function _switchHomeTab(tab) {
-    if (tab === _activeTab) return;
-    _activeTab = tab;
-    sessionStorage.setItem('cs-tab', tab);
-    document.querySelectorAll('.cs-home-tab[data-tab]').forEach(el =>
-        el.classList.toggle('active', el.dataset.tab === tab)
-    );
-    document.querySelectorAll('.cs-tab-panel').forEach(el =>
-        el.classList.toggle('active', el.id === `home-tab-${tab}`)
-    );
-    _restartPolling();
-}
-
 // ── 폴링 ──────────────────────────────────────────────────────────────────────
 
 function _startPolling() {
     _fetchActivePage();
     let ms;
-    if (_activePage === 'home') ms = POLL[_activeTab] || 5000;
+    if (_activePage === 'home') ms = POLL.realtime;
     else if (_activePage === 'strategy') ms = POLL.strategy;
-    else return;  // trades 등 수동 조회 페이지는 폴링 없음
+    else if (_activePage === 'trades') {
+        if (_tradesActiveSubTab === 'summary')     ms = POLL.pnl;
+        else if (_tradesActiveSubTab === 'assets') ms = POLL.assets;
+        else return;  // 체결/실현손익은 수동 조회, 폴링 없음
+    } else return;  // 설정 등
     _timer = setInterval(_fetchActivePage, ms);
 }
 
@@ -312,17 +289,19 @@ function _restartPolling() {
 async function _fetchActivePage() {
     try {
         if (_activePage === 'home') {
-            switch (_activeTab) {
-                case 'realtime': await _fetchMarketPrices(); break;
-                case 'pnl':      await _fetchCumulative();   break;
-                case 'assets':   await _fetchAssets();       break;
-            }
+            await _fetchMarketPrices();
         } else if (_activePage === 'strategy') {
             await _fetchStrategy();
         } else if (_activePage === 'trades') {
-            const listId = _tradesActiveSubTab === 'fills' ? 'trades-fills-list' : 'trades-pnl-list';
-            const list   = document.getElementById(listId);
-            if (!list || !list.innerHTML.trim()) await _fetchTradesActive();
+            if (_tradesActiveSubTab === 'summary') {
+                await _fetchCumulative();
+            } else if (_tradesActiveSubTab === 'assets') {
+                await _fetchAssets();
+            } else {
+                const listId = _tradesActiveSubTab === 'fills' ? 'trades-fills-list' : 'trades-pnl-list';
+                const list   = document.getElementById(listId);
+                if (!list || !list.innerHTML.trim()) await _fetchTradesActive();
+            }
         } else if (_activePage === 'settings') {
             await _fetchSettings();
         }
@@ -864,7 +843,7 @@ function _openConfirm(symbol, action) {
             _setEl('modalTitle', `${symbol} 전체제어 OFF`);
             _setEl('modalBody',
                 `${symbol} 종목이 전체제어 OFF 상태입니다.\n` +
-                `실시간 탭에서 ${symbol}를 ON으로 변경한 뒤 시작해 주세요.`);
+                `홈에서 ${symbol}를 ON으로 변경한 뒤 시작해 주세요.`);
             const btn = document.getElementById('confirmBtn');
             if (btn) btn.className = 'cs-btn cs-btn-secondary';
             _modal.show();
@@ -1551,13 +1530,18 @@ function _initTradesPage() {
         btn.addEventListener('click', () => {
             const tab = btn.dataset.tradesTab;
             if (tab === _tradesActiveSubTab) return;
+            const leavingListTab = _tradesActiveSubTab === 'fills' || _tradesActiveSubTab === 'pnl';
             _tradesActiveSubTab = tab;
             sessionStorage.setItem('cs-trades-tab', tab);
             document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(b =>
                 b.classList.toggle('active', b.dataset.tradesTab === tab));
             document.querySelectorAll('.cs-trades-panel').forEach(p =>
                 p.classList.toggle('active', p.id === `trades-tab-${tab}`));
-            _fetchTradesActive();
+            const filterWrap = document.getElementById('trades-filter-wrap');
+            const isListTab  = tab === 'fills' || tab === 'pnl';
+            if (filterWrap) filterWrap.style.display = isListTab ? '' : 'none';
+            if (leavingListTab && !isListTab && _tradesDeleteMode) _toggleDeleteMode();
+            _restartPolling();
         });
     });
 

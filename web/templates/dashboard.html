@@ -12,14 +12,6 @@
     <span id="last-updated" class="cs-last-updated"></span>
   </header>
 
-  <!-- 서브탭 바 -->
-  <div class="cs-home-tabs">
-    <button class="cs-home-tab active" data-tab="realtime">실시간</button>
-    <button class="cs-home-tab" data-tab="pnl">누적손익</button>
-    <button class="cs-home-tab" data-tab="assets">거래소자산</button>
-  </div>
-
-  <!-- ── 탭 1: 실시간 시세 ── -->
   <div id="home-tab-realtime" class="cs-tab-panel active">
     <div class="cs-bulk-bar">
       <span class="cs-bulk-label">전체 제어</span>
@@ -43,122 +35,6 @@
     </div>
   </div>
 
-  <!-- ── 탭 2: 누적손익 ── -->
-  <div id="home-tab-pnl" class="cs-tab-panel">
-
-    <div class="cs-summary-section">
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">총 매수금액</span>
-        <span class="cs-summary-value" id="pnl-total-buy">-</span>
-      </div>
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">총 매도금액</span>
-        <span class="cs-summary-value" id="pnl-total-sell">-</span>
-      </div>
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">누적손익/수익률</span>
-        <span class="cs-summary-value cs-neutral" id="pnl-total-pnl">-</span>
-      </div>
-    </div>
-
-    <!-- 기간 / 코인 선택 -->
-    <div class="cs-sort-bar">
-      <select class="cs-sort-select" id="pnl-period">
-        <option value="7">최근 7일</option>
-        <option value="30" selected>최근 30일</option>
-        <option value="0">전체</option>
-      </select>
-      <select class="cs-sort-select" id="pnl-symbol">
-        <option value="">전체</option>
-        <option value="BTC">BTC</option>
-        <option value="ETH">ETH</option>
-        <option value="XRP">XRP</option>
-        <option value="USDT">USDT</option>
-      </select>
-    </div>
-
-    <!-- 성과 통계 카드 -->
-    <div class="cs-stat-grid">
-      <div class="cs-stat-card">
-        <span class="cs-stat-label">일평균수익</span>
-        <span class="cs-stat-value cs-neutral" id="stat-daily-pnl">-</span>
-        <span class="cs-stat-sub" id="stat-daily-pnl-sub">-</span>
-      </div>
-      <div class="cs-stat-card">
-        <span class="cs-stat-label">일 완료횟수</span>
-        <span class="cs-stat-value" id="stat-daily-cycles">-</span>
-        <span class="cs-stat-sub" id="stat-daily-cycles-sub">-</span>
-      </div>
-      <div class="cs-stat-card">
-        <span class="cs-stat-label">평균손익</span>
-        <span class="cs-stat-value cs-neutral" id="stat-avg-pnl">-</span>
-        <span class="cs-stat-sub" id="stat-total-pnl">-</span>
-      </div>
-      <div class="cs-stat-card">
-        <span class="cs-stat-label">총 거래수</span>
-        <span class="cs-stat-value" id="stat-total-trades">-</span>
-        <span class="cs-stat-sub" id="stat-bestworst">-</span>
-      </div>
-    </div>
-
-    <!-- 일별 수익 차트 -->
-    <div class="cs-chart-box">
-      <div class="cs-chart-canvas-wrap">
-        <canvas id="pnl-daily-chart"></canvas>
-      </div>
-    </div>
-
-    <!-- 시간대별/요일별 수익 분포 -->
-    <div class="cs-chart-box cs-chart-box--sm">
-      <div class="cs-chart-title-row">
-        <div class="cs-chart-title" id="dist-chart-title">시간대별 수익 분포</div>
-        <div class="cs-mode-toggle" id="dist-mode-toggle">
-          <button class="cs-mode-btn active" data-mode="hour">시간대별</button>
-          <button class="cs-mode-btn" data-mode="weekday">요일별</button>
-        </div>
-      </div>
-      <div class="cs-chart-canvas-wrap">
-        <canvas id="pnl-hourly-chart"></canvas>
-      </div>
-    </div>
-
-    <div class="cs-symbol-list" id="pnl-symbol-list"></div>
-  </div>
-
-  <!-- ── 탭 4: 거래소자산 ── -->
-  <div id="home-tab-assets" class="cs-tab-panel">
-
-    <div class="cs-info-banner">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-      해당 화면은 거래소별 보유자산을 보여주는 화면입니다.
-    </div>
-
-    <div class="cs-refresh-row">
-      <span class="cs-exchange-label">빗썸</span>
-      <button class="cs-refresh-btn" id="assets-refresh-btn" title="새로고침">↺</button>
-    </div>
-
-    <div class="cs-asset-summary">
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">총보유자산</span>
-        <span class="cs-summary-value" id="assets-total">-</span>
-      </div>
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">보유원화</span>
-        <span class="cs-summary-value" id="assets-krw-total">-</span>
-      </div>
-      <div class="cs-summary-row">
-        <span class="cs-summary-label">주문가능원화</span>
-        <span class="cs-summary-value" id="assets-krw-avail">-</span>
-      </div>
-      <div class="cs-summary-row" id="assets-points-row" style="display:none">
-        <span class="cs-summary-label">빗썸 포인트</span>
-        <span class="cs-summary-value cs-points-value" id="assets-points">-</span>
-      </div>
-    </div>
-
-    <div class="cs-asset-coin-list" id="asset-coin-list"></div>
-  </div>
 
 </section>
 
@@ -253,54 +129,176 @@
 
 </section>
 
-<!-- ═══ 투자내역 페이지 ═══════════════════════════════════════════════════ -->
+<!-- ═══ 손익 페이지 ═══════════════════════════════════════════════════════ -->
 <section id="page-trades" class="cs-page">
   <header class="cs-page-header">
-    <span class="cs-page-title">투자내역<span class="cs-tier-badge js-tier-badge">화이트</span></span>
+    <span class="cs-page-title">손익<span class="cs-tier-badge js-tier-badge">화이트</span></span>
   </header>
 
   <!-- 서브탭 -->
   <div class="cs-home-tabs" id="trades-sub-tabs">
-    <button class="cs-home-tab active" data-trades-tab="fills">주문체결 내역</button>
+    <button class="cs-home-tab active" data-trades-tab="summary">요약</button>
+    <button class="cs-home-tab"        data-trades-tab="fills">주문체결 내역</button>
     <button class="cs-home-tab"        data-trades-tab="pnl">실현손익 내역</button>
+    <button class="cs-home-tab"        data-trades-tab="assets">보유자산</button>
   </div>
 
-  <!-- 공유 필터바 -->
-  <div class="cs-trades-filter-bar">
-    <div class="cs-trades-quick-row">
-      <button class="cs-chip active" data-range="day">일</button>
-      <button class="cs-chip" data-range="week">주</button>
-      <button class="cs-chip" data-range="month">월</button>
-      <button class="cs-chip" data-range="all">전체</button>
+  <!-- ── 탭: 요약 (기간 집계 + 차트) ── -->
+  <div id="trades-tab-summary" class="cs-trades-panel active">
+
+    <div class="cs-summary-section">
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">총 매수금액</span>
+        <span class="cs-summary-value" id="pnl-total-buy">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">총 매도금액</span>
+        <span class="cs-summary-value" id="pnl-total-sell">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">누적손익/수익률</span>
+        <span class="cs-summary-value cs-neutral" id="pnl-total-pnl">-</span>
+      </div>
     </div>
-    <div class="cs-trades-filter-row">
-      <input type="date" class="cs-trades-date-input" id="trades-start">
-      <span class="cs-trades-date-sep">~</span>
-      <input type="date" class="cs-trades-date-input" id="trades-end">
-      <select class="cs-trades-sym-select" id="trades-sym-select">
-        <option value="all">전체</option>
+
+    <!-- 기간 / 코인 선택 -->
+    <div class="cs-sort-bar">
+      <select class="cs-sort-select" id="pnl-period">
+        <option value="7">최근 7일</option>
+        <option value="30" selected>최근 30일</option>
+        <option value="0">전체</option>
       </select>
-      <button class="cs-btn cs-btn-primary cs-btn-sm" id="trades-search-btn">조회</button>
-      <button class="cs-btn cs-btn-secondary cs-btn-sm" id="trades-delete-mode-btn">삭제모드</button>
+      <select class="cs-sort-select" id="pnl-symbol">
+        <option value="">전체</option>
+        <option value="BTC">BTC</option>
+        <option value="ETH">ETH</option>
+        <option value="XRP">XRP</option>
+        <option value="USDT">USDT</option>
+      </select>
+    </div>
+
+    <!-- 성과 통계 카드 -->
+    <div class="cs-stat-grid">
+      <div class="cs-stat-card">
+        <span class="cs-stat-label">일평균수익</span>
+        <span class="cs-stat-value cs-neutral" id="stat-daily-pnl">-</span>
+        <span class="cs-stat-sub" id="stat-daily-pnl-sub">-</span>
+      </div>
+      <div class="cs-stat-card">
+        <span class="cs-stat-label">일 완료횟수</span>
+        <span class="cs-stat-value" id="stat-daily-cycles">-</span>
+        <span class="cs-stat-sub" id="stat-daily-cycles-sub">-</span>
+      </div>
+      <div class="cs-stat-card">
+        <span class="cs-stat-label">평균손익</span>
+        <span class="cs-stat-value cs-neutral" id="stat-avg-pnl">-</span>
+        <span class="cs-stat-sub" id="stat-total-pnl">-</span>
+      </div>
+      <div class="cs-stat-card">
+        <span class="cs-stat-label">총 거래수</span>
+        <span class="cs-stat-value" id="stat-total-trades">-</span>
+        <span class="cs-stat-sub" id="stat-bestworst">-</span>
+      </div>
+    </div>
+
+    <!-- 일별 수익 차트 -->
+    <div class="cs-chart-box">
+      <div class="cs-chart-canvas-wrap">
+        <canvas id="pnl-daily-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- 시간대별/요일별 수익 분포 -->
+    <div class="cs-chart-box cs-chart-box--sm">
+      <div class="cs-chart-title-row">
+        <div class="cs-chart-title" id="dist-chart-title">시간대별 수익 분포</div>
+        <div class="cs-mode-toggle" id="dist-mode-toggle">
+          <button class="cs-mode-btn active" data-mode="hour">시간대별</button>
+          <button class="cs-mode-btn" data-mode="weekday">요일별</button>
+        </div>
+      </div>
+      <div class="cs-chart-canvas-wrap">
+        <canvas id="pnl-hourly-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="cs-symbol-list" id="pnl-symbol-list"></div>
+  </div>
+
+  <!-- 체결/실현손익 공유 필터바 (요약·보유자산 탭에서는 숨김) -->
+  <div id="trades-filter-wrap" style="display:none">
+    <div class="cs-trades-filter-bar">
+      <div class="cs-trades-quick-row">
+        <button class="cs-chip active" data-range="day">일</button>
+        <button class="cs-chip" data-range="week">주</button>
+        <button class="cs-chip" data-range="month">월</button>
+        <button class="cs-chip" data-range="all">전체</button>
+      </div>
+      <div class="cs-trades-filter-row">
+        <input type="date" class="cs-trades-date-input" id="trades-start">
+        <span class="cs-trades-date-sep">~</span>
+        <input type="date" class="cs-trades-date-input" id="trades-end">
+        <select class="cs-trades-sym-select" id="trades-sym-select">
+          <option value="all">전체</option>
+        </select>
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="trades-search-btn">조회</button>
+        <button class="cs-btn cs-btn-secondary cs-btn-sm" id="trades-delete-mode-btn">삭제모드</button>
+      </div>
+    </div>
+
+    <!-- 삭제 액션바 (삭제모드에서만 표시) -->
+    <div class="cs-trades-delete-bar" id="trades-delete-bar" style="display:none">
+      <button class="cs-btn cs-btn-secondary cs-btn-sm" id="trades-select-all-btn">전체 선택</button>
+      <span class="cs-delete-count" id="trades-delete-count">0건 선택</span>
+      <button class="cs-btn cs-btn-danger cs-btn-sm" id="trades-delete-selected-btn" disabled>선택 삭제</button>
+      <button class="cs-btn cs-btn-danger cs-btn-sm" id="trades-delete-range-btn">기간 전체 삭제</button>
     </div>
   </div>
 
-  <!-- 삭제 액션바 (삭제모드에서만 표시) -->
-  <div class="cs-trades-delete-bar" id="trades-delete-bar" style="display:none">
-    <button class="cs-btn cs-btn-secondary cs-btn-sm" id="trades-select-all-btn">전체 선택</button>
-    <span class="cs-delete-count" id="trades-delete-count">0건 선택</span>
-    <button class="cs-btn cs-btn-danger cs-btn-sm" id="trades-delete-selected-btn" disabled>선택 삭제</button>
-    <button class="cs-btn cs-btn-danger cs-btn-sm" id="trades-delete-range-btn">기간 전체 삭제</button>
-  </div>
-
-  <!-- 탭 패널 -->
-  <div id="trades-tab-fills" class="cs-trades-panel active">
+  <!-- ── 탭: 주문체결 / 실현손익 ── -->
+  <div id="trades-tab-fills" class="cs-trades-panel">
     <div id="trades-fills-list"></div>
   </div>
   <div id="trades-tab-pnl" class="cs-trades-panel">
     <div id="trades-pnl-summary" style="display:none"></div>
     <div id="trades-pnl-list"></div>
   </div>
+
+  <!-- ── 탭: 보유자산 (거래소 지갑 잔고) ── -->
+  <div id="trades-tab-assets" class="cs-trades-panel">
+
+    <div class="cs-info-banner">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      해당 화면은 거래소별 보유자산을 보여주는 화면입니다.
+    </div>
+
+    <div class="cs-refresh-row">
+      <span class="cs-exchange-label">빗썸</span>
+      <button class="cs-refresh-btn" id="assets-refresh-btn" title="새로고침">↺</button>
+    </div>
+
+    <div class="cs-asset-summary">
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">총보유자산</span>
+        <span class="cs-summary-value" id="assets-total">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">보유원화</span>
+        <span class="cs-summary-value" id="assets-krw-total">-</span>
+      </div>
+      <div class="cs-summary-row">
+        <span class="cs-summary-label">주문가능원화</span>
+        <span class="cs-summary-value" id="assets-krw-avail">-</span>
+      </div>
+      <div class="cs-summary-row" id="assets-points-row" style="display:none">
+        <span class="cs-summary-label">빗썸 포인트</span>
+        <span class="cs-summary-value cs-points-value" id="assets-points">-</span>
+      </div>
+    </div>
+
+    <div class="cs-asset-coin-list" id="asset-coin-list"></div>
+  </div>
+
 </section>
 
 <!-- ═══ 설정 페이지 ══════════════════════════════════════════════════════ -->
