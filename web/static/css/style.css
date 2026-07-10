@@ -115,6 +115,10 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .cs-logo-img {
   height: 24px;
@@ -124,6 +128,8 @@ body {
 .cs-last-updated {
   font-size: 13px;
   color: var(--cs-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 /* ── 하단 네비게이션 ─────────────────────────────────────────────────────── */
@@ -181,9 +187,10 @@ body {
 .cs-home-tabs::-webkit-scrollbar { display: none; }
 
 .cs-home-tab {
-  flex-shrink: 0;
-  padding: 13px 22px;
-  font-size: 15px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 13px 6px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--cs-muted);
   background: none;
@@ -191,6 +198,9 @@ body {
   border-bottom: 2px solid transparent;
   cursor: pointer;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
   transition: color 0.15s, border-color 0.15s;
   -webkit-tap-highlight-color: transparent;
 }
@@ -334,6 +344,9 @@ body {
 
 /* ── 정렬순서 바 ─────────────────────────────────────────────────────────── */
 .cs-sort-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--cs-border);
 }
@@ -725,6 +738,7 @@ body {
   background: var(--cs-card2);
   border-radius: 10px;
   padding: 3px;
+  flex-shrink: 0;
 }
 .cs-mode-btn {
   background: transparent;
@@ -736,14 +750,15 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 .cs-mode-btn.active { background: var(--cs-accent); color: #fff; }
 
 /* 트리거 통합 행 — 토글이 입력칸 왼쪽에 위치 */
-.cs-strat-trigger-wrap { display: flex; align-items: center; gap: 10px; }
+.cs-strat-trigger-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 /* 입력 */
-.cs-strat-input-wrap { display: flex; align-items: center; gap: 6px; }
+.cs-strat-input-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .cs-strat-input {
   background: var(--cs-card2);
   color: var(--cs-text);
@@ -752,6 +767,7 @@ body {
   padding: 5px 8px;
   font-size: 15px;
   width: 110px;
+  min-width: 60px;
   text-align: right;
   -moz-appearance: textfield;
 }
@@ -1166,6 +1182,7 @@ body {
   align-items: center;
   gap: 6px;
   flex: 1;
+  min-width: 0;
   justify-content: flex-end;
 }
 .cs-settings-unit-wrap { gap: 4px; }
@@ -1177,6 +1194,8 @@ body {
   padding: 6px 9px;
   font-size: 14px;
   width: 190px;
+  min-width: 0;
+  max-width: 100%;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -1187,6 +1206,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   background: transparent;
   border: none;
   color: var(--cs-muted);
