@@ -963,6 +963,7 @@ def get_trade_pnl():
             "quantity":    float(r.get("quantity")    or 0),
             "buy_amount":  float(r.get("buy_amount")  or 0),
             "sell_amount": float(r.get("sell_amount") or 0),
+            "buy_is_virtual": bool(r.get("buy_is_virtual")),
             "pnl":         r.get("pnl"),
             "filled_at":   r.get("filled_at", ""),
         })

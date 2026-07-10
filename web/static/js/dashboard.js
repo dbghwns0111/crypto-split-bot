@@ -2011,7 +2011,8 @@ function _renderTradePnl() {
     for (const r of rounds) {
         if (r.pnl != null) {
             periodPnl   += r.pnl;
-            totalAmount += (r.buy_amount || 0) + (r.sell_amount || 0);
+            // 가상 캐치업 매수는 실제 거래소 주문이 아니므로 거래금액 집계에서 제외
+            totalAmount += (r.buy_is_virtual ? 0 : (r.buy_amount || 0)) + (r.sell_amount || 0);
             periodPairs++;
             if ((r.filled_at || '').slice(0, 10) === today) {
                 todayPnl += r.pnl;

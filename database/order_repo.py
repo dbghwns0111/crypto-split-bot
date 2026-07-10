@@ -246,6 +246,10 @@ def get_cumulative_totals(
 
     start/end (YYYY-MM-DD) 를 주면 해당 기간에 '매도 체결'된 건만 집계한다.
     둘 중 하나라도 없으면 전체 기간(all-time)을 집계한다.
+
+    가상 캐치업(order_id 'virt-' 접두)으로 생성된 매수는 실제 거래소 주문이
+    아니므로 total_buy/buy_count에서 제외한다 — 매도(sell)는 가상으로 생성되지
+    않으므로 total_sell은 그대로 둔다.
     """
     where  = "WHERE s.side = 'sell' AND s.status = 'filled'"
     params: list = []
@@ -256,10 +260,10 @@ def get_cumulative_totals(
     rows = _conn().execute(
         f"""
         SELECT s.symbol,
-               COALESCE(SUM(b.amount), 0) AS total_buy,
+               COALESCE(SUM(CASE WHEN b.order_id LIKE 'virt-%' THEN 0 ELSE b.amount END), 0) AS total_buy,
                COALESCE(SUM(s.amount), 0) AS total_sell,
                COUNT(s.id)                AS sell_count,
-               COUNT(b.id)                AS buy_count
+               COUNT(CASE WHEN b.order_id LIKE 'virt-%' THEN NULL ELSE b.id END) AS buy_count
         FROM orders s
         LEFT JOIN orders b ON (
             b.symbol   = s.symbol
@@ -395,7 +399,11 @@ def get_pnl_rounds(
     symbol_filter: Optional[str] = None,
     limit: int = 200,
 ) -> list[dict]:
-    """기간 내 완료된 차수별 실현손익을 반환한다 (매도-매수 LEFT JOIN)."""
+    """기간 내 완료된 차수별 실현손익을 반환한다 (매도-매수 LEFT JOIN).
+
+    각 행에 buy_is_virtual(가상 캐치업 매수 여부)을 포함한다 — 실제 거래대금
+    집계 시 가상 매수분을 제외하기 위함(손익 계산 자체는 그대로 유지).
+    """
     if not symbols:
         return []
     if symbol_filter and symbol_filter in symbols:
@@ -411,6 +419,7 @@ def get_pnl_rounds(
                b.filled_price AS buy_price,  s.filled_price AS sell_price,
                s.quantity,
                b.amount AS buy_amount, s.amount AS sell_amount,
+               b.order_id AS buy_order_id,
                s.filled_at
         FROM orders s
         LEFT JOIN orders b
@@ -442,6 +451,7 @@ def get_pnl_rounds(
         qty    = float(r.get("quantity")    or 0)
         fee    = (buy_a + sell_a) * 0.0005
         r["pnl"] = round((sell_p - buy_p) * qty - fee, 0) if buy_p > 0 else None
+        r["buy_is_virtual"] = bool((r.get("buy_order_id") or "").startswith("virt-"))
         result.append(r)
     return result
 
