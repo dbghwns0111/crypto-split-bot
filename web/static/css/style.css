@@ -793,7 +793,7 @@ body {
 .cs-strat-calc-val   { color: var(--cs-text); font-weight: 600; }
 
 /* 액션 버튼 */
-.cs-strat-actions { display: flex; gap: 8px; margin-top: 12px; }
+.cs-strat-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 
 /* 차수별 예상가 테이블 */
 .cs-price-table-wrap {

@@ -98,6 +98,7 @@ let _tradesDeleteMode   = false;
 const TRADES_PRESET_KEY = 'cs-trades-presets';
 let _selectedOrderIds   = new Set();
 let _pendingDeleteFn    = null;
+let _pendingRebaseFn    = null;
 
 // 투자내역 페이징 — 기간 전체 데이터를 받아 요약은 전체로, 표는 페이지 단위로 렌더
 const TRADES_PAGE_SIZE = 50;
@@ -217,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 전략현황: 저장 / 테이블 토글
     document.getElementById('strat-save-btn')?.addEventListener('click', _saveStratSettings);
     document.getElementById('strat-table-btn')?.addEventListener('click', _togglePriceTable);
+    document.getElementById('strat-rebase-btn')?.addEventListener('click', _confirmRebaseStartPrice);
 
     _initBottomNav();
     _initTradesPage();
@@ -1083,6 +1085,15 @@ async function _executeAction() {
         return;
     }
 
+    // 시작가 재조정 확인 처리
+    if (_pendingRebaseFn) {
+        const fn = _pendingRebaseFn;
+        _pendingRebaseFn = null;
+        _modal.hide();
+        await fn();
+        return;
+    }
+
     // 전체 가동/중지 처리
     if (_pendingBulk) {
         const act = _pendingBulk;
@@ -1262,6 +1273,11 @@ function _renderStratSettings(s) {
 
     _updateStratCalc();
     if (_stratTableOpen) _calcAndRenderPriceTable();
+
+    // 시작가 재조정 버튼 — 이미 매수가 진행된(차수>0) 경우에만 노출.
+    // 차수 0이면 저장 버튼만으로 즉시 반영되므로 이 버튼이 필요 없다.
+    const rebaseBtn = document.getElementById('strat-rebase-btn');
+    if (rebaseBtn) rebaseBtn.style.display = (s.current_round > 0) ? '' : 'none';
 }
 
 function _applyTriggerMode(mode) {
@@ -1319,6 +1335,64 @@ async function _saveStratSettings() {
         if (data.ok) { _stratModeUserSet = false; _stratInputsUserSet = false; }
         _showAlert(data.message, data.ok ? 'success' : 'danger');
     } catch { _showAlert('저장 중 오류가 발생했습니다.', 'danger'); }
+}
+
+// ── 시작가 재조정 (차수>0 — 중단→저장→초기화→캐치업재시작을 한 번에) ─────────────
+// 진행 중인 그리드/원가를 안전하게 이어붙일 방법이 없어(차수-가격 역전 또는
+// 원가 왜곡) 리셋 후 재시작이 유일하게 안전한 방법이다. 이 함수는 그 과정을
+// 기존 API 호출만으로 순서대로 실행할 뿐, 새 백엔드 로직은 없다.
+function _confirmRebaseStartPrice() {
+    const symbol = _stratActiveSym;
+    if (!symbol) return;
+    const newPrice = parseFloat(document.getElementById('strat-input-start-price')?.value || 0);
+    if (!newPrice || newPrice <= 0) {
+        _showAlert('새 시작가를 입력해주세요.', 'warning');
+        return;
+    }
+    _setEl('modalTitle', `${symbol} 시작가 재조정`);
+    _setEl('modalBody',
+        `${symbol}을(를) 중단하고, 시작가를 ${Math.round(newPrice).toLocaleString()}원으로 저장한 뒤, ` +
+        `차수/기준가를 초기화하고 새 시작가 기준으로 다시 시작합니다.\n` +
+        `기존 실제 매수 이력은 유지되지만, 진행 중이던 차수/기준가는 초기화됩니다.\n` +
+        `계속하시겠습니까?`);
+    document.getElementById('confirmBtn').className = 'cs-btn cs-btn-warning';
+    _setReauthVisible(false);
+    _pendingRebaseFn = () => _doRebaseStartPrice(symbol, newPrice);
+    _modal.show();
+}
+
+async function _doRebaseStartPrice(symbol, newPrice) {
+    try {
+        const symData = _stratData?.symbols?.find(s => s.symbol === symbol);
+        if (symData?.running) {
+            const stopResp = await _apiFetch(API.stop, {
+                method: 'POST',
+                body: JSON.stringify({ symbol }),
+            });
+            const stopData = await stopResp.json();
+            if (!stopData.ok) {
+                _showAlert(stopData.message || `${symbol} 중지 실패`, 'danger');
+                return;
+            }
+        }
+
+        const saveResp = await _apiFetch(API.strategySettings, {
+            method: 'POST',
+            body: JSON.stringify({ symbol, start_price: newPrice }),
+        });
+        const saveData = await saveResp.json();
+        if (!saveData.ok) {
+            _showAlert(saveData.message || `${symbol} 시작가 저장 실패`, 'danger');
+            return;
+        }
+
+        // 이후는 기존 "신규 시작" 흐름 그대로 재사용 — 갭 모달에서 실제/가상
+        // 캐치업 선택 후 확인하면 /api/bot/start(fresh:true)가 호출된다.
+        await _openGapCheck(symbol, true);
+        await _fetchStrategy();
+    } catch {
+        _showAlert('시작가 재조정 처리 중 오류가 발생했습니다.', 'danger');
+    }
 }
 
 // ── 차수별 예상가 테이블 ──────────────────────────────────────────────────────
