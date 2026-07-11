@@ -135,6 +135,21 @@ class BotManager:
                 _log.error("전략 초기화 실패 (%s): %s", symbol, exc)
                 return False, f"초기화 실패: {exc}"
 
+    def update_start_price(self, symbol: str, price: float) -> tuple[bool, str]:
+        """시작가를 갱신한다 — 실행 중/중지 상관없이 호출 가능.
+
+        차수 0(매수 전)이면 즉시 반영, 이미 매수가 진행된 상태(>0)면 DB에만
+        저장해두고 다음 0차 복귀 시 적용된다(MagicSplit.set_start_price 참고).
+        """
+        with self._lock:
+            if symbol not in self._bots:
+                return False, f"알 수 없는 심볼: {symbol}"
+            bot = self._bots[symbol]
+            applied = bot.set_start_price(price)
+            if applied:
+                return True, f"{symbol} 시작가가 즉시 반영되었습니다."
+            return True, f"{symbol} 시작가가 저장되었습니다 (현재 매매 진행 중 — 다음 0차 복귀 시 적용됩니다)."
+
     def stop_all(self) -> list[str]:
         """전체 제어가 ON(bulk_enabled)인 실행 중 봇을 모두 중지한다.
 

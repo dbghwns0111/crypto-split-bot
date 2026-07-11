@@ -307,6 +307,37 @@ def test_tick_no_double_buy(base_cfg, mock_exchange):
     assert mock_exchange.buy_limit.call_count == 1
 
 
+def test_set_start_price_applies_immediately_at_round_zero(base_cfg, mock_exchange):
+    from strategy.magic_split import MagicSplit
+    from database.state_repo import set_start_price
+    upsert_state("ETH", reference_price=0.0, current_round=0)
+    set_start_price("ETH", 3_000_000.0)
+    bot = MagicSplit("ETH", mock_exchange, base_cfg)
+    bot._restore_state()
+    applied = bot.set_start_price(3_100_000.0)
+    assert applied is True
+    assert bot.start_price == pytest.approx(3_100_000.0)
+    assert bot.reference_price == pytest.approx(3_100_000.0)
+    # DB에도 반영됐는지 확인
+    assert get_state("ETH")["start_price"] == pytest.approx(3_100_000.0)
+
+
+def test_set_start_price_deferred_when_round_active(base_cfg, mock_exchange):
+    from strategy.magic_split import MagicSplit
+    from database.state_repo import set_start_price
+    upsert_state("ETH", reference_price=2_900_000.0, current_round=3)
+    set_start_price("ETH", 3_000_000.0)
+    bot = MagicSplit("ETH", mock_exchange, base_cfg)
+    bot._restore_state()
+    applied = bot.set_start_price(3_200_000.0)
+    assert applied is False
+    # 진행 중인 그리드(기준가/차수)는 그대로 — 실거래 원가 보호
+    assert bot.reference_price == pytest.approx(2_900_000.0)
+    assert bot.current_round == 3
+    # 새 시작가는 다음 0차 복귀 시 쓰이도록 DB에는 저장됨
+    assert get_state("ETH")["start_price"] == pytest.approx(3_200_000.0)
+
+
 def test_on_buy_filled_updates_state(base_cfg, mock_exchange):
     from strategy.magic_split import MagicSplit
     upsert_state("ETH", reference_price=3_000_000.0, current_round=0)

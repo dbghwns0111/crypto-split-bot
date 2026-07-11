@@ -1016,21 +1016,26 @@ def save_strategy_settings():
         with open(yaml_path, "w", encoding="utf-8") as f:
             yaml.dump(raw, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
 
-        # 시작가가 전달된 경우 저장
+        # 시작가가 전달된 경우 저장 — 가동 중이면 BotManager를 통해 살아있는
+        # 인스턴스에 반영한다(차수 0이면 즉시, 차수>0이면 다음 0차 복귀 시
+        # 적용되도록 DB에만 예약). 중지 상태면 기존처럼 DB에 직접 저장한다.
+        start_price_note = None
         start_price_raw = body.get("start_price")
         if start_price_raw is not None:
             sp = float(start_price_raw)
             if sp > 0:
-                from database.state_repo import set_start_price, set_reference_price
-                set_start_price(symbol, sp)
-                # 봇이 중지 상태일 때만 기준가도 함께 업데이트 (모니터링 카드 반영)
                 bot_manager = current_app.config.get("BOT_MANAGER")
-                if bot_manager and not bot_manager.is_running(symbol):
+                if bot_manager and bot_manager.is_running(symbol):
+                    _, start_price_note = bot_manager.update_start_price(symbol, sp)
+                else:
+                    from database.state_repo import set_start_price, set_reference_price
+                    set_start_price(symbol, sp)
+                    # 봇이 중지 상태일 때만 기준가도 함께 업데이트 (모니터링 카드 반영)
                     set_reference_price(symbol, sp)
 
         _log.info("[설정변경] %s 전략 설정 저장: %s", symbol,
                   {k: body[k] for k in allowed if k in body})
-        return jsonify({"ok": True, "message": "저장 완료"})
+        return jsonify({"ok": True, "message": start_price_note or "저장 완료"})
     except Exception as exc:
         _log.error("전략 설정 저장 오류: %s", exc)
         return jsonify({"ok": False, "message": str(exc)}), 500

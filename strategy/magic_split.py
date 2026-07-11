@@ -143,6 +143,29 @@ class MagicSplit:
         _log.warning("워치독 복구: %s 스레드 재시작", self._symbol)
         self.start()  # _restore_state로 DB 최신 차수/기준가 복원 후 새 스레드 시작
 
+    def set_start_price(self, new_price: float) -> bool:
+        """시작가를 갱신한다.
+
+        차수 0(아직 매수 전)이면 진행 중인 그리드가 없으므로 안전하게 즉시
+        반영한다(기준가도 함께 갱신 — _tick의 초기화 블록과 동일한 불변식
+        유지). 차수가 이미 진행된 상태(>0)면 기존 그리드/원가 계산을 건드리지
+        않기 위해 DB에만 저장하고, 다음에 전량 매도돼 0차로 복귀했을 때
+        적용되도록 예약한다. 트리거 계산식/매매 판단 로직은 그대로다.
+
+        Returns:
+            즉시 반영됐으면 True, DB에만 저장(예약)됐으면 False.
+        """
+        set_start_price(self._symbol, new_price)
+        if self._current_round == 0:
+            self._start_price = new_price
+            self._reference_price = new_price
+            set_reference_price(self._symbol, new_price)
+            _log.info("시작가 즉시 반영: %s → %s", self._symbol, new_price)
+            return True
+        _log.info("시작가 예약(차수 %d, 0차 복귀 시 적용): %s → %s",
+                   self._current_round, self._symbol, new_price)
+        return False
+
     # ── 프로퍼티 ──────────────────────────────────────────────────────────────
 
     @property

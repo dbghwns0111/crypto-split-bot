@@ -678,3 +678,50 @@ def test_strategy_settings_yaml_failure_returns_500(client_with_strategy_cfg):
                       content_type="application/json")
     assert resp.status_code == 500
     assert resp.get_json()["ok"] is False
+
+
+def test_strategy_settings_start_price_while_running_uses_bot_manager(client_with_strategy_cfg):
+    c, bm = client_with_strategy_cfg
+    bm.is_running.return_value = True
+    bm.update_start_price.return_value = (True, "ETH 시작가가 즉시 반영되었습니다.")
+    existing = {"pairs": {"ETH": {"trigger_mode": "pct", "trigger_pct": 0.5,
+                                   "trigger_krw": 15000.0, "max_rounds": 50,
+                                   "order_amount": 10000}}}
+    m = mock_open()
+    with patch("builtins.open", m), \
+         patch("yaml.safe_load", return_value=existing), \
+         patch("yaml.dump"), \
+         patch("database.state_repo.set_start_price") as mock_db_set:
+        resp = c.post("/api/strategy/settings",
+                      data=json.dumps({"symbol": "ETH", "start_price": 3_100_000}),
+                      content_type="application/json")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["message"] == "ETH 시작가가 즉시 반영되었습니다."
+    bm.update_start_price.assert_called_once_with("ETH", 3_100_000.0)
+    mock_db_set.assert_not_called()  # 가동 중엔 BotManager 경유 — DB 직접 기록 경로는 안 씀
+
+
+def test_strategy_settings_start_price_while_stopped_writes_db_directly(client_with_strategy_cfg):
+    c, bm = client_with_strategy_cfg
+    bm.is_running.return_value = False
+    existing = {"pairs": {"ETH": {"trigger_mode": "pct", "trigger_pct": 0.5,
+                                   "trigger_krw": 15000.0, "max_rounds": 50,
+                                   "order_amount": 10000}}}
+    m = mock_open()
+    with patch("builtins.open", m), \
+         patch("yaml.safe_load", return_value=existing), \
+         patch("yaml.dump"), \
+         patch("database.state_repo.set_start_price") as mock_set_sp, \
+         patch("database.state_repo.set_reference_price") as mock_set_ref:
+        resp = c.post("/api/strategy/settings",
+                      data=json.dumps({"symbol": "ETH", "start_price": 3_100_000}),
+                      content_type="application/json")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["message"] == "저장 완료"
+    bm.update_start_price.assert_not_called()
+    mock_set_sp.assert_called_once_with("ETH", 3_100_000.0)
+    mock_set_ref.assert_called_once_with("ETH", 3_100_000.0)
