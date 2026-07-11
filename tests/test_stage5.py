@@ -272,6 +272,30 @@ def test_tick_no_buy_on_max_round(base_cfg, mock_exchange):
     mock_exchange.buy_limit.assert_not_called()
 
 
+def test_current_max_rounds_reads_live_from_cfg(base_cfg, mock_exchange):
+    from strategy.magic_split import MagicSplit
+    bot = MagicSplit("ETH", mock_exchange, base_cfg)
+    assert bot._current_max_rounds == 10
+    base_cfg["pairs"]["ETH"]["max_rounds"] = 25
+    assert bot._current_max_rounds == 25
+
+
+def test_max_rounds_increase_allows_buy_without_restart(base_cfg, mock_exchange):
+    from strategy.magic_split import MagicSplit
+    mock_exchange.get_balance.return_value = 10_000_000.0
+    upsert_state("ETH", reference_price=3_000_000.0, current_round=10)
+    bot = MagicSplit("ETH", mock_exchange, base_cfg)
+    bot._restore_state()
+    mock_exchange.get_current_price.return_value = 2_980_000.0
+    bot._tick()
+    mock_exchange.buy_limit.assert_not_called()  # 최대차수(10) 도달 상태라 매수 안 함
+
+    # 가동 중에 cfg만 수정(POST /strategy/settings가 하는 것과 동일) — 재시작 없이
+    base_cfg["pairs"]["ETH"]["max_rounds"] = 20
+    bot._tick()
+    mock_exchange.buy_limit.assert_called_once()  # 여유가 생겨 매수 재개
+
+
 def test_tick_no_double_buy(base_cfg, mock_exchange):
     from strategy.magic_split import MagicSplit
     upsert_state("ETH", reference_price=3_000_000.0, current_round=0)

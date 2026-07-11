@@ -214,6 +214,11 @@ class MagicSplit:
         """cfg에서 현재 1회 주문금액을 동적으로 읽는다 (런타임 변경 즉시 반영)."""
         return float(self._cfg["pairs"][self._symbol].get("order_amount", self._order_amount))
 
+    @property
+    def _current_max_rounds(self) -> int:
+        """cfg에서 현재 최대 차수를 동적으로 읽는다 (런타임 변경 즉시 반영)."""
+        return int(self._cfg["pairs"][self._symbol].get("max_rounds", self._max_rounds))
+
     # ── 루프 ─────────────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
@@ -274,19 +279,21 @@ class MagicSplit:
 
         # ── 매수 (서킷브레이커 발동 시 중단) ─────────────────────────────────
         if not cb_active and self._pending_buy is None:
-            if self._current_round >= self._max_rounds:
+            if self._current_round >= self._current_max_rounds:
                 self._notify_max_round()
-            elif self._current_round == 0 and self._start_price > 0:
-                # 0차: 시작가 이하 도달 시 시작가에서 즉시 매수
-                if current_price <= self._start_price:
-                    self._place_buy_at_start()
             else:
-                if trigger_mode == "krw":
-                    do_buy = should_buy_krw(current_price, self._reference_price, trigger_krw)
+                self._max_round_notified = False  # 최대차수 상향 등으로 여유가 생기면 알림 플래그 리셋
+                if self._current_round == 0 and self._start_price > 0:
+                    # 0차: 시작가 이하 도달 시 시작가에서 즉시 매수
+                    if current_price <= self._start_price:
+                        self._place_buy_at_start()
                 else:
-                    do_buy = should_buy(current_price, self._reference_price, trigger_pct)
-                if do_buy:
-                    self._place_buy(trigger_pct, trigger_mode, trigger_krw)
+                    if trigger_mode == "krw":
+                        do_buy = should_buy_krw(current_price, self._reference_price, trigger_krw)
+                    else:
+                        do_buy = should_buy(current_price, self._reference_price, trigger_pct)
+                    if do_buy:
+                        self._place_buy(trigger_pct, trigger_mode, trigger_krw)
 
     # ── 주문 배치 ─────────────────────────────────────────────────────────────
 
@@ -305,7 +312,7 @@ class MagicSplit:
             return
         feasible, reason = check_buy_feasible(
             self._exchange, self._current_order_amount,
-            self._current_round, self._max_rounds,
+            self._current_round, self._current_max_rounds,
         )
         if not feasible:
             _log.warning("매수 불가 (%s): %s", self._symbol, reason)
@@ -428,7 +435,7 @@ class MagicSplit:
         _log.info("매수 체결: %s 체결가=%s 주문가=%s 차수=%d",
                   self._symbol, filled_price, order_price, self._current_round)
         self._notify("buy_filled", price=filled_price, qty=qty, round_no=self._current_round)
-        if self._current_round >= self._max_rounds:
+        if self._current_round >= self._current_max_rounds:
             self._notify_max_round()
 
     def _on_sell_filled(self, filled_price: float, qty: float) -> None:
@@ -444,7 +451,7 @@ class MagicSplit:
 
         self._current_round = max(0, self._current_round - 1)
         self._pending_sell = None
-        if self._current_round < self._max_rounds:
+        if self._current_round < self._current_max_rounds:
             self._max_round_notified = False
         decrement_round(self._symbol)
 
@@ -540,7 +547,7 @@ class MagicSplit:
         if self._max_round_notified:
             return
         _log.warning("최대 차수 도달: %s (%d차)", self._symbol, self._current_round)
-        self._notify("max_round", round_no=self._current_round, max_rounds=self._max_rounds)
+        self._notify("max_round", round_no=self._current_round, max_rounds=self._current_max_rounds)
         self._max_round_notified = True
 
     # ── 상태 복구 ─────────────────────────────────────────────────────────────
@@ -683,7 +690,7 @@ class MagicSplit:
         if gap <= 0:
             return
 
-        room = self._max_rounds - self._current_round
+        room = self._current_max_rounds - self._current_round
         try:
             balance_krw = self._exchange.get_balance("KRW")
             affordable  = int(float(balance_krw) // self._current_order_amount)
@@ -794,7 +801,7 @@ class MagicSplit:
         if gap <= 0:
             return
 
-        room = self._max_rounds - self._current_round
+        room = self._current_max_rounds - self._current_round
         n    = min(gap, room)
         if n <= 0:
             _log.info("가상 캐치업 생략: %s (갭=%d, room=%d)", self._symbol, gap, room)
