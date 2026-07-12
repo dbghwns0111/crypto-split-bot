@@ -15,11 +15,11 @@ main.py 실행
   → Flask 웹서버 시작 (포트 5000), 봇은 중지 상태로 대기
   → APScheduler 자동 시작 (정각 현황 / 00시 결산 / 6h DB백업 / 3분 워치독)
 
-사용자가 브라우저에서 접속
-  → 전략현황 탭에서 파라미터 확인 및 저장
-  → [시작] 버튼 클릭 → 확인 팝업 → 봇 Thread 시작, 매매 가동
+사용자가 브라우저에서 접속 (ZeroTier VPN 경유, 아래 "웹 대시보드" 참고)
+  → 전략 탭에서 파라미터 확인 및 저장
+  → 홈에서 [시작] 버튼 클릭 → 확인 팝업 → 봇 Thread 시작, 매매 가동
 
-사용자가 [중지] 버튼 클릭
+사용자가 홈에서 [중지] 버튼 클릭
   → 확인 팝업 → 봇 Thread 중지, 미체결 주문 취소
 ```
 
@@ -55,17 +55,24 @@ main.py 실행
   - **실제 캐치업**: 갭 레벨 수만큼 실제 매수 주문 연속 실행
   - **가상 캐치업**: 실제 매수 없이 차수 기록만 생성 (virtual_catchup=true)
 
-## 사용자 설정 가능 항목 (전략현황 탭에서 변경)
+## 사용자 설정 가능 항목 (전략 탭에서 변경)
 - 트리거 모드 (pct / krw)
-- 트리거 간격 (기본: krw=15,000원 / pct=0.5%)
-- 최대 차수 (기본값: 50차)
-- 1회 주문금액 (기본값: 10,000원)
+- 트리거 간격 (기본: krw=15,000원 / pct=0.5%) — 가동 중에도 즉시 반영(재시작 불필요)
+- 최대 차수 (기본값: 50차) — 가동 중에도 즉시 반영(재시작 불필요)
+- 1회 주문금액 (기본값: 10,000원) — 가동 중에도 즉시 반영(재시작 불필요)
 - 시작가 (수동 입력 가능)
+  - **차수 0(매수 전)**: 저장 즉시 반영(재시작 불필요) — 기준가도 함께 갱신
+  - **차수 > 0(매수 진행 중)**: 즉시 반영 안 됨. 이미 실제 매수된 차수 뒤에
+    새 시작가 그리드를 안전하게 이어붙일 방법이 없어서(차수-가격 역전 또는
+    실제 원가 왜곡) 저장한 값은 DB에만 예약되고 다음에 전량 매도돼 0차로
+    복귀했을 때 적용됨. 지금 바로 반영하고 싶으면 전략 탭의 **"시작가
+    재조정"** 버튼(중단→저장→초기화→가상/실제 캐치업 재시작을 한 번에 진행)
+    사용
 
 ## 기술 스택
 - 언어: Python
 - 거래소 API: python-bithumb (BithumbClient 래퍼)
-- 웹: Flask + Bootstrap 5 (다크모드, 반응형, 모바일 최적화)
+- 웹: Flask + Bootstrap 5 (라이트/토스 스타일 디자인 시스템, Pretendard 폰트, 반응형, 모바일 최적화)
 - DB: SQLite (WAL 모드, 자동 백업)
 - 알림: 텔레그램 Bot API (큐 기반 비동기, rate-limit 처리)
 - 스케줄러: APScheduler (BackgroundScheduler)
@@ -113,7 +120,8 @@ crypto-split-bot/
 │   ├── models.py              # DDL + 마이그레이션
 │   ├── order_repo.py          # 주문 CRUD
 │   ├── state_repo.py          # bot_state 읽기/쓰기
-│   └── pnl_repo.py            # 손익 집계
+│   ├── pnl_repo.py            # 손익 집계
+│   └── auth_repo.py           # 로그인 브루트포스 방어 상태 영속화
 ├── notification/
 │   ├── __init__.py
 │   ├── telegram.py            # 큐 기반 비동기 발송 (TelegramNotifier)
@@ -123,6 +131,7 @@ crypto-split-bot/
 ├── web/
 │   ├── __init__.py
 │   ├── app.py
+│   ├── auth.py                # 접근 보안 (로그인/CSRF/화이트리스트/재인증/브루트포스)
 │   ├── routes/
 │   │   ├── __init__.py
 │   │   ├── dashboard.py       # 페이지 라우트
@@ -233,6 +242,10 @@ system:
 - symbol (PK), avg_buy_price, updated_at
   (봇 매매 이력 없는 코인에 수동 평균매수가 입력용)
 
+### login_attempts
+- ip (PK), fail_count, window_start, locked_until, updated_at
+  (웹 로그인 브루트포스 방어 — 앱 재시작 후에도 잠금 상태 유지)
+
 ## 텔레그램 알림 항목
 - 봇 시작 / 재시작 / 중지
 - 매수 체결 / 매도 체결 (차수/수익 포함)
@@ -279,53 +292,101 @@ system:
 > - 텔레그램 명령어(`telegram_handler.py`, long-polling)는 이 문제와 무관하게 항상 정상 동작 —
 >   봇이 텔레그램 서버로 아웃바운드 연결만 하기 때문.
 
-### 홈 화면 (4개 서브탭)
-1. **실시간**: BTC/ETH/XRP/USDT 현재가 + 봇 상태 카드 (시작/중지 버튼)
-2. **투자현황**: 심볼별 매수금액/평가금액/평가손익 요약
-3. **누적손익**: 전체 체결 기준 누적 실현손익 + 일별 차트/통계
-4. **거래소자산**: 빗썸 보유 전체 자산 (KRW + 코인 평가액, 수동 평균매수가 입력)
+하단 네비 4탭 구조 — 각 탭이 하나의 작업(job)에 대응하도록 재설계됨
+(2026-07-09 IA 재설계). 서브탭 없는 탭은 별도 표기 없음.
 
-### 전략 탭 (심볼별)
-- 전략 파라미터 (트리거/차수/금액/시작가) 확인 및 저장
-- 실시간 트리거 가격 / 서킷브레이커 상태 / 미체결 주문 현황
-- [새로시작] / [이어서시작] / [중지] 버튼 (확인 팝업 후 실행)
+### 홈 — 운영 현황 (모니터링 + 제어, 서브탭 없음)
+- 상단 KPI 스트립: 오늘 매수금액 / 오늘 매도금액 / 오늘 총손익
+- 전체 가동/중지 바 (ON 종목만 대상, 종목별 전체제어 ON/OFF 토글)
+- 코인별 모니터링 카드: 현재가·기준가·시작가·차수 진행바·매수/매도 트리거
+  (트리거 임박 게이지 포함)·미체결 주문·오늘 순수익·[신규시작]/[이어서시작]/
+  [초기화]/[자동매매 중지] 버튼(확인 팝업 후 실행)
 
-### 투자내역 탭
-- 기간별 체결 주문 내역 / 차수별 실현손익
-- 선택 삭제 기능
+### 전략 — 설정 (심볼별 탭)
+- 전략 파라미터(트리거 방식/간격, 최대 차수, 1회 주문금액, 시작가) 확인 및 저장
+  — 트리거/주문금액/최대차수는 가동 중에도 즉시 반영, 시작가는 차수 0일 때만
+  즉시 반영(차수>0이면 "시작가 재조정" 버튼으로 중단→저장→초기화→재시작을
+  한 번에 진행)
+- 그리드 플래너(회차별 매수가/매도가 표)
+
+### 손익 — 분석 + 내역 + 자산 (서브탭 4개)
+1. **요약**: 총 매수/매도금액, 누적손익/수익률, 오늘·이번주 손익(전일/전주
+   대비 비교), 일평균수익/일완료횟수/평균손익/총거래수, 일별 손익 차트,
+   시간대별/요일별 수익 분포
+2. **주문체결 내역**: 기간·코인 필터(프리셋 저장 가능) + CSV 내보내기
+3. **실현손익 내역**: 차수별 실현손익, 누적 거래금액(가상 캐치업 매수는
+   제외하고 집계) + CSV 내보내기
+4. **보유자산**: 빗썸 보유 전체 자산 (KRW + 코인 평가액, 수동 평균매수가 입력)
+
+체결/실현손익 두 서브탭은 필터바 공유(기간 퀵버튼/코인 선택/프리셋 저장,
+삭제모드) — 기간 전체 삭제는 재인증(비밀번호 재확인) 필요.
 
 ### 설정 탭
+- 접근 보안 (접속 비밀번호, IP 화이트리스트 — 단일 IP 또는 CIDR 표기 지원)
 - API 키 / 텔레그램 설정 / 미체결 취소 시간 / 결산 시각
 - 텔레그램 테스트 메시지 발송
 
 ## REST API (/api/...)
+> 로그인 인증이 활성 상태(비밀번호 설정됨)면, 상태 변경(POST/PUT/PATCH/DELETE)
+> 요청은 전부 `X-CSRF-Token` 헤더가 필요하다(불일치/누락 시 403). 프론트엔드는
+> `_apiFetch()` 헬퍼가 자동으로 부여한다 — 새 상태변경 엔드포인트를 추가하면
+> 프론트에서 반드시 이 헬퍼를 통해 호출할 것(직접 `fetch()` 쓰면 403 남).
+
 ```
 GET  /api/status              → 전체 봇 상태 + 오늘 손익
 GET  /api/portfolio           → KRW + 코인 잔고 스냅샷
 GET  /api/market/prices       → BTC/ETH/XRP/USDT 현재가 (4초 캐시)
 GET  /api/investment          → 심볼별 포지션 평가
-GET  /api/pnl/today           → 오늘 손익
-GET  /api/pnl/cumulative      → 누적 손익
-GET  /api/pnl/daily?days=30   → 일별 손익 시계열 (차트용)
+GET  /api/pnl/today           → 오늘 손익 + 오늘 매수/매도 총액(홈 KPI 스트립용,
+                                 가상 캐치업 매수 제외) + net_pnl
+GET  /api/pnl/cumulative      → 누적 손익 (총 매수금액도 가상 캐치업 매수 제외)
+GET  /api/pnl/daily?days=30   → 일별 손익 시계열 (차트용, days=0은 전체기간)
+GET  /api/pnl/hourly?days=30  → 시간대별 평균손익
+GET  /api/pnl/weekday?days=30 → 요일별 평균손익
 GET  /api/pnl/stats?days=30   → 승률/프로핏팩터 등 성과 통계
-GET  /api/strategy            → 심볼별 전략 파라미터 + 모니터링
+GET  /api/strategy            → 심볼별 전략 파라미터 + 모니터링 (홈+전략 공용)
 GET  /api/assets/exchange     → 빗썸 보유 자산 전체 현황
 GET  /api/bot/gap?symbol=ETH  → 재시작 전 캐치업 갭 미리보기
-GET  /api/settings            → 현재 설정값 (API 키 마스킹)
+GET  /api/settings            → 현재 설정값 (API 키/화이트리스트 마스킹)
 GET  /api/trades/fills        → 기간별 체결 주문 내역
-GET  /api/trades/pnl          → 기간별 차수별 실현손익
+GET  /api/trades/pnl          → 기간별 차수별 실현손익 (buy_is_virtual 포함)
 
 POST /api/bot/start           → 봇 시작 {symbol, fresh, virtual_catchup}
 POST /api/bot/stop            → 봇 중지 + 미체결 취소 {symbol}
 POST /api/bot/reset           → 차수/기준가만 리셋 (봇 시작 없음) {symbol}
-POST /api/bot/stop_all        → 전체 봇 중지
-POST /api/strategy/settings   → 전략 설정 저장 즉시 반영
-POST /api/settings            → 시스템 설정 저장
+POST /api/bot/stop_all        → 전체 봇 중지 {_reauth_password} — 재인증 필요
+POST /api/bot/start_all       → 전체 봇 재시작 {_reauth_password} — 재인증 필요
+POST /api/bot/bulk_enabled    → 종목별 전체제어 ON/OFF {symbol, enabled}
+POST /api/strategy/settings   → 전략 설정 저장. 가동 중이면 max_rounds/order_amount/
+                                 trigger는 즉시 반영, start_price는 차수 0일 때만
+                                 즉시 반영(차수>0이면 DB 예약, 메시지로 구분 안내)
+POST /api/settings            → 시스템 설정 저장 (ip_whitelist는 IP 또는 CIDR
+                                 형식 검증, 잘못된 형식이면 400)
 POST /api/settings/telegram/test → 텔레그램 테스트 메시지
 POST /api/assets/manual-price → 수동 평균매수가 저장
 
-DELETE /api/trades/orders     → 주문 내역 삭제
+DELETE /api/trades/orders     → 주문 내역 삭제 (ids 지정 시 선택삭제, start/end
+                                 기간 지정 시 {_reauth_password} 재인증 필요)
 ```
+
+## 웹 접근 보안 (`web/auth.py`)
+- **비밀번호 로그인**: `.env`의 `WEB_PASSWORD` 설정 시에만 활성화(fail-open —
+  미설정 시 인증 자체가 비활성되어 자기잠금 방지). `hmac.compare_digest`로
+  타이밍 공격 방어
+- **IP 화이트리스트**: 단일 IP 또는 CIDR(`10.73.56.0/24`) 표기 지원. 목록이
+  비어있으면 전체 허용, `127.0.0.1`은 항상 허용
+- **CSRF 토큰**: 로그인 시 세션에 발급/회전, 모든 페이지에 `<meta
+  name="csrf-token">`으로 주입. 인증된 세션의 상태변경 API 요청은
+  `X-CSRF-Token` 헤더 검증 필수(REST API 섹션 참고)
+- **세션 무효화**: 비밀번호 변경 시 세션에 저장된 지문(pw_fp)이 불일치하게
+  되어 다른 브라우저의 기존 세션도 다음 요청에서 자동 로그아웃됨
+- **민감 작업 재인증(step-up)**: 전체 시작/중지, 주문 기간 전체 삭제는 요청에
+  현재 비밀번호(`_reauth_password`)가 필요. 기존 확인모달에 비밀번호 입력칸을
+  조건부로 노출해서 처리(새 모달 없음)
+- **브루트포스 방어**: IP당 15분 내 5회 실패 시 10분 잠금, `login_attempts`
+  테이블에 영속화(앱 재시작해도 잠금 유지), 잠금 발동 시 텔레그램 1회성 알림
+- 이 모든 계층은 `web/auth.py`/`web/routes/api.py`에만 있고 `strategy/*.py`와는
+  무관함
 
 ## main.py 실행 구조
 ```
@@ -363,3 +424,9 @@ main.py
 - Windows 호환성 유지 (클라우드 PC 환경)
 - 봇 재시작 시 DB에서 이전 상태(기준가/차수) 자동 복구
 - 코드 커밋 후 반드시 git push까지 완료 (클라우드 PC에서 pull로 반영)
+
+### 알려진 이슈
+- `pytest tests/`를 실행하면 이번 세션 이전부터 있던 사전 실패가 항상 52~53개
+  나온다(test_stage1/2/3/5/8/9/11.py, 코드 드리프트로 인한 낡은 assertion
+  추정, 원인 분석 미착수). `test_stage5.py`는 실행마다 5개 또는 6개로 오가는
+  flaky 상태 — 새 실패가 이 범위 안이면 회귀가 아니라 기존 이슈일 가능성이 큼.
