@@ -45,6 +45,24 @@ class NotificationScheduler:
     def is_running(self) -> bool:
         return self._scheduler.running
 
+    # ── 설정 탭에서 재시작 없이 반영 ──────────────────────────────────────────────
+
+    def reschedule_hourly_status(self, interval_hours: int) -> None:
+        """정각 현황 알림 발송 간격을 재설정한다 (봇 재시작 불필요)."""
+        interval_hours = max(1, min(23, int(interval_hours)))
+        self._scheduler.reschedule_job(
+            "hourly_status", trigger=CronTrigger(hour=f"*/{interval_hours}", minute=0)
+        )
+        _log.info("정각 현황 알림 간격 변경: %d시간", interval_hours)
+
+    def reschedule_time_sync(self, interval_hours: int) -> None:
+        """Windows 시계 동기화 간격을 재설정한다 (봇 재시작 불필요)."""
+        interval_hours = max(1, min(23, int(interval_hours)))
+        self._scheduler.reschedule_job(
+            "time_sync", trigger=CronTrigger(hour=f"*/{interval_hours}")
+        )
+        _log.info("시계 동기화 간격 변경: %d시간", interval_hours)
+
     # ── 잡 등록 ───────────────────────────────────────────────────────────────
 
     def _register_jobs(self) -> None:
@@ -52,9 +70,10 @@ class NotificationScheduler:
         r_hour   = int(report.get("hour",   0))
         r_minute = int(report.get("minute", 0))
 
+        hourly_interval = int(report.get("hourly_interval_hours", 1))
         self._scheduler.add_job(
             self._job_hourly_status,
-            CronTrigger(minute=0),
+            CronTrigger(hour=f"*/{hourly_interval}", minute=0),
             id="hourly_status",
             replace_existing=True,
             misfire_grace_time=300,  # 최대 5분까지 지연 허용

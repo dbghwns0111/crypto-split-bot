@@ -57,8 +57,9 @@ logging:
 report:
   hour: 0
   minute: 0
+  hourly_interval_hours: 1      # 정각 현황 알림 발송 간격 (시간, 1=매시간 정각)
 system:
-  time_sync_interval_hours: 6
+  time_sync_interval_hours: 6   # Windows 시계 동기화 간격 (시간) — 설정 탭에서 변경 가능
   db_backup_interval_hours: 6   # DB 자동 백업 주기 (시간)
   db_backup_keep: 14            # 보관할 백업 파일 개수 (초과 시 오래된 것부터 삭제)
   watchdog_interval_min: 3      # 봇 스레드 헬스 점검 주기 (분)

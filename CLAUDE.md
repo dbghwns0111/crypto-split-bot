@@ -215,9 +215,10 @@ logging:
 report:
   hour: 0
   minute: 0
+  hourly_interval_hours: 1  # 정각 현황 알림 간격(시간) — 설정 탭에서 즉시 반영(재시작 불필요)
 
 system:
-  time_sync_interval_hours: 6
+  time_sync_interval_hours: 6  # 설정 탭에서 즉시 반영(재시작 불필요)
   db_backup_interval_hours: 6
   db_backup_keep: 14
   watchdog_interval_min: 3
@@ -258,7 +259,7 @@ system:
 - DB 백업 실패 경고 (성공은 무알림)
 - 시간 동기화 결과
 
-- 매 정각 가동 현황 리포트 (running 봇만 표시)
+- 정각 가동 현황 리포트 (running 봇만 표시, 기본 매시간 — 설정 탭에서 간격(시간) 조정 가능)
 - 일일 결산 리포트 (00:00, 전날 기준)
 
 ## 텔레그램 명령어
@@ -324,6 +325,8 @@ system:
 ### 설정 탭
 - 접근 보안 (접속 비밀번호, IP 화이트리스트 — 단일 IP 또는 CIDR 표기 지원)
 - API 키 / 텔레그램 설정 / 미체결 취소 시간 / 결산 시각
+- 정각 현황 알림 간격 / 시계 동기화 간격 (시간 단위, 1~23 — 저장 즉시 반영,
+  재시작 불필요)
 - 텔레그램 테스트 메시지 발송
 
 ## REST API (/api/...)
@@ -361,7 +364,9 @@ POST /api/strategy/settings   → 전략 설정 저장. 가동 중이면 max_rou
                                  trigger는 즉시 반영, start_price는 차수 0일 때만
                                  즉시 반영(차수>0이면 DB 예약, 메시지로 구분 안내)
 POST /api/settings            → 시스템 설정 저장 (ip_whitelist는 IP 또는 CIDR
-                                 형식 검증, 잘못된 형식이면 400)
+                                 형식 검증, 잘못된 형식이면 400 / hourly_interval_hours·
+                                 time_sync_interval_hours는 1~23 범위 검증 후 스케줄러에
+                                 즉시 반영, 재시작 불필요)
 POST /api/settings/telegram/test → 텔레그램 테스트 메시지
 POST /api/assets/manual-price → 수동 평균매수가 저장
 

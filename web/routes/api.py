@@ -1209,8 +1209,12 @@ def get_settings():
             "price_poll_interval": cfg.get("strategy", {}).get("price_poll_interval", 1),
         },
         "report": {
-            "hour":   cfg.get("report", {}).get("hour", 0),
-            "minute": cfg.get("report", {}).get("minute", 0),
+            "hour":                  cfg.get("report", {}).get("hour", 0),
+            "minute":                cfg.get("report", {}).get("minute", 0),
+            "hourly_interval_hours": cfg.get("report", {}).get("hourly_interval_hours", 1),
+        },
+        "system": {
+            "time_sync_interval_hours": cfg.get("system", {}).get("time_sync_interval_hours", 6),
         },
     })
 
@@ -1273,12 +1277,24 @@ def save_settings():
 
     # ── settings.yaml 항목 ────────────────────────────────────────────────────
     yaml_fields = {
-        "order_timeout":       ("strategy",  "order_timeout",       int),
-        "price_poll_interval": ("strategy",  "price_poll_interval", int),
-        "report_hour":         ("report",    "hour",                int),
-        "report_minute":       ("report",    "minute",              int),
-        "membership":          ("exchange",  "membership",          str),
+        "order_timeout":            ("strategy", "order_timeout",            int),
+        "price_poll_interval":      ("strategy", "price_poll_interval",      int),
+        "report_hour":              ("report",   "hour",                     int),
+        "report_minute":            ("report",   "minute",                   int),
+        "hourly_interval_hours":    ("report",   "hourly_interval_hours",    int),
+        "time_sync_interval_hours": ("system",   "time_sync_interval_hours", int),
+        "membership":               ("exchange", "membership",               str),
     }
+
+    for field in ("hourly_interval_hours", "time_sync_interval_hours"):
+        if body.get(field) is not None:
+            try:
+                h = int(body[field])
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "message": "간격은 숫자(시간)여야 합니다."}), 400
+            if not (1 <= h <= 23):
+                return jsonify({"ok": False, "message": "간격은 1~23시간 사이여야 합니다."}), 400
+
     yaml_changed = any(body.get(k) is not None for k in yaml_fields)
     if yaml_changed:
         try:
@@ -1299,6 +1315,17 @@ def save_settings():
         except Exception as exc:
             _log.error("yaml 저장 오류: %s", exc)
             return jsonify({"ok": False, "message": f"yaml 저장 실패: {exc}"}), 500
+
+        # 정각 알림/시계 동기화 간격은 스케줄러에 즉시 반영 (재시작 불필요)
+        sched = current_app.config.get("SCHEDULER")
+        if sched:
+            try:
+                if body.get("hourly_interval_hours") is not None:
+                    sched.reschedule_hourly_status(cfg["report"]["hourly_interval_hours"])
+                if body.get("time_sync_interval_hours") is not None:
+                    sched.reschedule_time_sync(cfg["system"]["time_sync_interval_hours"])
+            except Exception as exc:
+                _log.warning("스케줄 갱신 실패: %s", exc)
 
     # ── 웹 보안 설정 (web.auth.ip_whitelist / enabled) — 즉시 적용 ──────────────
     if ("ip_whitelist" in body) or ("auth_enabled" in body):

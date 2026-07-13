@@ -2282,6 +2282,12 @@ function _initSettingsPage() {
             report_minute: document.getElementById('settings-report-minute')?.value,
         }));
 
+    document.getElementById('settings-system-save')
+        ?.addEventListener('click', () => _saveSettings({
+            hourly_interval_hours:    document.getElementById('settings-hourly-interval')?.value,
+            time_sync_interval_hours: document.getElementById('settings-timesync-interval')?.value,
+        }));
+
     document.getElementById('settings-security-save')
         ?.addEventListener('click', _saveSecurity);
 
@@ -2351,6 +2357,8 @@ async function _fetchSettings() {
         _setNumVal('settings-poll-interval', data.strategy?.price_poll_interval);
         _setNumVal('settings-report-hour',   data.report?.hour);
         _setNumVal('settings-report-minute', data.report?.minute);
+        _setNumVal('settings-hourly-interval',   data.report?.hourly_interval_hours);
+        _setNumVal('settings-timesync-interval', data.system?.time_sync_interval_hours);
 
         const memEl = document.getElementById('settings-membership');
         if (memEl && data.exchange?.membership) {

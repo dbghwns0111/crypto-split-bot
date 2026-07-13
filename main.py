@@ -47,7 +47,7 @@ def build_components(cfg: dict):
     bot_manager = BotManager(exchange, cfg, notifier)
 
     sched = NotificationScheduler(notifier, bot_manager, exchange, cfg)
-    app   = create_app(bot_manager, exchange, cfg)
+    app   = create_app(bot_manager, exchange, cfg, sched)
 
     cmd_handler = None
     if cfg.get("telegram", {}).get("enabled", True) and bot_token and chat_id:
