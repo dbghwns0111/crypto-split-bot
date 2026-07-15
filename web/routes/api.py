@@ -284,10 +284,9 @@ def get_today_pnl():
     date        = today_kst_str()
     summary     = get_daily_summary(date)
     totals      = get_today_totals(list(bot_manager.symbols), date)
-    net_pnl     = sum(
-        float(s.get("realized_pnl", 0) or 0) - float(s.get("fee_total", 0) or 0)
-        for s in summary
-    )
+    # realized_pnl은 add_trade_pnl 저장 시점에 이미 수수료가 반영된 순손익이므로
+    # 여기서 fee_total을 또 빼면 수수료가 이중 차감된다.
+    net_pnl     = sum(float(s.get("realized_pnl", 0) or 0) for s in summary)
 
     return jsonify({
         "date":       date,
@@ -874,7 +873,8 @@ def get_strategy():
             })
 
         pnl_data      = get_daily_pnl(sym) or {}
-        today_net_pnl = float(pnl_data.get("realized_pnl", 0)) - float(pnl_data.get("fee_total", 0))
+        # realized_pnl은 이미 수수료가 반영된 순손익 — fee_total을 또 빼면 이중 차감된다.
+        today_net_pnl = float(pnl_data.get("realized_pnl", 0))
 
         symbols_data.append({
             "symbol":           sym,
@@ -931,6 +931,9 @@ def get_trade_fills():
             "round_no":     o.get("round_no", 0),
             "amount":       float(o.get("amount") or 0),
             "filled_at":    o.get("filled_at") or o.get("created_at", ""),
+            # 가상 캐치업 매수는 실제 거래소 주문이 아니므로 표시로 구분한다
+            # (매수/매도 체결 건수·금액이 안 맞아 보이는 원인)
+            "is_virtual":   bool((o.get("order_id") or "").startswith("virt-")),
         })
     return jsonify({"fills": fills, "start": start, "end": end})
 
@@ -1035,6 +1038,28 @@ def save_strategy_settings():
 
         _log.info("[설정변경] %s 전략 설정 저장: %s", symbol,
                   {k: body[k] for k in allowed if k in body})
+
+        notifier = current_app.config.get("NOTIFIER")
+        if notifier:
+            changes: dict[str, str] = {}
+            if "trigger_mode" in body:
+                changes["트리거 방식"] = "고정금액(원)" if pair["trigger_mode"] == "krw" else "퍼센트(%)"
+            if "trigger_krw" in body:
+                changes["트리거 간격"] = f"{int(pair['trigger_krw']):,}원"
+            if "trigger_pct" in body:
+                changes["트리거 간격"] = f"{pair['trigger_pct']}%"
+            if "max_rounds" in body:
+                changes["최대 차수"] = f"{pair['max_rounds']}차"
+            if "order_amount" in body:
+                changes["1회 주문금액"] = f"{int(pair['order_amount']):,}원"
+            if start_price_raw is not None and float(start_price_raw) > 0:
+                changes["시작가"] = f"{int(float(start_price_raw)):,}원"
+            if changes:
+                try:
+                    notifier.send_strategy_settings_changed(symbol, changes)
+                except Exception as exc:
+                    _log.warning("전략 설정 변경 알림 실패: %s", exc)
+
         return jsonify({"ok": True, "message": start_price_note or "저장 완료"})
     except Exception as exc:
         _log.error("전략 설정 저장 오류: %s", exc)
@@ -1233,6 +1258,7 @@ def save_settings():
     yaml_path = os.path.join(root, "config", "settings.yaml")
 
     needs_restart = False
+    changed: list[str] = []  # 텔레그램 알림용 — 변경된 항목명(민감정보는 값 제외)
 
     # ── .env 항목 (API 키 / 텔레그램 token+chat_id) ────────────────────────────
     env_fields = {
@@ -1240,6 +1266,12 @@ def save_settings():
         "secret_key": "BITHUMB_SECRET_KEY",
         "bot_token":  "TELEGRAM_BOT_TOKEN",
         "chat_id":    "TELEGRAM_CHAT_ID",
+    }
+    env_labels = {
+        "access_key": "빗썸 Access Key",
+        "secret_key": "빗썸 Secret Key",
+        "bot_token":  "텔레그램 Bot Token",
+        "chat_id":    "텔레그램 Chat ID",
     }
     cfg_targets = {
         "access_key": ("exchange", "access_key"),
@@ -1258,6 +1290,7 @@ def save_settings():
             section, attr = cfg_targets[field]
             cfg.setdefault(section, {})[attr] = val
             needs_restart = True
+            changed.append(f"{env_labels[field]} 변경 (재시작 후 적용)")
     except Exception as exc:
         _log.error("env 저장 오류: %s", exc)
         return jsonify({"ok": False, "message": f"env 저장 실패: {exc}"}), 500
@@ -1271,6 +1304,7 @@ def save_settings():
             os.environ["WEB_PASSWORD"] = pwd
             cfg.setdefault("web", {}).setdefault("auth", {})["password"] = pwd
             _log.info("[설정변경] 웹 접근 비밀번호 %s", "설정" if pwd else "해제")
+            changed.append(f"웹 접속 비밀번호 {'변경' if pwd else '해제'}")
         except Exception as exc:
             _log.error("웹 비밀번호 저장 오류: %s", exc)
             return jsonify({"ok": False, "message": f"비밀번호 저장 실패: {exc}"}), 500
@@ -1312,6 +1346,19 @@ def save_settings():
             with open(yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(raw, f, allow_unicode=True,
                           default_flow_style=False, sort_keys=False)
+
+            yaml_labels = {
+                "order_timeout":            lambda v: f"미체결 자동취소 {v}초",
+                "price_poll_interval":      lambda v: f"시세 조회 간격 {v}초",
+                "report_hour":              lambda v: f"결산 시각 {int(v):02d}시",
+                "report_minute":            lambda v: f"결산 시각 {int(v):02d}분",
+                "hourly_interval_hours":    lambda v: f"정각 현황 알림 간격 {v}시간",
+                "time_sync_interval_hours": lambda v: f"시계 동기화 간격 {v}시간",
+                "membership":               lambda v: f"멤버십 등급 {v}",
+            }
+            for field, (section, key, cast) in yaml_fields.items():
+                if body.get(field) is not None:
+                    changed.append(yaml_labels[field](cfg[section][key]))
         except Exception as exc:
             _log.error("yaml 저장 오류: %s", exc)
             return jsonify({"ok": False, "message": f"yaml 저장 실패: {exc}"}), 500
@@ -1357,11 +1404,13 @@ def save_settings():
 
                 raw["web"]["auth"]["ip_whitelist"] = wl
                 cfg["web"]["auth"]["ip_whitelist"] = wl
+                changed.append(f"IP 화이트리스트 변경 ({len(wl)}개)" if wl else "IP 화이트리스트 해제 (전체 허용)")
 
             if "auth_enabled" in body:
                 en = bool(body.get("auth_enabled"))
                 raw["web"]["auth"]["enabled"] = en
                 cfg["web"]["auth"]["enabled"] = en
+                changed.append(f"접근 보안 사용: {'ON' if en else 'OFF'}")
 
             with open(yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(raw, f, allow_unicode=True,
@@ -1374,6 +1423,15 @@ def save_settings():
     if needs_restart:
         msg += " — API 키/토큰 변경은 앱 재시작 후 적용됩니다"
     _log.info("[설정변경] 시스템 설정 저장 (재시작필요=%s)", needs_restart)
+
+    if changed:
+        notifier = current_app.config.get("NOTIFIER")
+        if notifier:
+            try:
+                notifier.send_system_settings_changed(changed)
+            except Exception as exc:
+                _log.warning("시스템 설정 변경 알림 실패: %s", exc)
+
     return jsonify({"ok": True, "message": msg, "needs_restart": needs_restart})
 
 

@@ -2041,10 +2041,11 @@ function _renderTradeFills() {
         const checkTd  = _tradesDeleteMode
             ? `<td style="text-align:center"><input type="checkbox" class="cs-trade-check" data-order-id="${t.id}" ${checked}></td>`
             : '';
+        const virtualTag = t.is_virtual ? ' <span class="cs-trade-virtual-tag" title="실제 거래소 주문 없이 차수만 기록된 가상 캐치업 매수입니다">가상</span>' : '';
         return `<tr${selCls}>
             ${checkTd}
             <td>${t.symbol}</td>
-            <td class="${sideCls}">${isSell ? '매도' : '매수'}</td>
+            <td class="${sideCls}">${isSell ? '매도' : '매수'}${virtualTag}</td>
             <td>${priceStr}</td>
             <td style="color:var(--cs-muted)">${qtyStr}</td>
             <td style="color:var(--cs-muted)">${amtStr}</td>
@@ -2211,7 +2212,7 @@ function _tradesRangeLabel() {
 function _exportTradesCsv() {
     if (_tradesActiveSubTab === 'fills') {
         if (_fillsAll.length === 0) { _showAlert('내보낼 데이터가 없습니다.', 'warning'); return; }
-        const headers = ['심볼', '구분', '체결가', '수량', '주문금액', '차수', '체결시각'];
+        const headers = ['심볼', '구분', '체결가', '수량', '주문금액', '차수', '체결시각', '가상캐치업'];
         const rows = _fillsAll.map(t => [
             t.symbol,
             t.side === 'sell' ? '매도' : '매수',
@@ -2220,6 +2221,7 @@ function _exportTradesCsv() {
             t.amount > 0 ? Math.round(t.amount) : '',
             t.round_no ?? '',
             t.filled_at ? t.filled_at.slice(0, 19).replace('T', ' ') : '',
+            t.is_virtual ? 'Y' : '',
         ]);
         _downloadCsv(`체결내역_${_tradesRangeLabel()}.csv`, headers, rows);
     } else if (_tradesActiveSubTab === 'pnl') {

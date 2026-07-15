@@ -289,11 +289,13 @@ def test_pnl_today_includes_pnl_data(client):
     assert eth_pnl["realized_pnl"] == 5_000.0
 
 
-def test_pnl_today_net_pnl_is_realized_minus_fee(client):
+def test_pnl_today_net_pnl_is_realized_pnl(client):
+    """realized_pnl은 저장 시점에 이미 수수료가 반영된 순손익이므로 그대로 합산해야 한다
+    (fee_total을 또 빼면 수수료가 이중 차감됨)."""
     c, bm, ex = client
     add_trade_pnl("ETH", 5_000, 500)
     data = c.get("/api/pnl/today").get_json()
-    assert data["net_pnl"] == 4_500
+    assert data["net_pnl"] == 5_000
 
 
 def test_pnl_today_totals_sum_todays_filled_orders(client):

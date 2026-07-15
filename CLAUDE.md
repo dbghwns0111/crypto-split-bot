@@ -254,6 +254,8 @@ system:
 - 미체결 자동취소 + 재주문 안내
 - 부분 체결 정산 (타임아웃 취소 시 부분체결 분 처리 결과)
 - 캐치업 / 가상 캐치업 완료
+- 전략 탭 설정 변경 (트리거/최대차수/주문금액/시작가, 심볼별)
+- 설정 탭 설정 변경 (API키/텔레그램/비밀번호 등 민감정보는 항목명만, 값은 비공개)
 - API 오류
 - 봇 워치독 자동 복구 / 복구 실패 (3분마다 점검)
 - DB 백업 실패 경고 (성공은 무알림)
@@ -351,7 +353,7 @@ GET  /api/strategy            → 심볼별 전략 파라미터 + 모니터링 (
 GET  /api/assets/exchange     → 빗썸 보유 자산 전체 현황
 GET  /api/bot/gap?symbol=ETH  → 재시작 전 캐치업 갭 미리보기
 GET  /api/settings            → 현재 설정값 (API 키/화이트리스트 마스킹)
-GET  /api/trades/fills        → 기간별 체결 주문 내역
+GET  /api/trades/fills        → 기간별 체결 주문 내역 (is_virtual: 가상 캐치업 매수 여부)
 GET  /api/trades/pnl          → 기간별 차수별 실현손익 (buy_is_virtual 포함)
 
 POST /api/bot/start           → 봇 시작 {symbol, fresh, virtual_catchup}

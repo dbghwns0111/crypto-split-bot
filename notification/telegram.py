@@ -26,6 +26,8 @@ from notification.message_builder import (
     build_order_cancelled,
     build_partial_fill_alert,
     build_sell_filled,
+    build_strategy_settings_changed,
+    build_system_settings_changed,
     build_time_sync_alert,
     build_virtual_catchup,
     build_watchdog_alert,
@@ -174,6 +176,12 @@ class TelegramNotifier:
         prices: dict | None = None,
     ) -> bool:
         return self.send(build_daily_report(date, symbol_data, total_krw, balances or {}, prices or {}))
+
+    def send_strategy_settings_changed(self, symbol: str, changes: dict[str, str]) -> bool:
+        return self.send(build_strategy_settings_changed(symbol, changes))
+
+    def send_system_settings_changed(self, changes: list[str]) -> bool:
+        return self.send(build_system_settings_changed(changes))
 
     # ── 내부 ─────────────────────────────────────────────────────────────────
 

@@ -8,7 +8,7 @@ _HERE        = os.path.dirname(os.path.abspath(__file__))
 _IMAGES_DIR  = os.path.join(_HERE, "..", "images")
 
 
-def create_app(bot_manager, exchange=None, cfg=None, scheduler=None):
+def create_app(bot_manager, exchange=None, cfg=None, scheduler=None, notifier=None):
     """Flask 앱을 생성하고 blueprint를 등록한다."""
     app = Flask(
         __name__,
@@ -19,6 +19,7 @@ def create_app(bot_manager, exchange=None, cfg=None, scheduler=None):
     app.config["EXCHANGE"]    = exchange
     app.config["CFG"]         = cfg or {}
     app.config["SCHEDULER"]   = scheduler
+    app.config["NOTIFIER"]    = notifier
 
     @app.route("/images/<path:filename>")
     def serve_project_image(filename):

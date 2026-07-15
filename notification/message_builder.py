@@ -387,3 +387,25 @@ def build_daily_report(
             lines.append(f"🪙 {sym}   {bal_str} {sym}")
 
     return "\n".join(lines)
+
+
+# ── 설정 변경 알림 ────────────────────────────────────────────────────────────
+
+def build_strategy_settings_changed(symbol: str, changes: dict[str, str]) -> str:
+    """전략 탭(심볼별)에서 변경된 항목 알림 메시지.
+
+    changes: {표시라벨: 표시값} — 실제로 저장 요청에 포함된 항목만 담긴다.
+    """
+    lines = [f"⚙️ {symbol} 전략 설정 변경", _DIV]
+    lines += [f"• {label}: {value}" for label, value in changes.items()]
+    return "\n".join(lines)
+
+
+def build_system_settings_changed(changes: list[str]) -> str:
+    """설정 탭(시스템/보안/알림)에서 변경된 항목 알림 메시지.
+
+    changes: 표시용 문자열 목록. 비밀번호/키 등 민감정보는 값 없이 항목명만 담는다.
+    """
+    lines = ["⚙️ CryptoSplit 설정 변경", _DIV]
+    lines += [f"• {c}" for c in changes]
+    return "\n".join(lines)
