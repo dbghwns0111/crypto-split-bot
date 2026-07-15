@@ -398,11 +398,16 @@ def get_pnl_rounds(
     end: str,
     symbol_filter: Optional[str] = None,
     limit: int = 200,
+    fee_rate: float = 0.04,
+    point_rate: float = 0.0,
 ) -> list[dict]:
     """기간 내 완료된 차수별 실현손익을 반환한다 (매도-매수 LEFT JOIN).
 
     각 행에 buy_is_virtual(가상 캐치업 매수 여부)을 포함한다 — 실제 거래대금
     집계 시 가상 매수분을 제외하기 위함(손익 계산 자체는 그대로 유지).
+
+    fee_rate/point_rate: strategy/magic_split.py의 calc_pnl()과 동일한 기준(멤버십별
+    실제 수수료율/포인트 적립률)을 넘겨야 daily_pnl(홈 KPI)과 손익이 일치한다.
     """
     if not symbols:
         return []
@@ -449,19 +454,30 @@ def get_pnl_rounds(
         buy_p  = float(r.get("buy_price")   or 0)
         sell_p = float(r.get("sell_price")  or 0)
         qty    = float(r.get("quantity")    or 0)
-        fee    = (buy_a + sell_a) * 0.0005
-        r["pnl"] = round((sell_p - buy_p) * qty - fee, 0) if buy_p > 0 else None
+        turnover = buy_a + sell_a
+        fee      = turnover * fee_rate   / 100.0
+        points   = turnover * point_rate / 100.0
+        r["pnl"]    = round((sell_p - buy_p) * qty - fee + points, 0) if buy_p > 0 else None
+        r["fee"]    = round(fee, 0)    if buy_p > 0 else None
+        r["points"] = round(points, 0) if buy_p > 0 else None
         r["buy_is_virtual"] = bool((r.get("buy_order_id") or "").startswith("virt-"))
         result.append(r)
     return result
 
 
-def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
-    """기간 내 시간대별(0-23시) 실현손익을 반환한다. 누락 시간은 0으로 채워 24개 반환."""
+def get_hourly_pnl(
+    symbols: list, start: str, end: str,
+    fee_rate: float = 0.04, point_rate: float = 0.0,
+) -> list[dict]:
+    """기간 내 시간대별(0-23시) 실현손익을 반환한다. 누락 시간은 0으로 채워 24개 반환.
+
+    fee_rate/point_rate: get_pnl_rounds()와 동일 — calc_pnl()과 일치시키기 위한 실제 비율.
+    """
     empty = [{"hour": h, "trade_count": 0, "realized_pnl": 0.0} for h in range(24)]
     if not symbols:
         return empty
     ph = ",".join("?" * len(symbols))
+    net_mult = (fee_rate - point_rate) / 100.0
     rows = _conn().execute(
         f"""
         SELECT
@@ -470,7 +486,7 @@ def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
             SUM(
                 CASE WHEN b.filled_price IS NOT NULL AND b.filled_price > 0
                      THEN (s.filled_price - b.filled_price) * s.quantity
-                          - (b.amount + s.amount) * 0.0005
+                          - (b.amount + s.amount) * ?
                      ELSE 0 END
             ) AS realized_pnl
         FROM orders s
@@ -493,7 +509,7 @@ def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
         GROUP BY hour
         ORDER BY hour
         """,
-        (*symbols, start, end),
+        (net_mult, *symbols, start, end),
     ).fetchall()
     by_hour = {
         r["hour"]: {
@@ -506,15 +522,20 @@ def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
     return [by_hour.get(h, {"hour": h, "trade_count": 0, "realized_pnl": 0.0}) for h in range(24)]
 
 
-def get_weekday_pnl(symbols: list, start: str, end: str) -> list[dict]:
+def get_weekday_pnl(
+    symbols: list, start: str, end: str,
+    fee_rate: float = 0.04, point_rate: float = 0.0,
+) -> list[dict]:
     """기간 내 요일별(월~일) 실현손익을 반환한다. 누락 요일은 0으로 채워 7개 반환.
 
     weekday: 0=월 ... 6=일 (SQLite strftime('%w')는 0=일이므로 +6 % 7로 변환).
+    fee_rate/point_rate: get_pnl_rounds()와 동일 — calc_pnl()과 일치시키기 위한 실제 비율.
     """
     empty = [{"weekday": w, "trade_count": 0, "realized_pnl": 0.0} for w in range(7)]
     if not symbols:
         return empty
     ph = ",".join("?" * len(symbols))
+    net_mult = (fee_rate - point_rate) / 100.0
     rows = _conn().execute(
         f"""
         SELECT
@@ -523,7 +544,7 @@ def get_weekday_pnl(symbols: list, start: str, end: str) -> list[dict]:
             SUM(
                 CASE WHEN b.filled_price IS NOT NULL AND b.filled_price > 0
                      THEN (s.filled_price - b.filled_price) * s.quantity
-                          - (b.amount + s.amount) * 0.0005
+                          - (b.amount + s.amount) * ?
                      ELSE 0 END
             ) AS realized_pnl
         FROM orders s
@@ -546,7 +567,7 @@ def get_weekday_pnl(symbols: list, start: str, end: str) -> list[dict]:
         GROUP BY weekday
         ORDER BY weekday
         """,
-        (*symbols, start, end),
+        (net_mult, *symbols, start, end),
     ).fetchall()
     by_weekday = {
         r["weekday"]: {

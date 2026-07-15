@@ -177,7 +177,7 @@ class TelegramNotifier:
     ) -> bool:
         return self.send(build_daily_report(date, symbol_data, total_krw, balances or {}, prices or {}))
 
-    def send_strategy_settings_changed(self, symbol: str, changes: dict[str, str]) -> bool:
+    def send_strategy_settings_changed(self, symbol: str, changes: dict[str, tuple[str, str]]) -> bool:
         return self.send(build_strategy_settings_changed(symbol, changes))
 
     def send_system_settings_changed(self, changes: list[str]) -> bool:

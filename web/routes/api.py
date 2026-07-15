@@ -35,6 +35,18 @@ def clear_price_cache() -> None:
     _price_cache.clear()
 
 
+def _fee_point_rates(cfg: dict) -> tuple[float, float]:
+    """strategy/magic_split.py의 calc_pnl()과 동일한 수수료율/포인트 적립률을 반환한다.
+
+    손익 집계 엔드포인트가 이 값을 써야 daily_pnl(홈 KPI, 실제 체결 시점 계산값)과
+    사후 재계산 결과가 일치한다.
+    """
+    from utils.math_utils import get_point_rate
+
+    membership = cfg.get("exchange", {}).get("membership", "화이트")
+    return 0.04, get_point_rate(membership)
+
+
 # ── 엔드포인트 ────────────────────────────────────────────────────────────────
 
 @api_bp.route("/status")
@@ -471,36 +483,48 @@ def get_cumulative_pnl():
     if sym_filter:
         rows = [r for r in rows if r.get("symbol") == sym_filter]
 
+    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
+
     grand_buy  = 0.0
     grand_sell = 0.0
+    grand_fee  = 0.0
     symbols    = []
 
     for r in rows:
-        buy  = float(r.get("total_buy",  0) or 0)
-        sell = float(r.get("total_sell", 0) or 0)
-        pnl  = sell - buy
+        buy      = float(r.get("total_buy",  0) or 0)
+        sell     = float(r.get("total_sell", 0) or 0)
+        turnover = buy + sell
+        fee      = turnover * fee_rate   / 100.0
+        points   = turnover * point_rate / 100.0
+        # realized_pnl은 daily_pnl(홈 KPI)과 동일하게 수수료 차감/포인트 적립을 반영한 순손익
+        pnl  = sell - buy - fee + points
         pct  = (pnl / buy * 100) if buy > 0 else 0.0
 
         grand_buy  += buy
         grand_sell += sell
+        grand_fee  += fee
 
         symbols.append({
             "symbol":       r["symbol"],
             "total_buy":    round(buy),
             "total_sell":   round(sell),
+            "fee":          round(fee),
             "realized_pnl": round(pnl),
             "pct":          round(pct, 2),
             "buy_count":    r.get("buy_count", 0),
             "sell_count":   r.get("sell_count", 0),
         })
 
-    grand_pnl = grand_sell - grand_buy
-    grand_pct = (grand_pnl / grand_buy * 100) if grand_buy > 0 else 0.0
+    grand_turnover = grand_buy + grand_sell
+    grand_points   = grand_turnover * point_rate / 100.0
+    grand_pnl      = grand_sell - grand_buy - grand_fee + grand_points
+    grand_pct      = (grand_pnl / grand_buy * 100) if grand_buy > 0 else 0.0
 
     return jsonify({
         "summary": {
             "total_buy":    round(grand_buy),
             "total_sell":   round(grand_sell),
+            "fee":          round(grand_fee),
             "realized_pnl": round(grand_pnl),
             "pct":          round(grand_pct, 2),
         },
@@ -584,7 +608,8 @@ def get_pnl_hourly():
     start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
     end   = today.strftime("%Y-%m-%d")
 
-    rows = get_hourly_pnl(symbols, start, end)
+    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
+    rows = get_hourly_pnl(symbols, start, end, fee_rate, point_rate)
     # 시간대별 평균손익: 기간 내 매일 각 시간대가 1회씩 존재하므로 days로 나눈다.
     avg_pnl = [round(r["realized_pnl"] / days) for r in rows]
     return jsonify({
@@ -619,7 +644,8 @@ def get_pnl_weekday():
     start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
     end   = today.strftime("%Y-%m-%d")
 
-    rows = get_weekday_pnl(symbols, start, end)
+    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
+    rows = get_weekday_pnl(symbols, start, end, fee_rate, point_rate)
 
     # 요일별 평균손익: 기간 내 해당 요일이 등장한 횟수로 나눈다 (0=월 ... 6=일, date.weekday()와 동일).
     from datetime import datetime as _dt
@@ -668,7 +694,9 @@ def get_pnl_stats():
     start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
     end   = today.strftime("%Y-%m-%d")
 
-    rounds = get_pnl_rounds(symbols, start, end, limit=100000)
+    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
+    rounds = get_pnl_rounds(symbols, start, end, limit=100000,
+                             fee_rate=fee_rate, point_rate=point_rate)
 
     def _calc(rows: list[dict], period_days: int) -> dict:
         pnls = [float(r["pnl"]) for r in rows if r.get("pnl") is not None]
@@ -954,7 +982,9 @@ def get_trade_pnl():
     if sym == "ALL":
         sym = None
 
-    rows = get_pnl_rounds(symbols, start, end, symbol_filter=sym, limit=100000)
+    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
+    rows = get_pnl_rounds(symbols, start, end, symbol_filter=sym, limit=100000,
+                           fee_rate=fee_rate, point_rate=point_rate)
     rounds = []
     for r in rows:
         rounds.append({
@@ -968,6 +998,7 @@ def get_trade_pnl():
             "sell_amount": float(r.get("sell_amount") or 0),
             "buy_is_virtual": bool(r.get("buy_is_virtual")),
             "pnl":         r.get("pnl"),
+            "fee":         r.get("fee"),
             "filled_at":   r.get("filled_at", ""),
         })
     return jsonify({"rounds": rounds, "start": start, "end": end})
@@ -999,6 +1030,11 @@ def save_strategy_settings():
         "max_rounds":   int,
         "order_amount": int,
     }
+    old_pair = dict(pair)  # 텔레그램 알림용 — 값 변경 전 스냅샷
+
+    from database.state_repo import get_state
+    old_start_price = float((get_state(symbol) or {}).get("start_price", 0) or 0)
+
     for key, cast in allowed.items():
         if key in body:
             pair[key] = cast(body[key])
@@ -1041,19 +1077,20 @@ def save_strategy_settings():
 
         notifier = current_app.config.get("NOTIFIER")
         if notifier:
-            changes: dict[str, str] = {}
+            changes: dict[str, tuple[str, str]] = {}
             if "trigger_mode" in body:
-                changes["트리거 방식"] = "고정금액(원)" if pair["trigger_mode"] == "krw" else "퍼센트(%)"
+                _fmt_mode = lambda m: "고정금액(원)" if m == "krw" else "퍼센트(%)"
+                changes["트리거 방식"] = (_fmt_mode(old_pair.get("trigger_mode")), _fmt_mode(pair["trigger_mode"]))
             if "trigger_krw" in body:
-                changes["트리거 간격"] = f"{int(pair['trigger_krw']):,}원"
+                changes["트리거 간격"] = (f"{int(old_pair.get('trigger_krw') or 0):,}원", f"{int(pair['trigger_krw']):,}원")
             if "trigger_pct" in body:
-                changes["트리거 간격"] = f"{pair['trigger_pct']}%"
+                changes["트리거 간격"] = (f"{old_pair.get('trigger_pct', 0)}%", f"{pair['trigger_pct']}%")
             if "max_rounds" in body:
-                changes["최대 차수"] = f"{pair['max_rounds']}차"
+                changes["최대 차수"] = (f"{old_pair.get('max_rounds', 0)}차", f"{pair['max_rounds']}차")
             if "order_amount" in body:
-                changes["1회 주문금액"] = f"{int(pair['order_amount']):,}원"
+                changes["1회 주문금액"] = (f"{int(old_pair.get('order_amount') or 0):,}원", f"{int(pair['order_amount']):,}원")
             if start_price_raw is not None and float(start_price_raw) > 0:
-                changes["시작가"] = f"{int(float(start_price_raw)):,}원"
+                changes["시작가"] = (f"{int(old_start_price):,}원", f"{int(float(start_price_raw)):,}원")
             if changes:
                 try:
                     notifier.send_strategy_settings_changed(symbol, changes)
@@ -1311,13 +1348,18 @@ def save_settings():
 
     # ── settings.yaml 항목 ────────────────────────────────────────────────────
     yaml_fields = {
-        "order_timeout":            ("strategy", "order_timeout",            int),
-        "price_poll_interval":      ("strategy", "price_poll_interval",      int),
-        "report_hour":              ("report",   "hour",                     int),
-        "report_minute":            ("report",   "minute",                   int),
-        "hourly_interval_hours":    ("report",   "hourly_interval_hours",    int),
-        "time_sync_interval_hours": ("system",   "time_sync_interval_hours", int),
-        "membership":               ("exchange", "membership",               str),
+        "order_timeout":            ("strategy", "order_timeout",            int, 300),
+        "price_poll_interval":      ("strategy", "price_poll_interval",      int, 1),
+        "report_hour":              ("report",   "hour",                     int, 0),
+        "report_minute":            ("report",   "minute",                   int, 0),
+        "hourly_interval_hours":    ("report",   "hourly_interval_hours",    int, 1),
+        "time_sync_interval_hours": ("system",   "time_sync_interval_hours", int, 6),
+        "membership":               ("exchange", "membership",               str, "화이트"),
+    }
+    # 텔레그램 알림용 — yaml 값 변경 전 스냅샷(민감정보 아님, before→after 그대로 표시)
+    old_yaml_vals = {
+        field: cfg.get(section, {}).get(key, default)
+        for field, (section, key, _cast, default) in yaml_fields.items()
     }
 
     for field in ("hourly_interval_hours", "time_sync_interval_hours"):
@@ -1335,7 +1377,7 @@ def save_settings():
             with open(yaml_path, "r", encoding="utf-8") as f:
                 raw = yaml.safe_load(f) or {}
 
-            for field, (section, key, cast) in yaml_fields.items():
+            for field, (section, key, cast, _default) in yaml_fields.items():
                 val = body.get(field)
                 if val is None:
                     continue
@@ -1348,17 +1390,18 @@ def save_settings():
                           default_flow_style=False, sort_keys=False)
 
             yaml_labels = {
-                "order_timeout":            lambda v: f"미체결 자동취소 {v}초",
-                "price_poll_interval":      lambda v: f"시세 조회 간격 {v}초",
-                "report_hour":              lambda v: f"결산 시각 {int(v):02d}시",
-                "report_minute":            lambda v: f"결산 시각 {int(v):02d}분",
-                "hourly_interval_hours":    lambda v: f"정각 현황 알림 간격 {v}시간",
-                "time_sync_interval_hours": lambda v: f"시계 동기화 간격 {v}시간",
-                "membership":               lambda v: f"멤버십 등급 {v}",
+                "order_timeout":            ("미체결 자동취소",      lambda v: f"{v}초"),
+                "price_poll_interval":      ("시세 조회 간격",        lambda v: f"{v}초"),
+                "report_hour":              ("결산 시각(시)",         lambda v: f"{int(v):02d}시"),
+                "report_minute":            ("결산 시각(분)",         lambda v: f"{int(v):02d}분"),
+                "hourly_interval_hours":    ("정각 현황 알림 간격",   lambda v: f"{v}시간"),
+                "time_sync_interval_hours": ("시계 동기화 간격",      lambda v: f"{v}시간"),
+                "membership":               ("멤버십 등급",           lambda v: f"{v}"),
             }
-            for field, (section, key, cast) in yaml_fields.items():
+            for field in yaml_fields:
                 if body.get(field) is not None:
-                    changed.append(yaml_labels[field](cfg[section][key]))
+                    name, fmt = yaml_labels[field]
+                    changed.append(f"{name}: {fmt(old_yaml_vals[field])} → {fmt(cfg[yaml_fields[field][0]][yaml_fields[field][1]])}")
         except Exception as exc:
             _log.error("yaml 저장 오류: %s", exc)
             return jsonify({"ok": False, "message": f"yaml 저장 실패: {exc}"}), 500
@@ -1382,6 +1425,9 @@ def save_settings():
             raw.setdefault("web", {}).setdefault("auth", {})
             cfg.setdefault("web", {}).setdefault("auth", {})
 
+            old_wl_count      = len(cfg["web"]["auth"].get("ip_whitelist", []) or [])
+            old_auth_enabled  = bool(cfg["web"]["auth"].get("enabled", True))
+
             if "ip_whitelist" in body:
                 import ipaddress
 
@@ -1404,13 +1450,13 @@ def save_settings():
 
                 raw["web"]["auth"]["ip_whitelist"] = wl
                 cfg["web"]["auth"]["ip_whitelist"] = wl
-                changed.append(f"IP 화이트리스트 변경 ({len(wl)}개)" if wl else "IP 화이트리스트 해제 (전체 허용)")
+                changed.append(f"IP 화이트리스트: {old_wl_count}개 → {len(wl)}개")
 
             if "auth_enabled" in body:
                 en = bool(body.get("auth_enabled"))
                 raw["web"]["auth"]["enabled"] = en
                 cfg["web"]["auth"]["enabled"] = en
-                changed.append(f"접근 보안 사용: {'ON' if en else 'OFF'}")
+                changed.append(f"접근 보안 사용: {'ON' if old_auth_enabled else 'OFF'} → {'ON' if en else 'OFF'}")
 
             with open(yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(raw, f, allow_unicode=True,

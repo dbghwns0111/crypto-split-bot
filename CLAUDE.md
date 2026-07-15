@@ -254,8 +254,9 @@ system:
 - 미체결 자동취소 + 재주문 안내
 - 부분 체결 정산 (타임아웃 취소 시 부분체결 분 처리 결과)
 - 캐치업 / 가상 캐치업 완료
-- 전략 탭 설정 변경 (트리거/최대차수/주문금액/시작가, 심볼별)
-- 설정 탭 설정 변경 (API키/텔레그램/비밀번호 등 민감정보는 항목명만, 값은 비공개)
+- 전략 탭 설정 변경 (트리거/최대차수/주문금액/시작가, 심볼별, 변경 전→후 값 표시)
+- 설정 탭 설정 변경 (변경 전→후 값 표시. API키/텔레그램/비밀번호 등 민감정보는
+  항목명만 표시하고 값은 비공개)
 - API 오류
 - 봇 워치독 자동 복구 / 복구 실패 (3분마다 점검)
 - DB 백업 실패 경고 (성공은 무알림)
@@ -344,7 +345,8 @@ GET  /api/market/prices       → BTC/ETH/XRP/USDT 현재가 (4초 캐시)
 GET  /api/investment          → 심볼별 포지션 평가
 GET  /api/pnl/today           → 오늘 손익 + 오늘 매수/매도 총액(홈 KPI 스트립용,
                                  가상 캐치업 매수 제외) + net_pnl
-GET  /api/pnl/cumulative      → 누적 손익 (총 매수금액도 가상 캐치업 매수 제외)
+GET  /api/pnl/cumulative      → 누적 손익 (총 매수금액도 가상 캐치업 매수 제외, 멤버십
+                                 실수수료율/포인트 적립률 반영한 순손익 + fee 필드)
 GET  /api/pnl/daily?days=30   → 일별 손익 시계열 (차트용, days=0은 전체기간)
 GET  /api/pnl/hourly?days=30  → 시간대별 평균손익
 GET  /api/pnl/weekday?days=30 → 요일별 평균손익
@@ -354,7 +356,8 @@ GET  /api/assets/exchange     → 빗썸 보유 자산 전체 현황
 GET  /api/bot/gap?symbol=ETH  → 재시작 전 캐치업 갭 미리보기
 GET  /api/settings            → 현재 설정값 (API 키/화이트리스트 마스킹)
 GET  /api/trades/fills        → 기간별 체결 주문 내역 (is_virtual: 가상 캐치업 매수 여부)
-GET  /api/trades/pnl          → 기간별 차수별 실현손익 (buy_is_virtual 포함)
+GET  /api/trades/pnl          → 기간별 차수별 실현손익 (buy_is_virtual, fee 포함 —
+                                 fee_rate/point_rate는 daily_pnl(홈 KPI) 계산과 동일 기준)
 
 POST /api/bot/start           → 봇 시작 {symbol, fresh, virtual_catchup}
 POST /api/bot/stop            → 봇 중지 + 미체결 취소 {symbol}

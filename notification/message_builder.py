@@ -391,13 +391,13 @@ def build_daily_report(
 
 # ── 설정 변경 알림 ────────────────────────────────────────────────────────────
 
-def build_strategy_settings_changed(symbol: str, changes: dict[str, str]) -> str:
+def build_strategy_settings_changed(symbol: str, changes: dict[str, tuple[str, str]]) -> str:
     """전략 탭(심볼별)에서 변경된 항목 알림 메시지.
 
-    changes: {표시라벨: 표시값} — 실제로 저장 요청에 포함된 항목만 담긴다.
+    changes: {표시라벨: (변경 전, 변경 후)} — 실제로 저장 요청에 포함된 항목만 담긴다.
     """
     lines = [f"⚙️ {symbol} 전략 설정 변경", _DIV]
-    lines += [f"• {label}: {value}" for label, value in changes.items()]
+    lines += [f"• {label}: {old} → {new}" for label, (old, new) in changes.items()]
     return "\n".join(lines)
 
 

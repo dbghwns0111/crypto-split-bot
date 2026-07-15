@@ -648,6 +648,7 @@ function _renderCumulative(data) {
 
     _setEl('pnl-total-buy',  _fmt(s.total_buy));
     _setEl('pnl-total-sell', _fmt(s.total_sell));
+    _setEl('pnl-total-fee',  `-${_fmt(s.fee || 0)}`);
 
     const pnlEl = document.getElementById('pnl-total-pnl');
     if (pnlEl) {
@@ -2081,11 +2082,12 @@ function _renderTradePnl() {
     // ── 요약 통계 계산 ────────────────────────────────────────────────────────
     const nd    = new Date();
     const today = `${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}-${String(nd.getDate()).padStart(2,'0')}`;
-    let periodPnl = 0, todayPnl = 0, periodPairs = 0, todayPairs = 0, totalAmount = 0;
+    let periodPnl = 0, todayPnl = 0, periodPairs = 0, todayPairs = 0, totalAmount = 0, periodFee = 0;
 
     for (const r of rounds) {
         if (r.pnl != null) {
             periodPnl   += r.pnl;
+            periodFee   += r.fee || 0;
             // 가상 캐치업 매수는 실제 거래소 주문이 아니므로 거래금액 집계에서 제외
             totalAmount += (r.buy_is_virtual ? 0 : (r.buy_amount || 0)) + (r.sell_amount || 0);
             periodPairs++;
@@ -2128,9 +2130,14 @@ function _renderTradePnl() {
                 <span class="cs-summary-value">${todayPairs.toLocaleString()}회</span>
             </div>
             <div class="cs-summary-row">
-                <span class="cs-summary-label">누적 거래금액</span>
+                <span class="cs-summary-label">발생 수수료</span>
+                <span class="cs-summary-value cs-pnl-negative">-${Math.round(periodFee).toLocaleString()}원</span>
+            </div>
+            <div class="cs-summary-row">
+                <span class="cs-summary-label">완료거래 매매금액</span>
                 <span class="cs-summary-value">${Math.round(totalAmount).toLocaleString()}원</span>
             </div>
+            <p class="cs-summary-note">매수·매도가 모두 체결되어 완료된 스플릿(왕복거래)만 집계됩니다. 아직 매도되지 않은 매수 포지션은 위 "완료거래 매매금액"에는 포함되지 않고 홈 화면·주문체결 내역의 매수금액에는 포함됩니다.</p>
         </div>`;
     }
 
