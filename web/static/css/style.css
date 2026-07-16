@@ -339,13 +339,6 @@ body {
 }
 .cs-summary-row:last-child { border-bottom: none; }
 .cs-summary-label { color: var(--cs-muted); }
-.cs-summary-note {
-  margin: 0;
-  padding: 4px 16px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--cs-muted);
-}
 .cs-summary-value { font-weight: 600; font-variant-numeric: tabular-nums; }
 .cs-points-value  { color: #B45309; }
 

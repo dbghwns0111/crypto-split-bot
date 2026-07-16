@@ -345,8 +345,11 @@ GET  /api/market/prices       → BTC/ETH/XRP/USDT 현재가 (4초 캐시)
 GET  /api/investment          → 심볼별 포지션 평가
 GET  /api/pnl/today           → 오늘 손익 + 오늘 매수/매도 총액(홈 KPI 스트립용,
                                  가상 캐치업 매수 제외) + net_pnl
-GET  /api/pnl/cumulative      → 누적 손익 (총 매수금액도 가상 캐치업 매수 제외, 멤버십
-                                 실수수료율/포인트 적립률 반영한 순손익 + fee 필드)
+GET  /api/pnl/cumulative      → 누적 손익 (총 매수/매도금액은 실제 체결액 그대로,
+                                 실현손익은 get_pnl_rounds() 차수별 합산 — 단순
+                                 총매도-총매수가 아님. 시작가를 현재가보다 높게 잡아
+                                 가상 캐치업이 잦은 경우 단순 차감식은 손익이
+                                 과대계상되는 문제가 있어 교체함)
 GET  /api/pnl/daily?days=30   → 일별 손익 시계열 (차트용, days=0은 전체기간)
 GET  /api/pnl/hourly?days=30  → 시간대별 평균손익
 GET  /api/pnl/weekday?days=30 → 요일별 평균손익

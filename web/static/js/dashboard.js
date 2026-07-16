@@ -2145,7 +2145,6 @@ function _renderTradePnl() {
                 <span class="cs-summary-label">완료거래 매매금액</span>
                 <span class="cs-summary-value">${Math.round(totalAmount).toLocaleString()}원</span>
             </div>
-            <p class="cs-summary-note">위 "순손익"에는 수수료 차감(및 포인트 적립)이 이미 반영되어 있습니다 — "발생 수수료"는 별도로 뺄 필요 없는 참고용 내역입니다. 또한 매수·매도가 모두 체결되어 완료된 스플릿(왕복거래)만 집계되며, 아직 매도되지 않은 매수 포지션은 위 "완료거래 매매금액"에는 포함되지 않고 홈 화면·주문체결 내역의 매수금액에는 포함됩니다.</p>
         </div>`;
     }
 

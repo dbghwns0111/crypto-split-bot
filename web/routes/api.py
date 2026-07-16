@@ -458,11 +458,20 @@ def _resolve_days(days: int, symbols: list) -> int:
 
 @api_bp.route("/pnl/cumulative")
 def get_cumulative_pnl():
-    """누적손익 탭: 기간별 심볼별 매수/매도 합계. ?days=0(전체) 기본."""
+    """누적손익 탭: 기간별 심볼별 매수/매도 합계 + 실현손익. ?days=0(전체) 기본.
+
+    총 매수/매도금액(및 건수)은 get_cumulative_totals()로 "실제 체결 금액"을 그대로
+    보여주되, 실현손익은 get_pnl_rounds()의 차수별 pnl 합산을 쓴다 — 단순
+    (총매도-총매수)로 계산하면 시작가를 현재가보다 높게 잡아 가상 캐치업이 자주
+    발생하는 경우(가상 매수는 total_buy에서 제외되지만 그 매수분을 나중에 실제로
+    매도하면 total_sell에는 잡혀) 매도금액만 부풀어 손익이 실제보다 크게 계산된다.
+    """
     from datetime import timedelta
 
-    from database.order_repo import get_cumulative_totals
+    from database.order_repo import get_cumulative_totals, get_pnl_rounds
     from utils.time_utils import now_kst
+
+    bot_manager = current_app.config["BOT_MANAGER"]
 
     # 기간 파싱: days<=0 = 전체(all-time, 날짜 필터 없음)
     try:
@@ -484,25 +493,35 @@ def get_cumulative_pnl():
         rows = [r for r in rows if r.get("symbol") == sym_filter]
 
     fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
+    pnl_rounds = get_pnl_rounds(list(bot_manager.symbols), start, end,
+                                 symbol_filter=sym_filter or None, limit=100000,
+                                 fee_rate=fee_rate, point_rate=point_rate)
+    pnl_by_symbol: dict[str, dict] = {}
+    for r in pnl_rounds:
+        if r.get("pnl") is None:
+            continue
+        acc = pnl_by_symbol.setdefault(r["symbol"], {"pnl": 0.0, "fee": 0.0})
+        acc["pnl"] += float(r["pnl"])
+        acc["fee"] += float(r.get("fee") or 0)
 
     grand_buy  = 0.0
     grand_sell = 0.0
     grand_fee  = 0.0
+    grand_pnl  = 0.0
     symbols    = []
 
     for r in rows:
-        buy      = float(r.get("total_buy",  0) or 0)
-        sell     = float(r.get("total_sell", 0) or 0)
-        turnover = buy + sell
-        fee      = turnover * fee_rate   / 100.0
-        points   = turnover * point_rate / 100.0
-        # realized_pnl은 daily_pnl(홈 KPI)과 동일하게 수수료 차감/포인트 적립을 반영한 순손익
-        pnl  = sell - buy - fee + points
+        buy  = float(r.get("total_buy",  0) or 0)
+        sell = float(r.get("total_sell", 0) or 0)
+        acc  = pnl_by_symbol.get(r["symbol"], {"pnl": 0.0, "fee": 0.0})
+        pnl  = acc["pnl"]
+        fee  = acc["fee"]
         pct  = (pnl / buy * 100) if buy > 0 else 0.0
 
         grand_buy  += buy
         grand_sell += sell
         grand_fee  += fee
+        grand_pnl  += pnl
 
         symbols.append({
             "symbol":       r["symbol"],
@@ -515,10 +534,7 @@ def get_cumulative_pnl():
             "sell_count":   r.get("sell_count", 0),
         })
 
-    grand_turnover = grand_buy + grand_sell
-    grand_points   = grand_turnover * point_rate / 100.0
-    grand_pnl      = grand_sell - grand_buy - grand_fee + grand_points
-    grand_pct      = (grand_pnl / grand_buy * 100) if grand_buy > 0 else 0.0
+    grand_pct = (grand_pnl / grand_buy * 100) if grand_buy > 0 else 0.0
 
     return jsonify({
         "summary": {

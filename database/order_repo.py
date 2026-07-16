@@ -394,14 +394,17 @@ def get_filled_orders_range(
 
 def get_pnl_rounds(
     symbols: list,
-    start: str,
-    end: str,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
     symbol_filter: Optional[str] = None,
     limit: int = 200,
     fee_rate: float = 0.04,
     point_rate: float = 0.0,
 ) -> list[dict]:
-    """기간 내 완료된 차수별 실현손익을 반환한다 (매도-매수 LEFT JOIN).
+    """완료된 차수별 실현손익을 반환한다 (매도-매수 LEFT JOIN).
+
+    start/end 를 둘 다 주면 해당 기간의 '매도 체결'만, 하나라도 없으면 전체
+    기간(all-time)을 집계한다(get_cumulative_totals()와 동일한 규칙).
 
     각 행에 buy_is_virtual(가상 캐치업 매수 여부)을 포함한다 — 실제 거래대금
     집계 시 가상 매수분을 제외하기 위함(손익 계산 자체는 그대로 유지).
@@ -413,11 +416,18 @@ def get_pnl_rounds(
         return []
     if symbol_filter and symbol_filter in symbols:
         sym_clause = "s.symbol = ?"
-        params: list = [symbol_filter, start, end, limit]
+        params: list = [symbol_filter]
     else:
         ph = ",".join("?" * len(symbols))
         sym_clause = f"s.symbol IN ({ph})"
-        params = [*symbols, start, end, limit]
+        params = [*symbols]
+
+    date_clause = ""
+    if start and end:
+        date_clause = "AND DATE(s.filled_at) BETWEEN ? AND ?"
+        params += [start, end]
+    params.append(limit)
+
     rows = _conn().execute(
         f"""
         SELECT s.id AS sell_id, s.symbol, s.round_no,
@@ -441,7 +451,7 @@ def get_pnl_rounds(
         WHERE s.side   = 'sell'
           AND s.status = 'filled'
           AND {sym_clause}
-          AND DATE(s.filled_at) BETWEEN ? AND ?
+          {date_clause}
         ORDER BY s.filled_at DESC
         LIMIT ?
         """,
