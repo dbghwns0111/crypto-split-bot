@@ -118,8 +118,16 @@ document.addEventListener('DOMContentLoaded', () => {
         symEl.dataset.symbols.split(',').filter(Boolean).forEach(s => BOT_SYMBOLS.push(s.trim()));
     }
 
-    _modal = new bootstrap.Modal(document.getElementById('confirmModal'));
+    const confirmModalEl = document.getElementById('confirmModal');
+    _modal = new bootstrap.Modal(confirmModalEl);
     document.getElementById('confirmBtn').addEventListener('click', _executeAction);
+    // 비밀번호 재인증 입력칸 등에서 Enter로도 확인 버튼과 동일하게 동작하도록 지원
+    confirmModalEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('confirmBtn').click();
+        }
+    });
 
     const gapModalEl = document.getElementById('gapModal');
     if (gapModalEl) {
@@ -2110,15 +2118,15 @@ function _renderTradePnl() {
         sumEl.style.display = '';
         sumEl.innerHTML = `<div class="cs-summary-section">
             <div class="cs-summary-row">
-                <span class="cs-summary-label">기간 누적 손익</span>
+                <span class="cs-summary-label">기간 누적 순손익</span>
                 <span class="cs-summary-value ${_colorClass(periodPnl)}">${_sign(periodPnl)}${Math.round(periodPnl).toLocaleString()}원</span>
             </div>
             <div class="cs-summary-row">
-                <span class="cs-summary-label">오늘 손익</span>
+                <span class="cs-summary-label">오늘 순손익</span>
                 <span class="cs-summary-value ${_colorClass(todayPnl)}">${_sign(todayPnl)}${Math.round(todayPnl).toLocaleString()}원</span>
             </div>
             <div class="cs-summary-row">
-                <span class="cs-summary-label">시간당 평균 손익</span>
+                <span class="cs-summary-label">시간당 평균 순손익</span>
                 <span class="cs-summary-value ${_colorClass(hourlyAvg)}">${_sign(hourlyAvg)}${Math.round(hourlyAvg).toLocaleString()}원</span>
             </div>
             <div class="cs-summary-row">
@@ -2130,14 +2138,14 @@ function _renderTradePnl() {
                 <span class="cs-summary-value">${todayPairs.toLocaleString()}회</span>
             </div>
             <div class="cs-summary-row">
-                <span class="cs-summary-label">발생 수수료</span>
+                <span class="cs-summary-label">발생 수수료(참고용)</span>
                 <span class="cs-summary-value cs-pnl-negative">-${Math.round(periodFee).toLocaleString()}원</span>
             </div>
             <div class="cs-summary-row">
                 <span class="cs-summary-label">완료거래 매매금액</span>
                 <span class="cs-summary-value">${Math.round(totalAmount).toLocaleString()}원</span>
             </div>
-            <p class="cs-summary-note">매수·매도가 모두 체결되어 완료된 스플릿(왕복거래)만 집계됩니다. 아직 매도되지 않은 매수 포지션은 위 "완료거래 매매금액"에는 포함되지 않고 홈 화면·주문체결 내역의 매수금액에는 포함됩니다.</p>
+            <p class="cs-summary-note">위 "순손익"에는 수수료 차감(및 포인트 적립)이 이미 반영되어 있습니다 — "발생 수수료"는 별도로 뺄 필요 없는 참고용 내역입니다. 또한 매수·매도가 모두 체결되어 완료된 스플릿(왕복거래)만 집계되며, 아직 매도되지 않은 매수 포지션은 위 "완료거래 매매금액"에는 포함되지 않고 홈 화면·주문체결 내역의 매수금액에는 포함됩니다.</p>
         </div>`;
     }
 
