@@ -247,6 +247,14 @@ system:
 - ip (PK), fail_count, window_start, locked_until, updated_at
   (웹 로그인 브루트포스 방어 — 앱 재시작 후에도 잠금 상태 유지)
 
+### membership_history
+- effective_date (PK), membership
+  (멤버십 등급 변경 이력 — 설정 탭에서 등급을 바꾸면 오늘 날짜로 새 행 추가.
+  손익 재계산 시 "현재" 등급을 과거 전체에 소급 적용하지 않고 매도 체결일
+  기준으로 그 시점 등급을 조회하기 위함. 최초 실행 시 이력이 비어 있으면
+  그 시점의 설정값을 과거 전체 기본값(effective_date='2000-01-01')으로 1건
+  자동 기록함 — 이 기능 도입 이전 과거는 정확한 이력이 없어 최선으로 근사)
+
 ## 텔레그램 알림 항목
 - 봇 시작 / 재시작 / 중지
 - 매수 체결 / 매도 체결 (차수/수익 포함)
@@ -349,7 +357,7 @@ GET  /api/pnl/cumulative      → 누적 손익 (총 매수/매도금액은 실�
                                  실현손익은 get_pnl_rounds() 차수별 합산 — 단순
                                  총매도-총매수가 아님. 시작가를 현재가보다 높게 잡아
                                  가상 캐치업이 잦은 경우 단순 차감식은 손익이
-                                 과대계상되는 문제가 있어 교체함)
+                                 과대계상되는 문제가 있어 교체함. fee/points 필드 포함)
 GET  /api/pnl/daily?days=30   → 일별 손익 시계열 (차트용, days=0은 전체기간)
 GET  /api/pnl/hourly?days=30  → 시간대별 평균손익
 GET  /api/pnl/weekday?days=30 → 요일별 평균손익
@@ -359,8 +367,9 @@ GET  /api/assets/exchange     → 빗썸 보유 자산 전체 현황
 GET  /api/bot/gap?symbol=ETH  → 재시작 전 캐치업 갭 미리보기
 GET  /api/settings            → 현재 설정값 (API 키/화이트리스트 마스킹)
 GET  /api/trades/fills        → 기간별 체결 주문 내역 (is_virtual: 가상 캐치업 매수 여부)
-GET  /api/trades/pnl          → 기간별 차수별 실현손익 (buy_is_virtual, fee 포함 —
-                                 fee_rate/point_rate는 daily_pnl(홈 KPI) 계산과 동일 기준)
+GET  /api/trades/pnl          → 기간별 차수별 실현손익 (buy_is_virtual, fee, points 포함 —
+                                 포인트 적립률은 매도 체결일 기준 membership_history 조회값,
+                                 "현재" 설정을 과거에 소급 적용하지 않음)
 
 POST /api/bot/start           → 봇 시작 {symbol, fresh, virtual_catchup}
 POST /api/bot/stop            → 봇 중지 + 미체결 취소 {symbol}

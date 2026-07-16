@@ -120,6 +120,10 @@ def main() -> None:
     conn = get_connection()
     create_tables(conn)
 
+    # 멤버십 등급 변경 이력 — 최초 실행 시 현재 설정값을 과거 전체 기본값으로 기록
+    from database.membership_repo import seed_membership_history
+    seed_membership_history(cfg.get("exchange", {}).get("membership", "화이트"))
+
     # DB 무결성 검사 + 시작 시 백업 1회 (데이터 손실 예방)
     integrity_ok = check_integrity()
     if not integrity_ok:

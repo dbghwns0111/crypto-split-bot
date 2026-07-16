@@ -392,25 +392,18 @@ def get_filled_orders_range(
     return [dict(r) for r in rows]
 
 
-def get_pnl_rounds(
+def _fetch_matched_rounds(
     symbols: list,
     start: Optional[str] = None,
     end: Optional[str] = None,
     symbol_filter: Optional[str] = None,
-    limit: int = 200,
-    fee_rate: float = 0.04,
-    point_rate: float = 0.0,
+    limit: Optional[int] = None,
 ) -> list[dict]:
-    """완료된 차수별 실현손익을 반환한다 (매도-매수 LEFT JOIN).
+    """매도 체결 건에 매칭되는 매수 건을 LEFT JOIN한 원시 행을 반환한다 (내부 공용).
 
-    start/end 를 둘 다 주면 해당 기간의 '매도 체결'만, 하나라도 없으면 전체
-    기간(all-time)을 집계한다(get_cumulative_totals()와 동일한 규칙).
-
-    각 행에 buy_is_virtual(가상 캐치업 매수 여부)을 포함한다 — 실제 거래대금
-    집계 시 가상 매수분을 제외하기 위함(손익 계산 자체는 그대로 유지).
-
-    fee_rate/point_rate: strategy/magic_split.py의 calc_pnl()과 동일한 기준(멤버십별
-    실제 수수료율/포인트 적립률)을 넘겨야 daily_pnl(홈 KPI)과 손익이 일치한다.
+    get_pnl_rounds/get_hourly_pnl/get_weekday_pnl이 공유하는 핵심 조회이며, 손익/
+    수수료/포인트 계산(멤버십 이력 조회 포함)은 호출부에서 각자 처리한다.
+    start/end 를 둘 다 주면 해당 기간만, 하나라도 없으면 전체 기간을 반환한다.
     """
     if not symbols:
         return []
@@ -426,7 +419,11 @@ def get_pnl_rounds(
     if start and end:
         date_clause = "AND DATE(s.filled_at) BETWEEN ? AND ?"
         params += [start, end]
-    params.append(limit)
+
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ?"
+        params.append(limit)
 
     rows = _conn().execute(
         f"""
@@ -453,20 +450,56 @@ def get_pnl_rounds(
           AND {sym_clause}
           {date_clause}
         ORDER BY s.filled_at DESC
-        LIMIT ?
+        {limit_clause}
         """,
         params,
     ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _round_fee_and_points(
+    buy_amount: float, sell_amount: float, filled_at: str, fee_rate: float,
+) -> tuple[float, float]:
+    """차수 하나의 수수료/포인트를 매도 체결일 기준 멤버십 이력으로 계산한다.
+
+    포인트 적립률은 등급이 보통 월 단위로 바뀌므로 "현재" 설정이 아니라 매도
+    체결일 당시 적용 중이던 등급을 조회해서 써야 과거 손익이 소급 변경되지 않는다.
+    수수료율은 빗썸이 등급과 무관하게 고정이라 인자로 받은 값을 그대로 쓴다.
+    """
+    from database.membership_repo import get_membership_at
+    from utils.math_utils import get_point_rate
+
+    membership = get_membership_at((filled_at or "")[:10])
+    point_rate = get_point_rate(membership)
+    turnover   = buy_amount + sell_amount
+    return turnover * fee_rate / 100.0, turnover * point_rate / 100.0
+
+
+def get_pnl_rounds(
+    symbols: list,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    symbol_filter: Optional[str] = None,
+    limit: int = 200,
+    fee_rate: float = 0.04,
+) -> list[dict]:
+    """완료된 차수별 실현손익을 반환한다.
+
+    start/end 를 둘 다 주면 해당 기간의 '매도 체결'만, 하나라도 없으면 전체
+    기간(all-time)을 집계한다(get_cumulative_totals()와 동일한 규칙).
+
+    각 행에 buy_is_virtual(가상 캐치업 매수 여부)을 포함한다 — 실제 거래대금
+    집계 시 가상 매수분을 제외하기 위함(손익 계산 자체는 그대로 유지).
+    포인트 적립률은 매도 체결일 기준 멤버십 이력을 조회해 적용한다(_round_fee_and_points 참고).
+    """
     result = []
-    for r in [dict(x) for x in rows]:
+    for r in _fetch_matched_rounds(symbols, start, end, symbol_filter, limit):
         buy_a  = float(r.get("buy_amount")  or 0)
         sell_a = float(r.get("sell_amount") or 0)
         buy_p  = float(r.get("buy_price")   or 0)
         sell_p = float(r.get("sell_price")  or 0)
         qty    = float(r.get("quantity")    or 0)
-        turnover = buy_a + sell_a
-        fee      = turnover * fee_rate   / 100.0
-        points   = turnover * point_rate / 100.0
+        fee, points = _round_fee_and_points(buy_a, sell_a, r.get("filled_at"), fee_rate)
         r["pnl"]    = round((sell_p - buy_p) * qty - fee + points, 0) if buy_p > 0 else None
         r["fee"]    = round(fee, 0)    if buy_p > 0 else None
         r["points"] = round(points, 0) if buy_p > 0 else None
@@ -475,119 +508,61 @@ def get_pnl_rounds(
     return result
 
 
-def get_hourly_pnl(
-    symbols: list, start: str, end: str,
-    fee_rate: float = 0.04, point_rate: float = 0.0,
-) -> list[dict]:
+def get_hourly_pnl(symbols: list, start: str, end: str, fee_rate: float = 0.04) -> list[dict]:
     """기간 내 시간대별(0-23시) 실현손익을 반환한다. 누락 시간은 0으로 채워 24개 반환.
 
-    fee_rate/point_rate: get_pnl_rounds()와 동일 — calc_pnl()과 일치시키기 위한 실제 비율.
+    포인트 적립률은 get_pnl_rounds()와 동일하게 매도 체결일 기준 멤버십 이력을 쓴다.
     """
-    empty = [{"hour": h, "trade_count": 0, "realized_pnl": 0.0} for h in range(24)]
-    if not symbols:
-        return empty
-    ph = ",".join("?" * len(symbols))
-    net_mult = (fee_rate - point_rate) / 100.0
-    rows = _conn().execute(
-        f"""
-        SELECT
-            CAST(strftime('%H', s.filled_at) AS INTEGER) AS hour,
-            COUNT(*) AS trade_count,
-            SUM(
-                CASE WHEN b.filled_price IS NOT NULL AND b.filled_price > 0
-                     THEN (s.filled_price - b.filled_price) * s.quantity
-                          - (b.amount + s.amount) * ?
-                     ELSE 0 END
-            ) AS realized_pnl
-        FROM orders s
-        LEFT JOIN orders b ON (
-            b.id = (
-                SELECT id FROM orders
-                WHERE symbol  = s.symbol
-                  AND round_no = s.round_no
-                  AND side    = 'buy'
-                  AND status  = 'filled'
-                  AND filled_at <= s.filled_at
-                ORDER BY filled_at DESC
-                LIMIT 1
+    from datetime import datetime
+
+    by_hour = {h: {"hour": h, "trade_count": 0, "realized_pnl": 0.0} for h in range(24)}
+    for r in _fetch_matched_rounds(symbols, start, end):
+        filled_at = r.get("filled_at") or ""
+        try:
+            hour = datetime.strptime(filled_at, "%Y-%m-%d %H:%M:%S").hour
+        except ValueError:
+            continue
+        bucket = by_hour[hour]
+        bucket["trade_count"] += 1
+
+        buy_p = float(r.get("buy_price") or 0)
+        if buy_p > 0:
+            sell_p, qty = float(r.get("sell_price") or 0), float(r.get("quantity") or 0)
+            fee, points = _round_fee_and_points(
+                float(r.get("buy_amount") or 0), float(r.get("sell_amount") or 0), filled_at, fee_rate,
             )
-        )
-        WHERE s.side   = 'sell'
-          AND s.status = 'filled'
-          AND s.symbol IN ({ph})
-          AND DATE(s.filled_at) BETWEEN ? AND ?
-        GROUP BY hour
-        ORDER BY hour
-        """,
-        (net_mult, *symbols, start, end),
-    ).fetchall()
-    by_hour = {
-        r["hour"]: {
-            "hour":        r["hour"],
-            "trade_count": int(r["trade_count"] or 0),
-            "realized_pnl": round(float(r["realized_pnl"] or 0)),
-        }
-        for r in rows
-    }
-    return [by_hour.get(h, {"hour": h, "trade_count": 0, "realized_pnl": 0.0}) for h in range(24)]
+            bucket["realized_pnl"] += (sell_p - buy_p) * qty - fee + points
+
+    return [{**b, "realized_pnl": round(b["realized_pnl"])} for b in by_hour.values()]
 
 
-def get_weekday_pnl(
-    symbols: list, start: str, end: str,
-    fee_rate: float = 0.04, point_rate: float = 0.0,
-) -> list[dict]:
+def get_weekday_pnl(symbols: list, start: str, end: str, fee_rate: float = 0.04) -> list[dict]:
     """기간 내 요일별(월~일) 실현손익을 반환한다. 누락 요일은 0으로 채워 7개 반환.
 
-    weekday: 0=월 ... 6=일 (SQLite strftime('%w')는 0=일이므로 +6 % 7로 변환).
-    fee_rate/point_rate: get_pnl_rounds()와 동일 — calc_pnl()과 일치시키기 위한 실제 비율.
+    weekday: 0=월 ... 6=일 (datetime.weekday()와 동일한 규칙).
+    포인트 적립률은 get_pnl_rounds()와 동일하게 매도 체결일 기준 멤버십 이력을 쓴다.
     """
-    empty = [{"weekday": w, "trade_count": 0, "realized_pnl": 0.0} for w in range(7)]
-    if not symbols:
-        return empty
-    ph = ",".join("?" * len(symbols))
-    net_mult = (fee_rate - point_rate) / 100.0
-    rows = _conn().execute(
-        f"""
-        SELECT
-            (CAST(strftime('%w', s.filled_at) AS INTEGER) + 6) % 7 AS weekday,
-            COUNT(*) AS trade_count,
-            SUM(
-                CASE WHEN b.filled_price IS NOT NULL AND b.filled_price > 0
-                     THEN (s.filled_price - b.filled_price) * s.quantity
-                          - (b.amount + s.amount) * ?
-                     ELSE 0 END
-            ) AS realized_pnl
-        FROM orders s
-        LEFT JOIN orders b ON (
-            b.id = (
-                SELECT id FROM orders
-                WHERE symbol  = s.symbol
-                  AND round_no = s.round_no
-                  AND side    = 'buy'
-                  AND status  = 'filled'
-                  AND filled_at <= s.filled_at
-                ORDER BY filled_at DESC
-                LIMIT 1
+    from datetime import datetime
+
+    by_weekday = {w: {"weekday": w, "trade_count": 0, "realized_pnl": 0.0} for w in range(7)}
+    for r in _fetch_matched_rounds(symbols, start, end):
+        filled_at = r.get("filled_at") or ""
+        try:
+            weekday = datetime.strptime(filled_at, "%Y-%m-%d %H:%M:%S").weekday()
+        except ValueError:
+            continue
+        bucket = by_weekday[weekday]
+        bucket["trade_count"] += 1
+
+        buy_p = float(r.get("buy_price") or 0)
+        if buy_p > 0:
+            sell_p, qty = float(r.get("sell_price") or 0), float(r.get("quantity") or 0)
+            fee, points = _round_fee_and_points(
+                float(r.get("buy_amount") or 0), float(r.get("sell_amount") or 0), filled_at, fee_rate,
             )
-        )
-        WHERE s.side   = 'sell'
-          AND s.status = 'filled'
-          AND s.symbol IN ({ph})
-          AND DATE(s.filled_at) BETWEEN ? AND ?
-        GROUP BY weekday
-        ORDER BY weekday
-        """,
-        (net_mult, *symbols, start, end),
-    ).fetchall()
-    by_weekday = {
-        r["weekday"]: {
-            "weekday":      r["weekday"],
-            "trade_count":  int(r["trade_count"] or 0),
-            "realized_pnl": round(float(r["realized_pnl"] or 0)),
-        }
-        for r in rows
-    }
-    return [by_weekday.get(w, {"weekday": w, "trade_count": 0, "realized_pnl": 0.0}) for w in range(7)]
+            bucket["realized_pnl"] += (sell_p - buy_p) * qty - fee + points
+
+    return [{**b, "realized_pnl": round(b["realized_pnl"])} for b in by_weekday.values()]
 
 
 def delete_orders_by_ids(ids: list) -> tuple:

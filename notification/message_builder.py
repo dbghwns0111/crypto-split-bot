@@ -339,7 +339,7 @@ def build_daily_report(
 
     symbol_data 각 원소:
         {"symbol": str, "realized_pnl": float,
-         "trade_count": int, "fee_total": float,
+         "trade_count": int, "fee_total": float, "point_total": float,
          "buy_count": int, "sell_count": int}
     balances: {"ETH": float, "USDT": float, ...}
     prices:   {"ETH": float, "USDT": float, ...}  # 결산 시점 현재가
@@ -348,10 +348,11 @@ def build_daily_report(
     grand_net = 0.0
 
     for s in symbol_data:
-        sym   = s["symbol"]
-        net   = float(s.get("realized_pnl", 0))   # realized_pnl = 이미 수수료 차감된 순수익
-        fee   = float(s.get("fee_total", 0))
-        gross = net + fee                           # 수수료 차감 전 실현수익 역산
+        sym    = s["symbol"]
+        net    = float(s.get("realized_pnl", 0))  # realized_pnl = 이미 수수료 차감·포인트 반영된 순손익
+        fee    = float(s.get("fee_total", 0))
+        points = float(s.get("point_total", 0))
+        gross  = net + fee - points                  # 수수료 차감 전 실현수익 역산(포인트는 제외하고 역산)
         grand_net += net
 
         buys   = int(s.get("buy_count",  0))
@@ -366,6 +367,7 @@ def build_daily_report(
             f"💰 실현수익   {sign_g}{gross:,.0f}원",
             f"🔄 매수/매도  {buys}/{sells}회",
             f"💸 수수료     -{fee:,.0f}원",
+            f"🎁 포인트     +{points:,.0f}원 (비현금)",
             f"{net_icon} 순수익     {sign_n}{net:,.0f}원",
         ]
 

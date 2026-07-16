@@ -71,6 +71,12 @@ def create_tables(conn: sqlite3.Connection) -> None:
             locked_until REAL,
             updated_at   TEXT NOT NULL
         );
+
+        -- ── 멤버십 등급 변경 이력 (포인트 적립률 소급 재계산 방지용) ──────────
+        CREATE TABLE IF NOT EXISTS membership_history (
+            effective_date TEXT PRIMARY KEY,   -- 이 날짜부터 해당 등급 적용
+            membership     TEXT NOT NULL
+        );
     """)
     conn.commit()
 

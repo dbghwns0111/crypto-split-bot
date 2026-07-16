@@ -35,18 +35,6 @@ def clear_price_cache() -> None:
     _price_cache.clear()
 
 
-def _fee_point_rates(cfg: dict) -> tuple[float, float]:
-    """strategy/magic_split.py의 calc_pnl()과 동일한 수수료율/포인트 적립률을 반환한다.
-
-    손익 집계 엔드포인트가 이 값을 써야 daily_pnl(홈 KPI, 실제 체결 시점 계산값)과
-    사후 재계산 결과가 일치한다.
-    """
-    from utils.math_utils import get_point_rate
-
-    membership = cfg.get("exchange", {}).get("membership", "화이트")
-    return 0.04, get_point_rate(membership)
-
-
 # ── 엔드포인트 ────────────────────────────────────────────────────────────────
 
 @api_bp.route("/status")
@@ -492,42 +480,45 @@ def get_cumulative_pnl():
     if sym_filter:
         rows = [r for r in rows if r.get("symbol") == sym_filter]
 
-    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
     pnl_rounds = get_pnl_rounds(list(bot_manager.symbols), start, end,
-                                 symbol_filter=sym_filter or None, limit=100000,
-                                 fee_rate=fee_rate, point_rate=point_rate)
+                                 symbol_filter=sym_filter or None, limit=100000)
     pnl_by_symbol: dict[str, dict] = {}
     for r in pnl_rounds:
         if r.get("pnl") is None:
             continue
-        acc = pnl_by_symbol.setdefault(r["symbol"], {"pnl": 0.0, "fee": 0.0})
-        acc["pnl"] += float(r["pnl"])
-        acc["fee"] += float(r.get("fee") or 0)
+        acc = pnl_by_symbol.setdefault(r["symbol"], {"pnl": 0.0, "fee": 0.0, "points": 0.0})
+        acc["pnl"]    += float(r["pnl"])
+        acc["fee"]    += float(r.get("fee") or 0)
+        acc["points"] += float(r.get("points") or 0)
 
-    grand_buy  = 0.0
-    grand_sell = 0.0
-    grand_fee  = 0.0
-    grand_pnl  = 0.0
-    symbols    = []
+    grand_buy    = 0.0
+    grand_sell   = 0.0
+    grand_fee    = 0.0
+    grand_pnl    = 0.0
+    grand_points = 0.0
+    symbols      = []
 
     for r in rows:
         buy  = float(r.get("total_buy",  0) or 0)
         sell = float(r.get("total_sell", 0) or 0)
-        acc  = pnl_by_symbol.get(r["symbol"], {"pnl": 0.0, "fee": 0.0})
-        pnl  = acc["pnl"]
-        fee  = acc["fee"]
-        pct  = (pnl / buy * 100) if buy > 0 else 0.0
+        acc    = pnl_by_symbol.get(r["symbol"], {"pnl": 0.0, "fee": 0.0, "points": 0.0})
+        pnl    = acc["pnl"]
+        fee    = acc["fee"]
+        points = acc["points"]
+        pct    = (pnl / buy * 100) if buy > 0 else 0.0
 
-        grand_buy  += buy
-        grand_sell += sell
-        grand_fee  += fee
-        grand_pnl  += pnl
+        grand_buy    += buy
+        grand_sell   += sell
+        grand_fee    += fee
+        grand_pnl    += pnl
+        grand_points += points
 
         symbols.append({
             "symbol":       r["symbol"],
             "total_buy":    round(buy),
             "total_sell":   round(sell),
             "fee":          round(fee),
+            "points":       round(points),
             "realized_pnl": round(pnl),
             "pct":          round(pct, 2),
             "buy_count":    r.get("buy_count", 0),
@@ -541,6 +532,7 @@ def get_cumulative_pnl():
             "total_buy":    round(grand_buy),
             "total_sell":   round(grand_sell),
             "fee":          round(grand_fee),
+            "points":       round(grand_points),
             "realized_pnl": round(grand_pnl),
             "pct":          round(grand_pct, 2),
         },
@@ -624,8 +616,7 @@ def get_pnl_hourly():
     start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
     end   = today.strftime("%Y-%m-%d")
 
-    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
-    rows = get_hourly_pnl(symbols, start, end, fee_rate, point_rate)
+    rows = get_hourly_pnl(symbols, start, end)
     # 시간대별 평균손익: 기간 내 매일 각 시간대가 1회씩 존재하므로 days로 나눈다.
     avg_pnl = [round(r["realized_pnl"] / days) for r in rows]
     return jsonify({
@@ -660,8 +651,7 @@ def get_pnl_weekday():
     start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
     end   = today.strftime("%Y-%m-%d")
 
-    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
-    rows = get_weekday_pnl(symbols, start, end, fee_rate, point_rate)
+    rows = get_weekday_pnl(symbols, start, end)
 
     # 요일별 평균손익: 기간 내 해당 요일이 등장한 횟수로 나눈다 (0=월 ... 6=일, date.weekday()와 동일).
     from datetime import datetime as _dt
@@ -710,9 +700,7 @@ def get_pnl_stats():
     start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
     end   = today.strftime("%Y-%m-%d")
 
-    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
-    rounds = get_pnl_rounds(symbols, start, end, limit=100000,
-                             fee_rate=fee_rate, point_rate=point_rate)
+    rounds = get_pnl_rounds(symbols, start, end, limit=100000)
 
     def _calc(rows: list[dict], period_days: int) -> dict:
         pnls = [float(r["pnl"]) for r in rows if r.get("pnl") is not None]
@@ -998,9 +986,7 @@ def get_trade_pnl():
     if sym == "ALL":
         sym = None
 
-    fee_rate, point_rate = _fee_point_rates(current_app.config.get("CFG", {}))
-    rows = get_pnl_rounds(symbols, start, end, symbol_filter=sym, limit=100000,
-                           fee_rate=fee_rate, point_rate=point_rate)
+    rows = get_pnl_rounds(symbols, start, end, symbol_filter=sym, limit=100000)
     rounds = []
     for r in rows:
         rounds.append({
@@ -1015,6 +1001,7 @@ def get_trade_pnl():
             "buy_is_virtual": bool(r.get("buy_is_virtual")),
             "pnl":         r.get("pnl"),
             "fee":         r.get("fee"),
+            "points":      r.get("points"),
             "filled_at":   r.get("filled_at", ""),
         })
     return jsonify({"rounds": rounds, "start": start, "end": end})
@@ -1404,6 +1391,11 @@ def save_settings():
             with open(yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(raw, f, allow_unicode=True,
                           default_flow_style=False, sort_keys=False)
+
+            # 멤버십 등급 변경 이력 기록 — 손익 재계산 시 과거 등급을 소급 적용하지 않기 위함
+            if body.get("membership") is not None:
+                from database.membership_repo import record_membership_change
+                record_membership_change(cfg["exchange"]["membership"])
 
             yaml_labels = {
                 "order_timeout":            ("미체결 자동취소",      lambda v: f"{v}초"),
