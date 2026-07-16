@@ -120,6 +120,12 @@ body {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.cs-page-disclaimer {
+  margin: 0;
+  padding: 6px 16px 0;
+  font-size: 12px;
+  color: var(--cs-muted);
+}
 .cs-logo-img {
   height: 24px;
   width: auto;
