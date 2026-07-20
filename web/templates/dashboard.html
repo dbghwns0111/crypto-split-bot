@@ -334,6 +334,34 @@
       </div>
     </div>
 
+    <!-- 전일/전주 대비 비교 -->
+    <div class="cs-compare-row" id="assets-compare-row">
+      <div class="cs-compare-item">
+        <span class="cs-compare-label">전일 대비</span>
+        <span class="cs-compare-diff" id="assets-cmp-today-diff">-</span>
+      </div>
+      <div class="cs-compare-item">
+        <span class="cs-compare-label">전주 대비</span>
+        <span class="cs-compare-diff" id="assets-cmp-week-diff">-</span>
+      </div>
+    </div>
+
+    <!-- 보유자산 변동 추이 -->
+    <div class="cs-chart-box">
+      <div class="cs-chart-title-row">
+        <div class="cs-chart-title">보유자산 변동 추이</div>
+        <select class="cs-sort-select" id="assets-history-period">
+          <option value="7">최근 7일</option>
+          <option value="30" selected>최근 30일</option>
+          <option value="90">최근 90일</option>
+          <option value="0">전체</option>
+        </select>
+      </div>
+      <div class="cs-chart-canvas-wrap">
+        <canvas id="assets-history-chart"></canvas>
+      </div>
+    </div>
+
     <div class="cs-asset-coin-list" id="asset-coin-list"></div>
   </div>
 

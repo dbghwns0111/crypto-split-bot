@@ -77,6 +77,15 @@ def create_tables(conn: sqlite3.Connection) -> None:
             effective_date TEXT PRIMARY KEY,   -- 이 날짜부터 해당 등급 적용
             membership     TEXT NOT NULL
         );
+
+        -- ── 일별 보유자산 스냅샷 (원금 변동 추이) ─────────────────────────
+        CREATE TABLE IF NOT EXISTS asset_snapshots (
+            date         TEXT PRIMARY KEY,     -- YYYY-MM-DD (KST)
+            total_assets REAL NOT NULL DEFAULT 0,  -- KRW + 코인 평가금액 합계
+            krw          REAL NOT NULL DEFAULT 0,
+            holdings     TEXT NOT NULL DEFAULT '{}', -- JSON {symbol: {qty, price, value}}
+            created_at   TEXT NOT NULL
+        );
     """)
     conn.commit()
 

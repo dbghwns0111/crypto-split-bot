@@ -243,6 +243,13 @@ system:
 - symbol (PK), avg_buy_price, updated_at
   (봇 매매 이력 없는 코인에 수동 평균매수가 입력용)
 
+### asset_snapshots
+- date (PK), total_assets, krw, holdings(JSON), created_at
+  (일별 보유자산 스냅샷 — 매일 23:59 자동 기록(notification/scheduler.py::
+  _job_asset_snapshot) + 스케줄러 시작 시 1회 즉시 기록. 실현손익만으로는
+  보유 코인 평가금액 등락(미실현 손익)이 반영되지 않아, 원금이 실제로 얼마나
+  늘고 줄었는지 보려면 이 총자산 추이를 봐야 함)
+
 ### login_attempts
 - ip (PK), fail_count, window_start, locked_until, updated_at
   (웹 로그인 브루트포스 방어 — 앱 재시작 후에도 잠금 상태 유지)
@@ -331,7 +338,8 @@ system:
 2. **주문체결 내역**: 기간·코인 필터(프리셋 저장 가능) + CSV 내보내기
 3. **실현손익 내역**: 차수별 실현손익, 누적 거래금액(가상 캐치업 매수는
    제외하고 집계) + CSV 내보내기
-4. **보유자산**: 빗썸 보유 전체 자산 (KRW + 코인 평가액, 수동 평균매수가 입력)
+4. **보유자산**: 빗썸 보유 전체 자산 (KRW + 코인 평가액, 수동 평균매수가 입력),
+   전일/전주 대비 + 일별 보유자산(원금) 변동 추이 차트(매일 23:59 자동 스냅샷)
 
 체결/실현손익 두 서브탭은 필터바 공유(기간 퀵버튼/코인 선택/프리셋 저장,
 삭제모드) — 기간 전체 삭제는 재인증(비밀번호 재확인) 필요.
@@ -367,6 +375,8 @@ GET  /api/pnl/weekday?days=30 → 요일별 평균손익
 GET  /api/pnl/stats?days=30   → 승률/프로핏팩터 등 성과 통계
 GET  /api/strategy            → 심볼별 전략 파라미터 + 모니터링 (홈+전략 공용)
 GET  /api/assets/exchange     → 빗썸 보유 자산 전체 현황
+GET  /api/assets/history      → 일별 보유자산(원금) 변동 추이 (days=0은 전체기간,
+                                 매일 23:59 자동 스냅샷)
 GET  /api/bot/gap?symbol=ETH  → 재시작 전 캐치업 갭 미리보기
 GET  /api/settings            → 현재 설정값 (API 키/화이트리스트 마스킹)
 GET  /api/trades/fills        → 기간별 체결 주문 내역 (is_virtual: 가상 캐치업 매수 여부)

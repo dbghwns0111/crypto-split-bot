@@ -33,6 +33,8 @@ class NotificationScheduler:
         """스케줄러를 시작한다."""
         if not self._scheduler.running:
             self._scheduler.start()
+            # 오늘 스냅샷이 없을 수 있으므로(신규 도입/재시작) 23:59까지 기다리지 않고 1회 즉시 기록
+            self._job_asset_snapshot()
             _log.info("알림 스케줄러 시작 (매 정각 현황 + 매일 00시 결산)")
 
     def stop(self) -> None:
@@ -119,6 +121,14 @@ class NotificationScheduler:
             misfire_grace_time=60,
         )
 
+        self._scheduler.add_job(
+            self._job_asset_snapshot,
+            CronTrigger(hour=23, minute=59),
+            id="asset_snapshot",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+
     # ── 잡 콜백 ───────────────────────────────────────────────────────────────
 
     def _job_hourly_status(self) -> None:
@@ -156,6 +166,26 @@ class NotificationScheduler:
                 self._notifier.send_db_backup_alert(False, f"DB 백업 오류: {exc}")
             except Exception:
                 pass
+
+    def _job_asset_snapshot(self) -> None:
+        """매일 23:59: 보유자산(KRW+코인 평가금액) 스냅샷 저장 — 원금 변동 추이 추적용."""
+        try:
+            from database.asset_repo import save_snapshot
+
+            total_krw, balances, prices = self._collect_balances()
+            holdings = {
+                sym: {
+                    "qty":   balances.get(sym, 0),
+                    "price": prices.get(sym, 0),
+                    "value": balances.get(sym, 0) * prices.get(sym, 0),
+                }
+                for sym in self._bot_manager.symbols
+            }
+            total_assets = total_krw + sum(h["value"] for h in holdings.values())
+            save_snapshot(total_assets, total_krw, holdings)
+            _log.info("보유자산 스냅샷 저장: %.0f원", total_assets)
+        except Exception as exc:
+            _log.error("보유자산 스냅샷 실패: %s", exc)
 
     def _job_watchdog(self) -> None:
         """주기적 봇 헬스 점검 — 죽은 스레드 자동 복구 + 텔레그램 알림."""

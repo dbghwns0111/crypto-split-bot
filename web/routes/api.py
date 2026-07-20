@@ -815,6 +815,38 @@ def get_exchange_assets():
     })
 
 
+@api_bp.route("/assets/history")
+def get_assets_history():
+    """보유자산 탭: 일별 보유자산(원금) 변동 추이. ?days=30 기본, days=0은 전체기간.
+
+    매일 23:59(notification/scheduler.py::_job_asset_snapshot)에 기록된 스냅샷을
+    조회한다 — 실현손익만으로는 보이지 않는 코인 평가금액 등락까지 반영된 총자산 추이.
+    """
+    from datetime import timedelta
+
+    from database.asset_repo import get_snapshot_history
+    from utils.time_utils import now_kst
+
+    try:
+        days = int(request.args.get("days", 30))
+    except (TypeError, ValueError):
+        days = 30
+
+    start = end = None
+    if days > 0:
+        days  = min(days, 3650)
+        today = now_kst().date()
+        start = (today - timedelta(days=days - 1)).strftime("%Y-%m-%d")
+        end   = today.strftime("%Y-%m-%d")
+
+    rows = get_snapshot_history(start, end)
+    return jsonify({
+        "labels":       [r["date"] for r in rows],
+        "total_assets": [round(r["total_assets"]) for r in rows],
+        "krw":          [round(r["krw"]) for r in rows],
+    })
+
+
 @api_bp.route("/strategy")
 def get_strategy():
     """전략현황 탭: 심볼별 전략 파라미터 + 모니터링 데이터."""

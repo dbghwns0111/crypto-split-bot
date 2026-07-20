@@ -18,6 +18,7 @@ const API = {
     pnlHourly:        '/api/pnl/hourly',
     pnlWeekday:       '/api/pnl/weekday',
     assets:           '/api/assets/exchange',
+    assetsHistory:    '/api/assets/history',
     manualPrice:      '/api/assets/manual-price',
     strategy:         '/api/strategy',
     investment:       '/api/investment',
@@ -83,6 +84,10 @@ let _pnlHourlyChart  = null;
 let _pnlPeriod       = 30;
 let _pnlSymbol       = '';      // '' = 전체
 let _pendingBulk     = null;    // 'start' | 'stop'
+
+let _assetsHistoryChart  = null;
+let _assetsPeriod        = 30;
+let _assetHistoryLoaded  = false;
 
 let _hourlyChartMode = 'hour';  // 'hour' | 'weekday'
 let _lastHourlyData  = null;
@@ -154,6 +159,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pnlSymbol) pnlSymbol.addEventListener('change', () => {
         _pnlSymbol = pnlSymbol.value || '';
         _fetchCumulative();
+    });
+
+    // 보유자산 변동 추이 기간 선택
+    const assetsPeriod = document.getElementById('assets-history-period');
+    if (assetsPeriod) assetsPeriod.addEventListener('change', () => {
+        const v = parseInt(assetsPeriod.value);
+        _assetsPeriod = Number.isNaN(v) ? 30 : v;   // 0 = 전체
+        _fetchAssetHistory();
     });
 
     // 시간대별/요일별 분포 토글
@@ -254,6 +267,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const filterWrap = document.getElementById('trades-filter-wrap');
         if (filterWrap) filterWrap.style.display =
             (_savedTradesTab === 'fills' || _savedTradesTab === 'pnl') ? '' : 'none';
+        if (_savedTradesTab === 'assets' && !_assetHistoryLoaded) {
+            _assetHistoryLoaded = true;
+            _fetchAssetHistory();
+        }
     }
 
     _startPolling();
@@ -764,6 +781,115 @@ function _renderAssets(data) {
             list.appendChild(card);
         }
         _updateCoinCard(coin);
+    });
+}
+
+async function _fetchAssetHistory() {
+    try {
+        const data = await _fetchJson(`${API.assetsHistory}?days=${_assetsPeriod}`);
+        _renderAssetHistory(data);
+    } catch (err) {
+        console.error('[CryptoSplit] asset history fetch error:', err);
+    }
+}
+
+function _renderAssetHistory(data) {
+    const totals = data?.total_assets || [];
+    const n = totals.length;
+
+    const todayDiffEl = document.getElementById('assets-cmp-today-diff');
+    if (todayDiffEl) {
+        if (n >= 2) {
+            const diff = totals[n - 1] - totals[n - 2];
+            todayDiffEl.textContent = `${diff >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(diff)).toLocaleString()}원`;
+            todayDiffEl.className   = `cs-compare-diff ${_colorClass(diff)}`;
+        } else {
+            todayDiffEl.textContent = '전일 데이터 없음';
+            todayDiffEl.className   = 'cs-compare-diff cs-neutral';
+        }
+    }
+
+    const weekDiffEl = document.getElementById('assets-cmp-week-diff');
+    if (weekDiffEl) {
+        if (n >= 8) {
+            const diff = totals[n - 1] - totals[n - 8];
+            weekDiffEl.textContent = `${diff >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(diff)).toLocaleString()}원`;
+            weekDiffEl.className   = `cs-compare-diff ${_colorClass(diff)}`;
+        } else {
+            weekDiffEl.textContent = '전주 데이터 없음';
+            weekDiffEl.className   = 'cs-compare-diff cs-neutral';
+        }
+    }
+
+    _renderAssetHistoryChart(data);
+}
+
+function _renderAssetHistoryChart(data) {
+    const canvas = document.getElementById('assets-history-chart');
+    if (!canvas || typeof Chart === 'undefined' || !data) return;
+
+    const css    = getComputedStyle(document.documentElement);
+    const accent = (css.getPropertyValue('--cs-accent') || '#3182F6').trim();
+    const muted  = (css.getPropertyValue('--cs-muted')  || '#6B7684').trim();
+    const border = (css.getPropertyValue('--cs-border') || '#E5E8EB').trim();
+
+    const labels = (data.labels || []).map(d => d.slice(5));  // MM-DD
+    const totals = data.total_assets || [];
+
+    if (totals.length === 0) {
+        if (_assetsHistoryChart) { _assetsHistoryChart.destroy(); _assetsHistoryChart = null; }
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = muted;
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('아직 쌓인 스냅샷이 없습니다(매일 23:59 자동 기록)', canvas.width / 2, canvas.height / 2);
+        return;
+    }
+
+    if (_assetsHistoryChart) {
+        _assetsHistoryChart.data.labels           = labels;
+        _assetsHistoryChart.data.datasets[0].data = totals;
+        _assetsHistoryChart.update();
+        return;
+    }
+
+    _assetsHistoryChart = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: '총보유자산',
+                data: totals,
+                borderColor: accent,
+                backgroundColor: `${accent}22`,
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0.25,
+                fill: true,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${Math.round(ctx.parsed.y).toLocaleString()}원`,
+                    },
+                },
+            },
+            scales: {
+                x: { ticks: { color: muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10 } },
+                     grid: { display: false } },
+                y: { ticks: { color: muted, font: { size: 10 },
+                         callback: (v) => `${(v / 10000).toFixed(0)}만` },
+                     grid: { color: border } },
+            },
+        },
     });
 }
 
@@ -1713,6 +1839,10 @@ function _initTradesPage() {
             const isListTab  = tab === 'fills' || tab === 'pnl';
             if (filterWrap) filterWrap.style.display = isListTab ? '' : 'none';
             if (leavingListTab && !isListTab && _tradesDeleteMode) _toggleDeleteMode();
+            if (tab === 'assets' && !_assetHistoryLoaded) {
+                _assetHistoryLoaded = true;
+                _fetchAssetHistory();
+            }
             _restartPolling();
         });
     });
