@@ -2459,10 +2459,14 @@ function _applyTierColor(name) {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
     const b = parseInt(hex.slice(5, 7), 16);
+    // 뱃지 글자색용 — 원색을 그대로 흰 배경 위 텍스트로 쓰면 대비가 약해(예: 오렌지/화이트
+    // 등급 회색) 65% 밝기로 낮춰 WCAG AA(4.5:1) 대비를 확보한다.
+    const tr = Math.round(r * 0.65), tg = Math.round(g * 0.65), tb = Math.round(b * 0.65);
     const root = document.documentElement;
-    root.style.setProperty('--tier-color',     hex);
-    root.style.setProperty('--tier-color-dim', `rgba(${r},${g},${b},0.12)`);
-    root.style.setProperty('--tier-color-mid', `rgba(${r},${g},${b},0.35)`);
+    root.style.setProperty('--tier-color',      hex);
+    root.style.setProperty('--tier-color-dim',  `rgba(${r},${g},${b},0.12)`);
+    root.style.setProperty('--tier-color-mid',  `rgba(${r},${g},${b},0.35)`);
+    root.style.setProperty('--tier-color-text', `rgb(${tr},${tg},${tb})`);
     const badge = document.getElementById('tier-badge-settings');
     if (badge) badge.textContent = name;
     // 모든 페이지 헤더 등급 뱃지 갱신 (탭과 무관하게 항상 일관 표시)

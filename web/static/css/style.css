@@ -13,9 +13,10 @@
   --cs-nav-h:   68px;
 
   /* 멤버십 티어 색상 (JS에서 동적으로 갱신) */
-  --tier-color:     #9E9E9E;
-  --tier-color-dim: rgba(158,158,158,0.12);
-  --tier-color-mid: rgba(158,158,158,0.35);
+  --tier-color:      #9E9E9E;
+  --tier-color-dim:  rgba(158,158,158,0.12);
+  --tier-color-mid:  rgba(158,158,158,0.35);
+  --tier-color-text: #676767;
 
   /* 카드 입체감(그림자) 스케일 — 토스 스타일의 속삭이듯 옅은 그림자 */
   --cs-shadow-sm: 0 1px 2px rgba(15,23,42,0.04), 0 4px 12px rgba(15,23,42,0.05);
@@ -1137,19 +1138,20 @@ body {
   align-items: center;
   gap: 8px;
 }
-/* 멤버십 등급 뱃지 — 헤더/설정 탭 공통. 토스 스타일: 중립 톤 필 + 티어 컬러 점 */
+/* 멤버십 등급 뱃지 — 헤더/설정 탭 공통. 티어 컬러 아웃라인 + 점으로 존재감 보강 */
 .cs-tier-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin-left: 8px;
-  padding: 3px 10px;
+  padding: 2.5px 10px;
   border-radius: 20px;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.1px;
-  color: var(--cs-muted);
-  background: var(--cs-card2);
+  color: var(--tier-color-text);
+  background: var(--cs-card);
+  border: 1.3px solid var(--tier-color);
   vertical-align: middle;
   white-space: nowrap;
 }
