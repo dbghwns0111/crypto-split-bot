@@ -64,6 +64,8 @@ class BotManager:
                     trigger_mode = pair.get("trigger_mode", "pct")
                     trigger_pct  = float(pair.get("trigger_pct", 0.5))
                     trigger_krw  = float(pair.get("trigger_krw", 0.0))
+                    trigger_pct_sell = float(pair.get("trigger_pct_sell") or 0)
+                    trigger_krw_sell = float(pair.get("trigger_krw_sell") or 0)
                     order_amount = float(pair.get("order_amount", 50000))
                     max_rounds   = int(pair.get("max_rounds", 50))
                     if not fresh and bot.is_resume:
@@ -71,6 +73,7 @@ class BotManager:
                             symbol, bot.current_round, bot.reference_price,
                             trigger_mode=trigger_mode, trigger_pct=trigger_pct,
                             trigger_krw=trigger_krw, order_amount=order_amount,
+                            trigger_pct_sell=trigger_pct_sell, trigger_krw_sell=trigger_krw_sell,
                         )
                     else:
                         start_price = bot.start_price
@@ -79,6 +82,7 @@ class BotManager:
                             trigger_mode=trigger_mode, trigger_pct=trigger_pct,
                             trigger_krw=trigger_krw, order_amount=order_amount,
                             max_rounds=max_rounds, start_price=start_price,
+                            trigger_pct_sell=trigger_pct_sell, trigger_krw_sell=trigger_krw_sell,
                         )
                 return True, f"{symbol} 봇을 시작했습니다."
             except Exception as exc:

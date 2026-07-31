@@ -9,9 +9,11 @@ pairs:
     capital: 2500000
     order_amount: 10000
     max_rounds: 50
-    trigger_pct: 0.5
+    trigger_pct: 0.5       # 매수 간격(%) — pct 모드
     trigger_mode: krw
-    trigger_krw: 15000.0
+    trigger_krw: 15000.0   # 매수 간격(원) — krw 모드
+    # trigger_pct_sell: 0.5      # 매도 전용 간격(%, 선택) — 미설정/0이면 매수와 동일
+    # trigger_krw_sell: 15000.0  # 매도 전용 간격(원, 선택) — 미설정/0이면 매수와 동일
   USDT:
     ticker: KRW-USDT
     enabled: true

@@ -897,6 +897,11 @@ def get_strategy():
         trigger_krw  = float(pair_cfg.get("trigger_krw", 10000))
         max_rounds   = int(pair_cfg.get("max_rounds", 50))
         order_amount = int(pair_cfg.get("order_amount", 50000))
+        # 매도 전용 트리거 — 미설정/0이면 매수와 동일(기존 대칭 동작 유지)
+        trigger_pct_sell_raw = float(pair_cfg.get("trigger_pct_sell") or 0)
+        trigger_krw_sell_raw = float(pair_cfg.get("trigger_krw_sell") or 0)
+        eff_sell_pct = trigger_pct_sell_raw or trigger_pct
+        eff_sell_krw = trigger_krw_sell_raw or trigger_krw
 
         ref = reference_price
         if current_round == 0:
@@ -905,18 +910,18 @@ def get_strategy():
             if base > 0:
                 buy_trig = round(base)
                 if trigger_mode == "krw":
-                    sell_trig = round(base + trigger_krw)
+                    sell_trig = round(base + eff_sell_krw)
                 else:
-                    sell_trig = round(base * (1 + trigger_pct / 100))
+                    sell_trig = round(base * (1 + eff_sell_pct / 100))
             else:
                 buy_trig = sell_trig = 0
         elif ref > 0:
             if trigger_mode == "krw":
                 buy_trig  = round(ref - trigger_krw)
-                sell_trig = round(ref + trigger_krw)
+                sell_trig = round(ref + eff_sell_krw)
             else:
                 buy_trig  = round(ref * (1 - trigger_pct / 100))
-                sell_trig = round(ref * (1 + trigger_pct / 100))
+                sell_trig = round(ref * (1 + eff_sell_pct / 100))
         else:
             buy_trig = sell_trig = 0
 
@@ -954,6 +959,8 @@ def get_strategy():
             "trigger_mode":     trigger_mode,
             "trigger_pct":      trigger_pct,
             "trigger_krw":      trigger_krw,
+            "trigger_pct_sell": trigger_pct_sell_raw,
+            "trigger_krw_sell": trigger_krw_sell_raw,
             "buy_trigger_price":  buy_trig,
             "sell_trigger_price": sell_trig,
             "circuit_breaker":  cb_on,
@@ -1059,11 +1066,13 @@ def save_strategy_settings():
 
     pair = pairs[symbol]
     allowed = {
-        "trigger_mode": str,
-        "trigger_pct":  float,
-        "trigger_krw":  float,
-        "max_rounds":   int,
-        "order_amount": int,
+        "trigger_mode":      str,
+        "trigger_pct":       float,
+        "trigger_krw":       float,
+        "trigger_pct_sell":  float,
+        "trigger_krw_sell":  float,
+        "max_rounds":        int,
+        "order_amount":      int,
     }
     old_pair = dict(pair)  # 텔레그램 알림용 — 값 변경 전 스냅샷
 
@@ -1117,9 +1126,19 @@ def save_strategy_settings():
                 _fmt_mode = lambda m: "고정금액(원)" if m == "krw" else "퍼센트(%)"
                 changes["트리거 방식"] = (_fmt_mode(old_pair.get("trigger_mode")), _fmt_mode(pair["trigger_mode"]))
             if "trigger_krw" in body:
-                changes["트리거 간격"] = (f"{int(old_pair.get('trigger_krw') or 0):,}원", f"{int(pair['trigger_krw']):,}원")
+                changes["매수 간격"] = (f"{int(old_pair.get('trigger_krw') or 0):,}원", f"{int(pair['trigger_krw']):,}원")
             if "trigger_pct" in body:
-                changes["트리거 간격"] = (f"{old_pair.get('trigger_pct', 0)}%", f"{pair['trigger_pct']}%")
+                changes["매수 간격"] = (f"{old_pair.get('trigger_pct', 0)}%", f"{pair['trigger_pct']}%")
+            if "trigger_krw_sell" in body:
+                old_v = int(old_pair.get("trigger_krw_sell") or 0)
+                new_v = int(pair["trigger_krw_sell"] or 0)
+                changes["매도 간격"] = (f"{old_v:,}원" if old_v else "매수와 동일",
+                                     f"{new_v:,}원" if new_v else "매수와 동일")
+            if "trigger_pct_sell" in body:
+                old_v = float(old_pair.get("trigger_pct_sell") or 0)
+                new_v = float(pair["trigger_pct_sell"] or 0)
+                changes["매도 간격"] = (f"{old_v}%" if old_v else "매수와 동일",
+                                     f"{new_v}%" if new_v else "매수와 동일")
             if "max_rounds" in body:
                 changes["최대 차수"] = (f"{old_pair.get('max_rounds', 0)}차", f"{pair['max_rounds']}차")
             if "order_amount" in body:
@@ -1175,6 +1194,9 @@ def get_strategy_planner():
     order_amount = _farg("order_amount")
     max_rounds   = int(_farg("max_rounds"))
     start_price  = _farg("start_price")
+    # 매도 전용 트리거 — 미입력/0이면 매수와 동일(기존 대칭 동작 유지)
+    eff_sell_krw = _farg("trigger_krw_sell") or trigger_krw
+    eff_sell_pct = _farg("trigger_pct_sell") or trigger_pct
 
     # 시작가 미입력 시 현재가로 폴백
     if start_price <= 0 and symbol:
@@ -1216,8 +1238,8 @@ def get_strategy_planner():
         )
         if buy <= 0:
             break
-        sell = (round_price(sell_order_price_krw(buy, trigger_krw)) if trigger_mode == "krw"
-                else round_price(sell_order_price(buy, trigger_pct, sell_extra)))
+        sell = (round_price(sell_order_price_krw(buy, eff_sell_krw)) if trigger_mode == "krw"
+                else round_price(sell_order_price(buy, eff_sell_pct, sell_extra)))
         qty  = calc_quantity(order_amount, buy)
         net  = calc_pnl(buy, sell, qty, fee_rate, point_rate)["net"]
         drop = (buy - start_price) / start_price * 100.0

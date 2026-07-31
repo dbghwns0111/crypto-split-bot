@@ -226,11 +226,21 @@ class MagicSplit:
         pair = self._cfg["pairs"][self._symbol]
         trigger_mode = pair.get("trigger_mode", "pct")
         if trigger_mode == "krw":
+            buy_krw = float(pair.get("trigger_krw", 10000))
             return round_price(sell_order_price_krw(self._reference_price,
-                                                    float(pair.get("trigger_krw", 10000))))
+                                                    self._sell_trigger_krw(pair, buy_krw)))
+        buy_pct = self._volatility.get_trigger_pct()
         return round_price(sell_order_price(self._reference_price,
-                                            self._volatility.get_trigger_pct(),
+                                            self._sell_trigger_pct(pair, buy_pct),
                                             self._sell_extra_pct))
+
+    def _sell_trigger_krw(self, pair: dict, buy_trigger_krw: float) -> float:
+        """매도 전용 KRW 트리거 간격 — 미설정/0이면 매수 간격과 동일(기존 대칭 동작 유지)."""
+        return float(pair.get("trigger_krw_sell") or 0) or buy_trigger_krw
+
+    def _sell_trigger_pct(self, pair: dict, buy_trigger_pct: float) -> float:
+        """매도 전용 pct 트리거 간격 — 미설정/0이면 매수의 (ATR 동적조정 포함) 값과 동일."""
+        return float(pair.get("trigger_pct_sell") or 0) or buy_trigger_pct
 
     @property
     def _current_order_amount(self) -> float:
@@ -288,17 +298,19 @@ class MagicSplit:
         trigger_mode = pair.get("trigger_mode", "pct")
         trigger_pct  = self._volatility.get_trigger_pct()
         trigger_krw  = float(pair.get("trigger_krw", 10000))
+        sell_trigger_pct = self._sell_trigger_pct(pair, trigger_pct)
+        sell_trigger_krw = self._sell_trigger_krw(pair, trigger_krw)
 
         # ── 매도 (서킷브레이커 발동 시에도 매도는 허용) ─────────────────────
         if self._pending_sell is None and self._current_round > 0:
             if trigger_mode == "krw":
                 # KRW 모드: 매도가 = 기준가 + 트리거 (그리드 정렬 유지)
-                do_sell = should_sell_krw(current_price, self._reference_price, trigger_krw)
+                do_sell = should_sell_krw(current_price, self._reference_price, sell_trigger_krw)
             else:
                 do_sell = should_sell(current_price, self._reference_price,
-                                      trigger_pct, self._sell_extra_pct)
+                                      sell_trigger_pct, self._sell_extra_pct)
             if do_sell:
-                self._place_sell(trigger_pct, trigger_mode, trigger_krw)
+                self._place_sell(sell_trigger_pct, trigger_mode, sell_trigger_krw)
 
         # ── 매수 (서킷브레이커 발동 시 중단) ─────────────────────────────────
         if not cb_active and self._pending_buy is None:

@@ -80,18 +80,27 @@
         </div>
       </div>
       <div class="cs-strat-row">
-        <span class="cs-strat-label">트리거 간격</span>
-        <div class="cs-strat-trigger-wrap">
-          <div class="cs-mode-toggle" id="strat-mode-toggle">
-            <button class="cs-mode-btn active" data-mode="pct">% 비율</button>
-            <button class="cs-mode-btn" data-mode="krw">원 단위</button>
-          </div>
-          <div class="cs-strat-input-wrap">
-            <input type="number" class="cs-strat-input" id="strat-input-trigger" step="0.1" min="0.1" max="10">
-            <span class="cs-strat-unit" id="strat-trigger-unit">%</span>
-          </div>
+        <span class="cs-strat-label">트리거 방식</span>
+        <div class="cs-mode-toggle" id="strat-mode-toggle">
+          <button class="cs-mode-btn active" data-mode="pct">% 비율</button>
+          <button class="cs-mode-btn" data-mode="krw">원 단위</button>
         </div>
       </div>
+      <div class="cs-strat-row">
+        <span class="cs-strat-label">매수 간격</span>
+        <div class="cs-strat-input-wrap">
+          <input type="number" class="cs-strat-input" id="strat-input-trigger" step="0.1" min="0.1" max="10">
+          <span class="cs-strat-unit" id="strat-trigger-unit">%</span>
+        </div>
+      </div>
+      <div class="cs-strat-row">
+        <span class="cs-strat-label">매도 간격</span>
+        <div class="cs-strat-input-wrap">
+          <input type="number" class="cs-strat-input" id="strat-input-trigger-sell" step="0.1" min="0" max="10" placeholder="매수와 동일">
+          <span class="cs-strat-unit" id="strat-trigger-sell-unit">%</span>
+        </div>
+      </div>
+      <div class="cs-settings-notice">매도 간격을 비워두면 매수 간격과 동일하게 적용됩니다.</div>
       <div class="cs-strat-row">
         <span class="cs-strat-label">최대 차수</span>
         <div class="cs-strat-input-wrap">

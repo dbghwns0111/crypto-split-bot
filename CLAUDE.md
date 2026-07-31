@@ -36,9 +36,20 @@ main.py 실행
 - krw: 현재가 ≤ 기준가 − trigger_krw 이면 매수
 
 ### 매도 조건
-- pct: 현재가 ≥ 기준가 × (1 + trigger_pct% + 0.08%) 이면 매도
-- krw: 현재가 ≥ 기준가 + trigger_krw 이면 매도
+- pct: 현재가 ≥ 기준가 × (1 + trigger_pct_sell% + 0.08%) 이면 매도
+- krw: 현재가 ≥ 기준가 + trigger_krw_sell 이면 매도
 (수수료 0.04% × 2회 반영, 반드시 수익이 나는 가격에만 매도)
+
+### 매수/매도 간격 독립 설정
+- `trigger_krw_sell`/`trigger_pct_sell`을 매수(`trigger_krw`/`trigger_pct`)와 별도로
+  설정 가능 — 예: 기준가 10,000원에서 매수간격 100원/매도간격 200원이면 매수트리거
+  9,900원, 매도트리거 10,200원
+- 두 값 모두 캐치업(재시작 시 갭 채우기)에는 영향 없음 — 캐치업은 항상 매수
+  간격만 사용(매도가 발생하지 않는 로직이므로)
+- 매도 간격 미설정/0이면 매수 간격과 동일하게 적용(기존 대칭 동작과 100%
+  호환) — pct 모드에서 매수 간격은 ATR 기반으로 동적 조정되는데
+  (`strategy/volatility.py`), 매도 간격을 비워두면 이 동적값을 그대로 따라가고
+  명시적으로 설정하면 고정값으로 동작함
 
 ### 체결 후 처리
 - 매수 체결: 차수 +1, 기준가 = 매수 체결가
@@ -58,6 +69,8 @@ main.py 실행
 ## 사용자 설정 가능 항목 (전략 탭에서 변경)
 - 트리거 모드 (pct / krw)
 - 트리거 간격 (기본: krw=15,000원 / pct=0.5%) — 가동 중에도 즉시 반영(재시작 불필요)
+- 매도 간격 (선택, 미설정 시 매수 간격과 동일) — 매수/매도를 독립적으로 설정 가능,
+  가동 중에도 즉시 반영(재시작 불필요)
 - 최대 차수 (기본값: 50차) — 가동 중에도 즉시 반영(재시작 불필요)
 - 1회 주문금액 (기본값: 10,000원) — 가동 중에도 즉시 반영(재시작 불필요)
 - 시작가 (수동 입력 가능)
@@ -175,6 +188,8 @@ pairs:
     trigger_pct: 0.5
     trigger_mode: krw       # pct | krw
     trigger_krw: 15000.0
+    trigger_pct_sell: 0.5      # 매도 전용(선택). 미설정/0이면 trigger_pct와 동일
+    trigger_krw_sell: 15000.0  # 매도 전용(선택). 미설정/0이면 trigger_krw와 동일
   USDT:
     ticker: KRW-USDT
     enabled: true
@@ -390,9 +405,11 @@ POST /api/bot/reset           → 차수/기준가만 리셋 (봇 시작 없음)
 POST /api/bot/stop_all        → 전체 봇 중지 {_reauth_password} — 재인증 필요
 POST /api/bot/start_all       → 전체 봇 재시작 {_reauth_password} — 재인증 필요
 POST /api/bot/bulk_enabled    → 종목별 전체제어 ON/OFF {symbol, enabled}
-POST /api/strategy/settings   → 전략 설정 저장. 가동 중이면 max_rounds/order_amount/
-                                 trigger는 즉시 반영, start_price는 차수 0일 때만
-                                 즉시 반영(차수>0이면 DB 예약, 메시지로 구분 안내)
+POST /api/strategy/settings   → 전략 설정 저장 (trigger_pct_sell/trigger_krw_sell로
+                                 매도 간격 독립 설정, 미설정/0이면 매수와 동일). 가동
+                                 중이면 max_rounds/order_amount/trigger는 즉시 반영,
+                                 start_price는 차수 0일 때만 즉시 반영(차수>0이면 DB
+                                 예약, 메시지로 구분 안내)
 POST /api/settings            → 시스템 설정 저장 (ip_whitelist는 IP 또는 CIDR
                                  형식 검증, 잘못된 형식이면 400 / hourly_interval_hours·
                                  time_sync_interval_hours는 1~23 범위 검증 후 스케줄러에

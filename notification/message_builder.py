@@ -5,6 +5,22 @@ _DIV = "─" * 17
 
 # ── 봇 제어 알림 ──────────────────────────────────────────────────────────────
 
+def _format_trigger_lines(
+    trigger_mode: str, trigger_pct: float, trigger_krw: float,
+    trigger_pct_sell: float = 0.0, trigger_krw_sell: float = 0.0,
+) -> list[str]:
+    """트리거 간격 표시 줄을 만든다. 매도 간격이 매수와 다르면 두 줄로 나눠 보여준다."""
+    if trigger_mode == "krw":
+        buy  = f"{int(trigger_krw):,}원"
+        sell = f"{int(trigger_krw_sell):,}원" if trigger_krw_sell else buy
+    else:
+        buy  = f"{trigger_pct}%"
+        sell = f"{trigger_pct_sell}%" if trigger_pct_sell else buy
+    if sell == buy:
+        return [f"⚡ 트리거     {buy}"]
+    return [f"⚡ 매수트리거  {buy}", f"⚡ 매도트리거  {sell}"]
+
+
 def build_bot_started(
     symbol: str,
     trigger_mode: str = "pct",
@@ -13,18 +29,20 @@ def build_bot_started(
     order_amount: float = 50000,
     max_rounds: int = 50,
     start_price: float = 0.0,
+    trigger_pct_sell: float = 0.0,
+    trigger_krw_sell: float = 0.0,
 ) -> str:
     """자동매매 첫 시작 알림 메시지."""
     total = int(order_amount * max_rounds)
-    trig  = f"{int(trigger_krw):,}원" if trigger_mode == "krw" else f"{trigger_pct}%"
     lines = [
         f"🚀 {symbol} 자동매매 시작",
         _DIV,
     ]
     if start_price > 0:
         lines.append(f"📍 시작가     {int(start_price):,}원")
+    lines += _format_trigger_lines(trigger_mode, trigger_pct, trigger_krw,
+                                    trigger_pct_sell, trigger_krw_sell)
     lines += [
-        f"⚡ 트리거     {trig}",
         f"💵 매수금액   {int(order_amount):,}원",
         f"🔢 최대차수   {max_rounds}차",
         f"💼 총투자금   {total:,}원",
@@ -40,16 +58,18 @@ def build_bot_restarted(
     trigger_pct: float = 0.5,
     trigger_krw: float = 0.0,
     order_amount: float = 50000,
+    trigger_pct_sell: float = 0.0,
+    trigger_krw_sell: float = 0.0,
 ) -> str:
     """자동매매 재시작 알림 메시지."""
     price_str = f"{int(reference_price):,}원" if reference_price > 0 else "-"
-    trig      = f"{int(trigger_krw):,}원" if trigger_mode == "krw" else f"{trigger_pct}%"
     return "\n".join([
         f"🔄 {symbol} 자동매매 재시작",
         _DIV,
         f"📌 현재차수   {current_round}차",
         f"📍 기준가     {price_str}",
-        f"⚡ 트리거     {trig}",
+        *_format_trigger_lines(trigger_mode, trigger_pct, trigger_krw,
+                                trigger_pct_sell, trigger_krw_sell),
         f"💵 매수금액   {int(order_amount):,}원",
     ])
 

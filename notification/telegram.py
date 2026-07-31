@@ -86,21 +86,25 @@ class TelegramNotifier:
         self, symbol: str,
         trigger_mode: str = "pct", trigger_pct: float = 0.5,
         trigger_krw: float = 0.0, order_amount: float = 50000,
-        max_rounds: int = 50, start_price: float = 0.0, **_: Any,
+        max_rounds: int = 50, start_price: float = 0.0,
+        trigger_pct_sell: float = 0.0, trigger_krw_sell: float = 0.0, **_: Any,
     ) -> bool:
         return self.send(build_bot_started(
             symbol, trigger_mode, trigger_pct, trigger_krw,
             order_amount, max_rounds, start_price,
+            trigger_pct_sell, trigger_krw_sell,
         ))
 
     def send_bot_restarted(
         self, symbol: str, current_round: int, reference_price: float,
         trigger_mode: str = "pct", trigger_pct: float = 0.5,
-        trigger_krw: float = 0.0, order_amount: float = 50000, **_: Any,
+        trigger_krw: float = 0.0, order_amount: float = 50000,
+        trigger_pct_sell: float = 0.0, trigger_krw_sell: float = 0.0, **_: Any,
     ) -> bool:
         return self.send(build_bot_restarted(
             symbol, current_round, reference_price,
             trigger_mode, trigger_pct, trigger_krw, order_amount,
+            trigger_pct_sell, trigger_krw_sell,
         ))
 
     def send_bot_stopped(

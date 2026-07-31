@@ -761,9 +761,6 @@ body {
 }
 .cs-mode-btn.active { background: var(--cs-accent); color: #fff; }
 
-/* 트리거 통합 행 — 토글이 입력칸 왼쪽에 위치 */
-.cs-strat-trigger-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; }
-
 /* 입력 */
 .cs-strat-input-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .cs-strat-input {

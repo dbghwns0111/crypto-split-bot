@@ -228,7 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // 전략현황: 입력값 변경 → 자동계산/테이블 갱신
-    ['strat-input-trigger', 'strat-input-rounds', 'strat-input-amount', 'strat-input-start-price'].forEach(id => {
+    ['strat-input-trigger', 'strat-input-trigger-sell', 'strat-input-rounds', 'strat-input-amount', 'strat-input-start-price'].forEach(id => {
         document.getElementById(id)?.addEventListener('input', () => {
             _stratInputsUserSet = true;
             _updateStratCalc();
@@ -1396,8 +1396,13 @@ function _renderStratSettings(s) {
 
     if (!_stratInputsUserSet) {
         const triggerVal  = mode === 'pct' ? s.trigger_pct : s.trigger_krw;
+        // 매도 간격은 "미설정"(매수와 동일 적용)과 "0"을 구분해야 하므로 raw 값이 없으면
+        // 빈 칸으로 둔다 — 여기서 매수값을 채워넣으면 그대로 저장 시 %모드의 변동성
+        // 자동조정(ATR) 추적이 멈춰버린다.
+        const sellRaw = mode === 'pct' ? (s.trigger_pct_sell || 0) : (s.trigger_krw_sell || 0);
         const startPriceVal = s.start_price || '';
         const ids = { 'strat-input-trigger': triggerVal,
+                      'strat-input-trigger-sell': sellRaw > 0 ? sellRaw : '',
                       'strat-input-rounds': s.max_rounds,
                       'strat-input-amount': s.order_amount,
                       'strat-input-start-price': startPriceVal };
@@ -1417,15 +1422,21 @@ function _renderStratSettings(s) {
 }
 
 function _applyTriggerMode(mode) {
-    const inp  = document.getElementById('strat-input-trigger');
-    const unit = document.getElementById('strat-trigger-unit');
+    const inp     = document.getElementById('strat-input-trigger');
+    const unit    = document.getElementById('strat-trigger-unit');
+    const inpSell = document.getElementById('strat-input-trigger-sell');
+    const unitSell = document.getElementById('strat-trigger-sell-unit');
     if (!inp) return;
     if (mode === 'pct') {
         inp.step = '0.1'; inp.min = '0.1'; inp.max = '10';
         if (unit) unit.textContent = '%';
+        if (inpSell) { inpSell.step = '0.1'; inpSell.min = '0'; inpSell.max = '10'; }
+        if (unitSell) unitSell.textContent = '%';
     } else {
         inp.step = '1000'; inp.min = '1'; inp.removeAttribute('max');
         if (unit) unit.textContent = '원';
+        if (inpSell) { inpSell.step = '1000'; inpSell.min = '0'; inpSell.removeAttribute('max'); }
+        if (unitSell) unitSell.textContent = '원';
     }
 }
 
@@ -1448,11 +1459,15 @@ async function _saveStratSettings() {
     if (!_stratActiveSym) return;
     const mode       = document.querySelector('#strat-mode-toggle .cs-mode-btn.active')?.dataset.mode || 'pct';
     const triggerVal = parseFloat(document.getElementById('strat-input-trigger')?.value || 0);
+    const sellVal    = parseFloat(document.getElementById('strat-input-trigger-sell')?.value || 0);
     const rounds     = parseInt(document.getElementById('strat-input-rounds')?.value || 0);
     const amount     = parseInt(document.getElementById('strat-input-amount')?.value || 0);
     const symData    = _stratData?.symbols?.find(s => s.symbol === _stratActiveSym);
     const pct        = mode === 'pct' ? triggerVal : (symData?.trigger_pct || 0);
     const krw        = mode === 'krw' ? triggerVal : (symData?.trigger_krw || 0);
+    // 매도 간격 — 비워두면 0으로 전송되어 서버에서 매수값(및 %모드는 ATR 동적조정)을 그대로 따른다
+    const pctSell    = mode === 'pct' ? sellVal : (symData?.trigger_pct_sell || 0);
+    const krwSell    = mode === 'krw' ? sellVal : (symData?.trigger_krw_sell || 0);
     const startPrice = parseFloat(document.getElementById('strat-input-start-price')?.value || 0);
 
     if (rounds <= 0 || amount <= 0) {
@@ -1464,6 +1479,7 @@ async function _saveStratSettings() {
             method: 'POST',
             body: JSON.stringify({ symbol: _stratActiveSym, trigger_mode: mode,
                                    trigger_pct: pct, trigger_krw: krw,
+                                   trigger_pct_sell: pctSell, trigger_krw_sell: krwSell,
                                    max_rounds: rounds, order_amount: amount,
                                    start_price: startPrice }),
         });
@@ -1560,6 +1576,7 @@ async function _calcAndRenderPriceTable() {
     const mode       = document.querySelector('#strat-mode-toggle .cs-mode-btn.active')?.dataset.mode || 'pct';
     const rounds     = parseInt(document.getElementById('strat-input-rounds')?.value) || 50;
     const triggerVal = parseFloat(document.getElementById('strat-input-trigger')?.value) || 0;
+    const sellVal    = parseFloat(document.getElementById('strat-input-trigger-sell')?.value) || 0;
     const amount     = parseInt(document.getElementById('strat-input-amount')?.value) || 0;
     const startPrice = parseFloat(document.getElementById('strat-input-start-price')?.value) || 0;
 
@@ -1573,6 +1590,7 @@ async function _calcAndRenderPriceTable() {
         start_price:  startPrice,
     });
     params.set(mode === 'krw' ? 'trigger_krw' : 'trigger_pct', triggerVal);
+    params.set(mode === 'krw' ? 'trigger_krw_sell' : 'trigger_pct_sell', sellVal);
 
     tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">계산 중…</td></tr>';
     try {

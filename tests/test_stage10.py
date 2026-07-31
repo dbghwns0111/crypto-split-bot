@@ -672,6 +672,39 @@ def test_strategy_settings_updates_yaml_and_memory_cfg(client_with_strategy_cfg)
     assert dumped["pairs"]["ETH"]["max_rounds"] == 80
 
 
+def test_strategy_settings_saves_independent_sell_trigger(client_with_strategy_cfg):
+    c, bm = client_with_strategy_cfg
+    existing = {"pairs": {"ETH": {"trigger_mode": "krw", "trigger_pct": 0.5,
+                                   "trigger_krw": 100.0, "max_rounds": 50,
+                                   "order_amount": 10000}}}
+    m = mock_open()
+    with patch("builtins.open", m), \
+         patch("yaml.safe_load", return_value=existing), \
+         patch("yaml.dump") as mock_dump:
+        resp = c.post("/api/strategy/settings",
+                      data=json.dumps({"symbol": "ETH", "trigger_krw": 100,
+                                       "trigger_krw_sell": 200}),
+                      content_type="application/json")
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
+    dumped = mock_dump.call_args[0][0]
+    assert dumped["pairs"]["ETH"]["trigger_krw"] == 100.0
+    assert dumped["pairs"]["ETH"]["trigger_krw_sell"] == 200.0
+
+
+def test_planner_uses_independent_sell_trigger(client):
+    """그리드 플래너: trigger_krw_sell을 넘기면 매도가만 다르게 계산되어야 한다."""
+    c, bm, ex = client
+    resp = c.get("/api/strategy/planner?symbol=ETH&trigger_mode=krw"
+                 "&trigger_krw=100&trigger_krw_sell=200"
+                 "&order_amount=10000&max_rounds=1&start_price=10000")
+    assert resp.status_code == 200
+    rows = resp.get_json()["rows"]
+    assert len(rows) == 1
+    assert rows[0]["buy_price"]  == 10000  # 1차는 시작가 그대로
+    assert rows[0]["sell_price"] == 10200  # 매도 전용 간격(200원) 적용
+
+
 def test_strategy_settings_yaml_failure_returns_500(client_with_strategy_cfg):
     c, bm = client_with_strategy_cfg
     with patch("builtins.open", side_effect=OSError("disk full")):
