@@ -37,6 +37,8 @@ const API = {
     bulkEnabled:      '/api/bot/bulk_enabled',
 };
 
+const PROJECT_START_DATE = '2026-06-01';  // 개발 시작월 — "전체" 조회 시작일
+
 const COIN_META = {
     BTC:   { name: '비트코인',  letter: 'BTC',  css: 'cs-coin-BTC'   },
     ETH:   { name: '이더리움',  letter: 'ETH',  css: 'cs-coin-ETH'   },
@@ -1829,16 +1831,28 @@ function _initTradesPage() {
         });
     }
 
-    // 퀵 날짜 버튼 클릭
-    document.querySelectorAll('.cs-chip').forEach(btn => {
-        btn.addEventListener('click', () => _applyQuickRange(btn.dataset.range));
+    // 퀵 날짜 버튼 클릭 — 이미 활성 상태인 버튼을 다시 누르면 해제(날짜 직접 입력 가능)
+    document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.classList.contains('active') && _tradesQuickRange === btn.dataset.range) {
+                _clearTradesQuickRange();
+            } else {
+                _applyQuickRange(btn.dataset.range);
+            }
+        });
     });
 
-    // 날짜 직접 변경 시 퀵 버튼 활성화 해제
+    // 월 선택기 — 선택한 달의 1일~말일로 조회 (브라우저의 x 버튼으로 지우면 잠금 해제)
+    document.getElementById('trades-month-picker')?.addEventListener('change', (e) => {
+        if (e.target.value) _applyMonthRange(e.target.value);
+        else                _clearTradesQuickRange();
+    });
+
+    // 날짜 직접 변경 시 퀵 버튼 활성화 해제 (잠금 해제 상태에서만 change 이벤트가 발생함)
     ['trades-start', 'trades-end'].forEach(id => {
         document.getElementById(id)?.addEventListener('change', () => {
             _tradesQuickRange = null;
-            document.querySelectorAll('.cs-chip').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b => b.classList.remove('active'));
         });
     });
 
@@ -1898,15 +1912,25 @@ function _initTradesPage() {
         else                               { _pnlPage   += step; _renderTradePnl();   }
     });
 
-    // 체크박스 변경 이벤트 (이벤트 위임)
+    // 체크박스 변경 / 페이지 직접 입력 (이벤트 위임)
     document.addEventListener('change', e => {
         const cb = e.target.closest('.cs-trade-check');
-        if (!cb || !_tradesDeleteMode) return;
-        const id = parseInt(cb.dataset.orderId);
-        if (cb.checked) _selectedOrderIds.add(id);
-        else _selectedOrderIds.delete(id);
-        cb.closest('tr')?.classList.toggle('cs-trade-row-selected', cb.checked);
-        _updateDeleteCount();
+        if (cb) {
+            if (!_tradesDeleteMode) return;
+            const id = parseInt(cb.dataset.orderId);
+            if (cb.checked) _selectedOrderIds.add(id);
+            else _selectedOrderIds.delete(id);
+            cb.closest('tr')?.classList.toggle('cs-trade-row-selected', cb.checked);
+            _updateDeleteCount();
+            return;
+        }
+        const pageInp = e.target.closest('.cs-page-input');
+        if (pageInp) {
+            const maxPage = parseInt(pageInp.max) || 1;
+            const page    = Math.min(Math.max(parseInt(pageInp.value) || 1, 1), maxPage);
+            if (pageInp.dataset.pager === 'fills') { _fillsPage = page; _renderTradeFills(); }
+            else                                   { _pnlPage   = page; _renderTradePnl();   }
+        }
     });
 }
 
@@ -1919,10 +1943,24 @@ async function _fetchTradesActive() {
     }
 }
 
+function _fmtDate(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// 일/주/월/전체 버튼 또는 월 선택기가 하나라도 활성화된 동안은 날짜를 직접
+// 입력할 수 없게 잠근다 — 자동 계산된 기간과 수동 편집이 뒤섞이는 걸 방지.
+function _setTradesDateLock(locked) {
+    const startEl = document.getElementById('trades-start');
+    const endEl   = document.getElementById('trades-end');
+    if (startEl) startEl.disabled = locked;
+    if (endEl)   endEl.disabled   = locked;
+    const notice = document.getElementById('trades-lock-notice');
+    if (notice) notice.style.display = locked ? '' : 'none';
+}
+
 function _applyQuickRange(range, doFetch = true) {
     const today = new Date();
-    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const todayStr = fmt(today);
+    const todayStr = _fmtDate(today);
     let start;
 
     switch (range) {
@@ -1932,20 +1970,15 @@ function _applyQuickRange(range, doFetch = true) {
         case 'week': {
             const d = new Date(today);
             d.setDate(d.getDate() - 6);
-            start = fmt(d);
+            start = _fmtDate(d);
             break;
         }
         case 'month':
             start = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-01`;
             break;
         case 'all':
-        default: {
-            // 봇 최초 체결일을 정확히 알 수 없으므로(별도 API 없음) 넉넉한
-            // 상한(10년 전)으로 잡는다 — 하드코딩된 특정 날짜보다 안전.
-            const d = new Date(today);
-            d.setFullYear(d.getFullYear() - 10);
-            start = fmt(d);
-        }
+        default:
+            start = PROJECT_START_DATE;
     }
 
     const startEl = document.getElementById('trades-start');
@@ -1956,8 +1989,41 @@ function _applyQuickRange(range, doFetch = true) {
     _tradesEnd      = todayStr;
     _tradesQuickRange = range;
 
-    document.querySelectorAll('.cs-chip').forEach(b =>
+    document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b =>
         b.classList.toggle('active', b.dataset.range === range));
+    const monthPicker = document.getElementById('trades-month-picker');
+    if (monthPicker) monthPicker.value = '';
+    _setTradesDateLock(true);
+
+    if (doFetch) _fetchTradesActive();
+}
+
+// 일/주/월/전체 버튼을 다시 눌러 해제 → 날짜를 자유롭게 직접 입력할 수 있게 한다.
+function _clearTradesQuickRange() {
+    _tradesQuickRange = null;
+    document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b => b.classList.remove('active'));
+    const monthPicker = document.getElementById('trades-month-picker');
+    if (monthPicker) monthPicker.value = '';
+    _setTradesDateLock(false);
+}
+
+// "OOOO-MM" 월 선택 → 그 달의 1일~말일로 조회 (달의 1/말일을 직접 계산해야 하는 번거로움 해소)
+function _applyMonthRange(monthStr, doFetch = true) {
+    if (!monthStr) return;
+    const [y, m] = monthStr.split('-').map(Number);
+    const start = `${monthStr}-01`;
+    const end   = _fmtDate(new Date(y, m, 0));  // 해당 월의 마지막 날
+
+    const startEl = document.getElementById('trades-start');
+    const endEl   = document.getElementById('trades-end');
+    if (startEl) startEl.value = start;
+    if (endEl)   endEl.value   = end;
+    _tradesStart      = start;
+    _tradesEnd        = end;
+    _tradesQuickRange = 'ym';
+
+    document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b => b.classList.remove('active'));
+    _setTradesDateLock(true);
 
     if (doFetch) _fetchTradesActive();
 }
@@ -1994,7 +2060,10 @@ function _saveCurrentPreset() {
     const end   = document.getElementById('trades-end')?.value   || '';
     const sym   = document.getElementById('trades-sym-select')?.value || 'all';
     const presets = _loadPresets();
-    presets.push({ name: name.trim().slice(0, 20), range: _tradesQuickRange, start, end, sym });
+    // 'ym'(월 선택기)은 재현 시점의 "이번 달"이 아니라 저장 당시 고른 특정 달의
+    // 고정 날짜이므로, range로 남기지 않고 start/end 값 그대로 커스텀 프리셋으로 저장한다.
+    const range = _tradesQuickRange === 'ym' ? null : _tradesQuickRange;
+    presets.push({ name: name.trim().slice(0, 20), range, start, end, sym });
     _savePresets(presets);
     _renderPresetChips();
     _showAlert('프리셋이 저장되었습니다.', 'success');
@@ -2015,6 +2084,7 @@ function _applyPreset(idx) {
         _tradesEnd        = p.end;
         _tradesQuickRange = null;
         document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b => b.classList.remove('active'));
+        _setTradesDateLock(false);
     }
 
     const symSel = document.getElementById('trades-sym-select');
@@ -2164,7 +2234,10 @@ function _tradePagerHtml(kind, page, total) {
     }
     return `<div class="cs-trade-pager">
         <button class="cs-btn cs-btn-secondary cs-btn-sm cs-page-btn" data-pager="${kind}" data-dir="prev" ${page <= 1 ? 'disabled' : ''}>이전</button>
-        <span class="cs-page-info">${page} / ${totalPages} 페이지 · 총 ${total.toLocaleString()}건</span>
+        <span class="cs-page-info">
+            <input type="number" class="cs-page-input" data-pager="${kind}" min="1" max="${totalPages}" value="${page}">
+            / ${totalPages} 페이지 · 총 ${total.toLocaleString()}건
+        </span>
         <button class="cs-btn cs-btn-secondary cs-btn-sm cs-page-btn" data-pager="${kind}" data-dir="next" ${page >= totalPages ? 'disabled' : ''}>다음</button>
     </div>`;
 }

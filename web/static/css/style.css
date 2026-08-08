@@ -1036,6 +1036,8 @@ body {
   color-scheme: light;
 }
 .cs-trades-date-input:focus { outline: none; border-color: var(--cs-accent); }
+.cs-trades-date-input:disabled { opacity: 0.55; cursor: not-allowed; }
+.cs-trades-month-picker { flex: 0 0 auto; width: 130px; padding: 3px 8px; }
 .cs-trades-date-sep  { color: var(--cs-muted); font-size: 14px; flex-shrink: 0; }
 .cs-trades-sym-select {
   background: var(--cs-card2);
@@ -1063,6 +1065,21 @@ body {
   color: var(--cs-muted);
   white-space: nowrap;
 }
+.cs-page-input {
+  width: 38px;
+  text-align: center;
+  background: var(--cs-card2);
+  color: var(--cs-text);
+  border: 1px solid var(--cs-border);
+  border-radius: 6px;
+  padding: 2px 4px;
+  font-size: 13px;
+  margin: 0 2px;
+  -moz-appearance: textfield;
+}
+.cs-page-input::-webkit-outer-spin-button,
+.cs-page-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.cs-page-input:focus { outline: none; border-color: var(--cs-accent); }
 .cs-pnl-positive { color: var(--cs-green); font-weight: 700; }
 .cs-pnl-negative { color: var(--cs-red);   font-weight: 700; }
 .cs-pnl-zero     { color: var(--cs-muted); }
