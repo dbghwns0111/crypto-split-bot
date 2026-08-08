@@ -1037,7 +1037,7 @@ body {
 }
 .cs-trades-date-input:focus { outline: none; border-color: var(--cs-accent); }
 .cs-trades-date-input:disabled { opacity: 0.55; cursor: not-allowed; }
-.cs-trades-month-picker { flex: 0 0 auto; width: 130px; padding: 3px 8px; }
+.cs-trades-jump-picker { flex: 0 0 auto; width: 130px; padding: 3px 8px; }
 .cs-trades-date-sep  { color: var(--cs-muted); font-size: 14px; flex-shrink: 0; }
 .cs-trades-sym-select {
   background: var(--cs-card2);

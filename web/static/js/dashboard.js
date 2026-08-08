@@ -101,6 +101,7 @@ let _tradesStart        = '';
 let _tradesEnd          = '';
 let _tradesSym          = 'all';
 let _tradesQuickRange   = 'day';
+let _tradesJumpUsed     = false;  // 보조 선택기로 기본(오늘 기준) 외 특정 날짜를 골랐는지
 let _tradesDeleteMode   = false;
 const TRADES_PRESET_KEY = 'cs-trades-presets';
 let _selectedOrderIds   = new Set();
@@ -1842,9 +1843,9 @@ function _initTradesPage() {
         });
     });
 
-    // 월 선택기 — 선택한 달의 1일~말일로 조회 (브라우저의 x 버튼으로 지우면 잠금 해제)
-    document.getElementById('trades-month-picker')?.addEventListener('change', (e) => {
-        if (e.target.value) _applyMonthRange(e.target.value);
+    // 보조 선택기 — 현재 모드(일/주/월)에 맞는 특정 날짜로 이동 (브라우저의 x 버튼으로 지우면 잠금 해제)
+    document.getElementById('trades-jump-picker')?.addEventListener('change', (e) => {
+        if (e.target.value) _applyJumpPicker(e.target.value);
         else                _clearTradesQuickRange();
     });
 
@@ -1947,8 +1948,9 @@ function _fmtDate(d) {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-// 일/주/월/전체 버튼 또는 월 선택기가 하나라도 활성화된 동안은 날짜를 직접
-// 입력할 수 없게 잠근다 — 자동 계산된 기간과 수동 편집이 뒤섞이는 걸 방지.
+// 일/주/월/전체 버튼이 활성화된 동안은 날짜를 직접 입력할 수 없게 잠근다 —
+// 자동 계산된 기간과 수동 편집이 뒤섞이는 걸 방지. 특정 날짜/주/달로 옮기고
+// 싶으면 옆의 보조 선택기(_syncJumpPicker)를 쓴다 — 모드(버튼)는 그대로 유지된다.
 function _setTradesDateLock(locked) {
     const startEl = document.getElementById('trades-start');
     const endEl   = document.getElementById('trades-end');
@@ -1956,6 +1958,24 @@ function _setTradesDateLock(locked) {
     if (endEl)   endEl.disabled   = locked;
     const notice = document.getElementById('trades-lock-notice');
     if (notice) notice.style.display = locked ? '' : 'none';
+}
+
+// 현재 활성 모드(range)에 맞춰 보조 선택기의 종류(날짜/월)와 안내문구를 맞춘다.
+// day/week는 특정 하루를 고르면 되므로 type=date, month는 type=month.
+// all은 고를 게 없으므로 숨긴다.
+function _syncJumpPicker(range) {
+    const picker = document.getElementById('trades-jump-picker');
+    if (!picker) return;
+    if (range === 'all') {
+        picker.style.display = 'none';
+        return;
+    }
+    picker.style.display = '';
+    picker.type  = (range === 'month') ? 'month' : 'date';
+    picker.title = range === 'day'   ? '조회할 날짜 선택'
+                 : range === 'week'  ? '해당 주의 아무 날짜나 선택 (월~일)'
+                 : '조회할 월 선택';
+    picker.value = '';
 }
 
 function _applyQuickRange(range, doFetch = true) {
@@ -1988,11 +2008,11 @@ function _applyQuickRange(range, doFetch = true) {
     _tradesStart    = start;
     _tradesEnd      = todayStr;
     _tradesQuickRange = range;
+    _tradesJumpUsed   = false;
 
     document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b =>
         b.classList.toggle('active', b.dataset.range === range));
-    const monthPicker = document.getElementById('trades-month-picker');
-    if (monthPicker) monthPicker.value = '';
+    _syncJumpPicker(range);
     _setTradesDateLock(true);
 
     if (doFetch) _fetchTradesActive();
@@ -2001,31 +2021,46 @@ function _applyQuickRange(range, doFetch = true) {
 // 일/주/월/전체 버튼을 다시 눌러 해제 → 날짜를 자유롭게 직접 입력할 수 있게 한다.
 function _clearTradesQuickRange() {
     _tradesQuickRange = null;
+    _tradesJumpUsed   = false;
     document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b => b.classList.remove('active'));
-    const monthPicker = document.getElementById('trades-month-picker');
-    if (monthPicker) monthPicker.value = '';
+    const picker = document.getElementById('trades-jump-picker');
+    if (picker) picker.style.display = 'none';
     _setTradesDateLock(false);
 }
 
-// "OOOO-MM" 월 선택 → 그 달의 1일~말일로 조회 (달의 1/말일을 직접 계산해야 하는 번거로움 해소)
-function _applyMonthRange(monthStr, doFetch = true) {
-    if (!monthStr) return;
-    const [y, m] = monthStr.split('-').map(Number);
-    const start = `${monthStr}-01`;
-    const end   = _fmtDate(new Date(y, m, 0));  // 해당 월의 마지막 날
+// 보조 선택기로 특정 날짜/주/달을 고르면 — 모드(일/주/월 버튼)는 그대로 둔 채
+// 그 날짜를 기준으로 한 기간만 반영한다 (예: "일" 모드에서 지난 특정 하루 조회).
+function _applyJumpPicker(value) {
+    if (!value || !_tradesQuickRange) return;
+    let start, end;
+
+    if (_tradesQuickRange === 'month') {
+        const [y, m] = value.split('-').map(Number);
+        start = `${value}-01`;
+        end   = _fmtDate(new Date(y, m, 0));  // 해당 월의 마지막 날
+    } else if (_tradesQuickRange === 'week') {
+        const d   = new Date(`${value}T00:00:00`);
+        const dow = d.getDay();  // 0=일 ... 6=토
+        const mon = new Date(d);
+        mon.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        start = _fmtDate(mon);
+        end   = _fmtDate(sun);
+    } else {  // 'day'
+        start = value;
+        end   = value;
+    }
 
     const startEl = document.getElementById('trades-start');
     const endEl   = document.getElementById('trades-end');
     if (startEl) startEl.value = start;
     if (endEl)   endEl.value   = end;
-    _tradesStart      = start;
-    _tradesEnd        = end;
-    _tradesQuickRange = 'ym';
+    _tradesStart    = start;
+    _tradesEnd      = end;
+    _tradesJumpUsed = true;
 
-    document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b => b.classList.remove('active'));
-    _setTradesDateLock(true);
-
-    if (doFetch) _fetchTradesActive();
+    _fetchTradesActive();
 }
 
 // ── 손익 필터 프리셋 (localStorage 저장) ─────────────────────────────────────
@@ -2060,9 +2095,9 @@ function _saveCurrentPreset() {
     const end   = document.getElementById('trades-end')?.value   || '';
     const sym   = document.getElementById('trades-sym-select')?.value || 'all';
     const presets = _loadPresets();
-    // 'ym'(월 선택기)은 재현 시점의 "이번 달"이 아니라 저장 당시 고른 특정 달의
-    // 고정 날짜이므로, range로 남기지 않고 start/end 값 그대로 커스텀 프리셋으로 저장한다.
-    const range = _tradesQuickRange === 'ym' ? null : _tradesQuickRange;
+    // 보조 선택기로 기본(오늘 기준) 외 특정 날짜를 골랐다면, 재현 시점 기준으로
+    // 다시 계산되는 range 대신 그때 계산된 고정 start/end를 그대로 저장한다.
+    const range = _tradesJumpUsed ? null : _tradesQuickRange;
     presets.push({ name: name.trim().slice(0, 20), range, start, end, sym });
     _savePresets(presets);
     _renderPresetChips();
@@ -2083,6 +2118,7 @@ function _applyPreset(idx) {
         _tradesStart      = p.start;
         _tradesEnd        = p.end;
         _tradesQuickRange = null;
+        _tradesJumpUsed   = false;
         document.querySelectorAll('.cs-trades-quick-row .cs-chip').forEach(b => b.classList.remove('active'));
         _setTradesDateLock(false);
     }
