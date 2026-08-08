@@ -1263,6 +1263,19 @@ body {
   gap: 8px;
   margin-top: 12px;
 }
+.cs-membership-history:not(:empty) {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--cs-border);
+}
+.cs-membership-history-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.cs-membership-history-month { color: var(--cs-muted); }
+.cs-membership-history-tier  { font-weight: 600; }
 
 /* ── 갭 채우기 모달 ─────────────────────────────────────────────────────────── */
 .cs-gap-summary {

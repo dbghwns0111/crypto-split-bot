@@ -1338,6 +1338,25 @@ def get_settings():
     })
 
 
+@api_bp.route("/settings/membership-history")
+def get_membership_history():
+    """설정 탭: 멤버십 등급 변경 이력(월 단위) — 손익 재계산에 실제로 쓰이는 값 그대로 노출."""
+    from database.membership_repo import SENTINEL_DATE, get_history
+
+    rows = get_history()
+    return jsonify({
+        "history": [
+            {
+                "effective_month": r["effective_date"][:7],
+                "membership":      r["membership"],
+                # 이력 기록 이전(이 기능 도입 이전) 과거 전체에 적용되는 기본값 표시라 실제 월이 아님
+                "is_default":      r["effective_date"] == SENTINEL_DATE,
+            }
+            for r in rows
+        ],
+    })
+
+
 @api_bp.route("/settings", methods=["POST"])
 def save_settings():
     """설정 탭: 설정값 저장. .env 항목은 파일 반영 + 앱 재시작 안내."""

@@ -2521,6 +2521,7 @@ function _exportTradesCsv() {
 // ── 설정 페이지 ───────────────────────────────────────────────────────────────
 
 let _settingsLoaded = false;
+let _membershipHistoryLoaded = false;
 
 function _initSettingsPage() {
     // 비밀번호 표시/숨기기 토글 (이벤트 위임)
@@ -2577,6 +2578,8 @@ function _initSettingsPage() {
             await _saveSettings({ membership });
             _applyTierColor(membership);
             _settingsLoaded = false;  // 다음 탭 진입 시 재로드
+            _membershipHistoryLoaded = false;
+            _fetchMembershipHistory();
         });
 }
 
@@ -2662,6 +2665,32 @@ async function _fetchSettings() {
 
         _settingsLoaded = true;
     } catch { _showAlert('설정을 불러오지 못했습니다.', 'danger'); }
+
+    _fetchMembershipHistory();
+}
+
+async function _fetchMembershipHistory() {
+    if (_membershipHistoryLoaded) return;
+    const list = document.getElementById('membership-history-list');
+    if (!list) return;
+    try {
+        const data = await _fetchJson('/api/settings/membership-history');
+        const rows = data.history || [];
+        list.innerHTML = rows.length === 0 ? '' : rows.map(r => {
+            let label;
+            if (r.is_default) {
+                label = '이력 기록 전 기본값';
+            } else {
+                const [y, m] = r.effective_month.split('-');
+                label = `${y}년 ${parseInt(m)}월~`;
+            }
+            return `<div class="cs-membership-history-row">
+                <span class="cs-membership-history-month">${label}</span>
+                <span class="cs-membership-history-tier">${r.membership}</span>
+            </div>`;
+        }).join('');
+        _membershipHistoryLoaded = true;
+    } catch { /* 조용히 실패 — 부가 정보이므로 알림 없음 */ }
 }
 
 function _setPlaceholder(id, val, fallback) {

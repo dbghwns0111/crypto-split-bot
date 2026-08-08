@@ -15,7 +15,7 @@ from typing import Optional
 
 from database.connection import get_connection
 
-_SENTINEL_DATE = "2000-01-01"  # 이력 기록 이전 과거 전체에 적용되는 기준일
+SENTINEL_DATE = "2000-01-01"  # 이력 기록 이전 과거 전체에 적용되는 기준일
 
 
 def _conn() -> sqlite3.Connection:
@@ -29,7 +29,7 @@ def seed_membership_history(membership: str) -> None:
         return
     _conn().execute(
         "INSERT INTO membership_history (effective_date, membership) VALUES (?, ?)",
-        (_SENTINEL_DATE, membership),
+        (SENTINEL_DATE, membership),
     )
     _conn().commit()
 
@@ -56,6 +56,14 @@ def record_membership_change(membership: str, effective_month: Optional[str] = N
         (d, membership),
     )
     _conn().commit()
+
+
+def get_history() -> list[dict]:
+    """전체 등급 변경 이력을 최신순으로 반환한다. 설정 탭 이력 목록 표시용."""
+    rows = _conn().execute(
+        "SELECT effective_date, membership FROM membership_history ORDER BY effective_date DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_membership_at(date_str: str, default: str = "화이트") -> str:
