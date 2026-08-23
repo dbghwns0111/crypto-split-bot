@@ -59,7 +59,8 @@ logging:
 report:
   hour: 0
   minute: 0
-  hourly_interval_hours: 1      # 정각 현황 알림 발송 간격 (시간, 1=매시간 정각)
+  hourly_interval_hours: 1      # 정각 현황 알림 발송 간격 (시간, 1=매시간 정각, 0시는 항상 제외)
+  hourly_enabled: true          # 정각 현황 알림 사용 여부 (false로 끄면 알림 자체를 안 보냄)
 system:
   time_sync_interval_hours: 6   # Windows 시계 동기화 간격 (시간) — 설정 탭에서 변경 가능
   db_backup_interval_hours: 6   # DB 자동 백업 주기 (시간)

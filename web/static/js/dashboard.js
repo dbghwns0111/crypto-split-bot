@@ -2564,6 +2564,7 @@ function _initSettingsPage() {
 
     document.getElementById('settings-system-save')
         ?.addEventListener('click', () => _saveSettings({
+            hourly_enabled:           document.getElementById('settings-hourly-enabled')?.checked,
             hourly_interval_hours:    document.getElementById('settings-hourly-interval')?.value,
             time_sync_interval_hours: document.getElementById('settings-timesync-interval')?.value,
         }));
@@ -2645,6 +2646,8 @@ async function _fetchSettings() {
         _setNumVal('settings-report-minute', data.report?.minute);
         _setNumVal('settings-hourly-interval',   data.report?.hourly_interval_hours);
         _setNumVal('settings-timesync-interval', data.system?.time_sync_interval_hours);
+        const hourlyEnabledEl = document.getElementById('settings-hourly-enabled');
+        if (hourlyEnabledEl) hourlyEnabledEl.checked = data.report?.hourly_enabled !== false;
 
         const memEl = document.getElementById('settings-membership');
         if (memEl && data.exchange?.membership) {

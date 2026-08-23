@@ -230,7 +230,8 @@ logging:
 report:
   hour: 0
   minute: 0
-  hourly_interval_hours: 1  # 정각 현황 알림 간격(시간) — 설정 탭에서 즉시 반영(재시작 불필요)
+  hourly_interval_hours: 1  # 정각 현황 알림 간격(시간, 0시는 항상 제외) — 설정 탭에서 즉시 반영(재시작 불필요)
+  hourly_enabled: true      # 정각 현황 알림 사용 여부 — 설정 탭 토글로 즉시 반영(재시작 불필요)
 
 system:
   time_sync_interval_hours: 6  # 설정 탭에서 즉시 반영(재시작 불필요)
@@ -295,7 +296,8 @@ system:
 - DB 백업 실패 경고 (성공은 무알림)
 - 시간 동기화 결과
 
-- 정각 가동 현황 리포트 (running 봇만 표시, 기본 매시간 — 설정 탭에서 간격(시간) 조정 가능)
+- 정각 가동 현황 리포트 (running 봇만 표시, 기본 매시간(0시 제외) — 설정 탭에서
+  간격(시간) 조정 및 사용 여부(토글) 설정 가능)
 - 일일 결산 리포트 (00:00, 전날 기준)
 
 ## 텔레그램 명령어
@@ -362,8 +364,11 @@ system:
 ### 설정 탭
 - 접근 보안 (접속 비밀번호, IP 화이트리스트 — 단일 IP 또는 CIDR 표기 지원)
 - API 키 / 텔레그램 설정 / 미체결 취소 시간 / 결산 시각
-- 정각 현황 알림 간격 / 시계 동기화 간격 (시간 단위, 1~23 — 저장 즉시 반영,
-  재시작 불필요)
+- 정각 현황 알림 사용 여부(토글) / 간격 / 시계 동기화 간격 (시간 단위, 1~23 —
+  저장 즉시 반영, 재시작 불필요). 알림은 봇 가동 여부와 무관하게 항상 이
+  간격대로 발송되므로, 전 종목이 매도 완료 등으로 매매가 멈춰 있을 때
+  알림만 끄고 싶으면 이 토글 사용. 간격에 무관하게 00시 정각은 항상
+  제외됨(00시 결산 리포트와 중복 방지)
 - 텔레그램 테스트 메시지 발송
 
 ## REST API (/api/...)
@@ -413,7 +418,9 @@ POST /api/strategy/settings   → 전략 설정 저장 (trigger_pct_sell/trigger
 POST /api/settings            → 시스템 설정 저장 (ip_whitelist는 IP 또는 CIDR
                                  형식 검증, 잘못된 형식이면 400 / hourly_interval_hours·
                                  time_sync_interval_hours는 1~23 범위 검증 후 스케줄러에
-                                 즉시 반영, 재시작 불필요)
+                                 즉시 반영, 재시작 불필요 / hourly_enabled로 정각 현황
+                                 알림 자체를 켜고 끌 수 있음, 스케줄러 pause_job/
+                                 resume_job으로 즉시 반영)
 POST /api/settings/telegram/test → 텔레그램 테스트 메시지
 POST /api/assets/manual-price → 수동 평균매수가 저장
 

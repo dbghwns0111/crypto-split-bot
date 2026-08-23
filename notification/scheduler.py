@@ -11,6 +11,15 @@ from utils.time_utils import now_kst, today_kst_str
 _log = get_logger("notification.scheduler")
 
 
+def _hourly_status_hours(interval_hours: int) -> str:
+    """0시를 제외한 N시간 간격 정각 목록을 콤마 문자열로 반환한다(예: 4 → '4,8,12,16,20').
+
+    00시 정각 현황은 같은 시각에 오는 00시 결산 리포트와 중복돼 굳이 따로 필요 없다.
+    """
+    hours = [h for h in range(0, 24, interval_hours) if h != 0]
+    return ",".join(str(h) for h in hours)
+
+
 class NotificationScheduler:
     """봇 가동 여부와 무관하게 항상 동작하는 정기 알림 스케줄러."""
 
@@ -53,9 +62,21 @@ class NotificationScheduler:
         """정각 현황 알림 발송 간격을 재설정한다 (봇 재시작 불필요)."""
         interval_hours = max(1, min(23, int(interval_hours)))
         self._scheduler.reschedule_job(
-            "hourly_status", trigger=CronTrigger(hour=f"*/{interval_hours}", minute=0)
+            "hourly_status", trigger=CronTrigger(hour=_hourly_status_hours(interval_hours), minute=0)
         )
+        # reschedule_job은 next_run_time을 새로 계산해 넣으면서 일시정지 상태를 풀어버리므로,
+        # 알림이 꺼져 있었다면(hourly_enabled=false) 다시 일시정지 상태로 되돌린다.
+        if not self._cfg.get("report", {}).get("hourly_enabled", True):
+            self._scheduler.pause_job("hourly_status")
         _log.info("정각 현황 알림 간격 변경: %d시간", interval_hours)
+
+    def set_hourly_status_enabled(self, enabled: bool) -> None:
+        """정각 현황 알림 사용 여부를 즉시 반영한다 (봇 재시작 불필요)."""
+        if enabled:
+            self._scheduler.resume_job("hourly_status")
+        else:
+            self._scheduler.pause_job("hourly_status")
+        _log.info("정각 현황 알림 %s", "사용" if enabled else "중지")
 
     def reschedule_time_sync(self, interval_hours: int) -> None:
         """Windows 시계 동기화 간격을 재설정한다 (봇 재시작 불필요)."""
@@ -72,14 +93,16 @@ class NotificationScheduler:
         r_hour   = int(report.get("hour",   0))
         r_minute = int(report.get("minute", 0))
 
-        hourly_interval = int(report.get("hourly_interval_hours", 1))
+        hourly_interval = max(1, min(23, int(report.get("hourly_interval_hours", 1))))
         self._scheduler.add_job(
             self._job_hourly_status,
-            CronTrigger(hour=f"*/{hourly_interval}", minute=0),
+            CronTrigger(hour=_hourly_status_hours(hourly_interval), minute=0),
             id="hourly_status",
             replace_existing=True,
             misfire_grace_time=300,  # 최대 5분까지 지연 허용
         )
+        if not report.get("hourly_enabled", True):
+            self._scheduler.pause_job("hourly_status")
         self._scheduler.add_job(
             self._job_daily_report,
             CronTrigger(hour=r_hour, minute=r_minute),

@@ -1331,6 +1331,7 @@ def get_settings():
             "hour":                  cfg.get("report", {}).get("hour", 0),
             "minute":                cfg.get("report", {}).get("minute", 0),
             "hourly_interval_hours": cfg.get("report", {}).get("hourly_interval_hours", 1),
+            "hourly_enabled":        bool(cfg.get("report", {}).get("hourly_enabled", True)),
         },
         "system": {
             "time_sync_interval_hours": cfg.get("system", {}).get("time_sync_interval_hours", 6),
@@ -1424,13 +1425,14 @@ def save_settings():
 
     # ── settings.yaml 항목 ────────────────────────────────────────────────────
     yaml_fields = {
-        "order_timeout":            ("strategy", "order_timeout",            int, 300),
-        "price_poll_interval":      ("strategy", "price_poll_interval",      int, 1),
-        "report_hour":              ("report",   "hour",                     int, 0),
-        "report_minute":            ("report",   "minute",                   int, 0),
-        "hourly_interval_hours":    ("report",   "hourly_interval_hours",    int, 1),
-        "time_sync_interval_hours": ("system",   "time_sync_interval_hours", int, 6),
-        "membership":               ("exchange", "membership",               str, "화이트"),
+        "order_timeout":            ("strategy", "order_timeout",            int,  300),
+        "price_poll_interval":      ("strategy", "price_poll_interval",      int,  1),
+        "report_hour":              ("report",   "hour",                     int,  0),
+        "report_minute":            ("report",   "minute",                   int,  0),
+        "hourly_interval_hours":    ("report",   "hourly_interval_hours",    int,  1),
+        "hourly_enabled":           ("report",   "hourly_enabled",           bool, True),
+        "time_sync_interval_hours": ("system",   "time_sync_interval_hours", int,  6),
+        "membership":               ("exchange", "membership",               str,  "화이트"),
     }
     # 텔레그램 알림용 — yaml 값 변경 전 스냅샷(민감정보 아님, before→after 그대로 표시)
     old_yaml_vals = {
@@ -1476,6 +1478,7 @@ def save_settings():
                 "report_hour":              ("결산 시각(시)",         lambda v: f"{int(v):02d}시"),
                 "report_minute":            ("결산 시각(분)",         lambda v: f"{int(v):02d}분"),
                 "hourly_interval_hours":    ("정각 현황 알림 간격",   lambda v: f"{v}시간"),
+                "hourly_enabled":           ("정각 현황 알림",        lambda v: "사용" if v else "중지"),
                 "time_sync_interval_hours": ("시계 동기화 간격",      lambda v: f"{v}시간"),
                 "membership":               ("멤버십 등급",           lambda v: f"{v}"),
             }
@@ -1493,6 +1496,8 @@ def save_settings():
             try:
                 if body.get("hourly_interval_hours") is not None:
                     sched.reschedule_hourly_status(cfg["report"]["hourly_interval_hours"])
+                if body.get("hourly_enabled") is not None:
+                    sched.set_hourly_status_enabled(cfg["report"]["hourly_enabled"])
                 if body.get("time_sync_interval_hours") is not None:
                     sched.reschedule_time_sync(cfg["system"]["time_sync_interval_hours"])
             except Exception as exc:

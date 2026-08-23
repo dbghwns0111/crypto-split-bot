@@ -552,13 +552,20 @@
     <div class="cs-settings-title">알림 · 시스템 주기</div>
     <div class="cs-settings-card">
       <div class="cs-settings-row">
+        <span class="cs-settings-label">정각 현황 알림</span>
+        <label class="cs-switch" title="끄면 봇 가동 여부와 무관하게 정각 현황 알림을 보내지 않습니다">
+          <input type="checkbox" id="settings-hourly-enabled" checked>
+          <span class="cs-switch-slider"></span>
+        </label>
+      </div>
+      <div class="cs-settings-row">
         <span class="cs-settings-label">정각 현황 알림 간격</span>
         <div class="cs-settings-input-wrap cs-settings-unit-wrap">
           <input type="number" class="cs-settings-input cs-settings-input-sm" id="settings-hourly-interval" min="1" max="23" step="1">
           <span class="cs-settings-unit">시간</span>
         </div>
       </div>
-      <div class="cs-settings-notice">예: 1 = 매시간 정각마다, 3 = 0·3·6·9…시 정각마다 전송 (재시작 불필요)</div>
+      <div class="cs-settings-notice">예: 1 = 매시간(0시 제외) 정각마다, 3 = 3·6·9…시 정각마다 전송 (재시작 불필요)</div>
       <div class="cs-settings-row">
         <span class="cs-settings-label">시계 동기화 간격</span>
         <div class="cs-settings-input-wrap cs-settings-unit-wrap">
