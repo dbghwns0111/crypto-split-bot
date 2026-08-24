@@ -13,6 +13,7 @@ import requests
 
 from notification.message_builder import (
     build_api_error,
+    build_auto_rebase,
     build_bot_restarted,
     build_bot_started,
     build_bot_stopped,
@@ -147,6 +148,11 @@ class TelegramNotifier:
         from_price: float = 0, current_price: float = 0, **_: Any
     ) -> bool:
         return self.send(build_virtual_catchup(symbol, count, gap, from_price, current_price))
+
+    def send_auto_rebase(
+        self, symbol: str, old_price: float = 0, new_price: float = 0, **_: Any
+    ) -> bool:
+        return self.send(build_auto_rebase(symbol, old_price, new_price))
 
     def send_api_error(self, symbol: str, error: str = "", **_: Any) -> bool:
         return self.send(build_api_error(symbol, error))

@@ -61,6 +61,22 @@ main.py 실행
 - `circuit_breaker_pct`% 이상 급변이 `circuit_breaker_window`초 내 발생 시 매수 자동 중단
 - 300초 후 자동 해제 (또는 봇 재시작 시 해제)
 
+### 자동 시작가 트레일링 (래칫, 선택 기능)
+- 배경: 0차(무포지션) 상태의 매수 조건은 "현재가 ≤ 시작가"뿐이라, 가격이
+  시작가 위로 올라간 채 안 내려오면 봇이 영원히 대기만 함(현물이라 숏
+  불가 — 그 상승분 자체는 취할 수 없음). 매도로 0차에 복귀할 때마다
+  기준가는 리셋되고 오래된 고정 `start_price`로 재초기화되는 구조라 급등
+  후 반복적으로 재발함
+- 심볼별 `auto_rebase_enabled: true`로 켜면(기본 false), 0차이고 현재가가
+  시작가보다 위일 때 `auto_rebase_interval_minutes`(기본 30분, 전역 설정)
+  주기마다 조건을 재확인해 **정확히 매수 간격 1칸만큼만** 시작가·기준가를
+  올림(`strategy/magic_split.py::_maybe_auto_rebase`) — 한 번에 관측된
+  고점까지 몰아서 올리지 않는 래칫 방식이라, 반짝 급등 후 바로 급락해도
+  노출되는 손해가 "경과한 주기 수 × 간격" 이하로 제한됨
+- 포지션이 없는 0차에서만 개입하므로 자금 리스크 없음, 1차 이상 진행
+  중인 그리드의 매수/매도 판단에는 전혀 영향 없음. 켜져 있어도 가동 중
+  즉시 반영(재시작 불필요), 텔레그램 알림 발송(`send_auto_rebase`)
+
 ### 캐치업 / 가상 캐치업
 - 봇 재시작 후 현재가와 시작가 사이에 갭이 있으면 캐치업 매수 실행
   - **실제 캐치업**: 갭 레벨 수만큼 실제 매수 주문 연속 실행
@@ -81,6 +97,8 @@ main.py 실행
     복귀했을 때 적용됨. 지금 바로 반영하고 싶으면 전략 탭의 **"시작가
     재조정"** 버튼(중단→저장→초기화→가상/실제 캐치업 재시작을 한 번에 진행)
     사용
+- 자동 시작가 트레일링 사용 여부 (기본값: 꺼짐) — 가동 중에도 즉시 반영
+  (재시작 불필요). 판단 주기(분)는 설정 탭에서 전역으로 조정 (기본 30분)
 
 ## 기술 스택
 - 언어: Python
@@ -190,6 +208,7 @@ pairs:
     trigger_krw: 15000.0
     trigger_pct_sell: 0.5      # 매도 전용(선택). 미설정/0이면 trigger_pct와 동일
     trigger_krw_sell: 15000.0  # 매도 전용(선택). 미설정/0이면 trigger_krw와 동일
+    auto_rebase_enabled: false # 자동 시작가 트레일링(래칫) 사용 여부, 기본 꺼짐
   USDT:
     ticker: KRW-USDT
     enabled: true
@@ -210,6 +229,7 @@ strategy:
   order_timeout: 300        # 미체결 자동취소 시간 (초)
   price_poll_interval: 1    # 현재가 조회 주기 (초)
   catchup_max: 10           # 캐치업 최대 실행 횟수
+  auto_rebase_interval_minutes: 30  # 자동 시작가 트레일링 판단 주기 (분)
 
 database:
   path: data/cryptosplit.db
@@ -288,6 +308,7 @@ system:
 - 미체결 자동취소 + 재주문 안내
 - 부분 체결 정산 (타임아웃 취소 시 부분체결 분 처리 결과)
 - 캐치업 / 가상 캐치업 완료
+- 자동 시작가 트레일링(래칫) 발동 (심볼별, 변경 전→후 시작가 표시)
 - 전략 탭 설정 변경 (트리거/최대차수/주문금액/시작가, 심볼별, 변경 전→후 값 표시)
 - 설정 탭 설정 변경 (변경 전→후 값 표시. API키/텔레그램/비밀번호 등 민감정보는
   항목명만 표시하고 값은 비공개)
@@ -411,16 +432,19 @@ POST /api/bot/stop_all        → 전체 봇 중지 {_reauth_password} — 재�
 POST /api/bot/start_all       → 전체 봇 재시작 {_reauth_password} — 재인증 필요
 POST /api/bot/bulk_enabled    → 종목별 전체제어 ON/OFF {symbol, enabled}
 POST /api/strategy/settings   → 전략 설정 저장 (trigger_pct_sell/trigger_krw_sell로
-                                 매도 간격 독립 설정, 미설정/0이면 매수와 동일). 가동
-                                 중이면 max_rounds/order_amount/trigger는 즉시 반영,
-                                 start_price는 차수 0일 때만 즉시 반영(차수>0이면 DB
-                                 예약, 메시지로 구분 안내)
+                                 매도 간격 독립 설정, 미설정/0이면 매수와 동일 /
+                                 auto_rebase_enabled로 자동 시작가 트레일링 온오프).
+                                 가동 중이면 max_rounds/order_amount/trigger/
+                                 auto_rebase_enabled는 즉시 반영, start_price는
+                                 차수 0일 때만 즉시 반영(차수>0이면 DB 예약, 메시지로
+                                 구분 안내)
 POST /api/settings            → 시스템 설정 저장 (ip_whitelist는 IP 또는 CIDR
                                  형식 검증, 잘못된 형식이면 400 / hourly_interval_hours·
                                  time_sync_interval_hours는 1~23 범위 검증 후 스케줄러에
                                  즉시 반영, 재시작 불필요 / hourly_enabled로 정각 현황
                                  알림 자체를 켜고 끌 수 있음, 스케줄러 pause_job/
-                                 resume_job으로 즉시 반영)
+                                 resume_job으로 즉시 반영 / auto_rebase_interval_minutes는
+                                 5~240 범위 검증 후 즉시 반영, 재시작 불필요)
 POST /api/settings/telegram/test → 텔레그램 테스트 메시지
 POST /api/assets/manual-price → 수동 평균매수가 저장
 

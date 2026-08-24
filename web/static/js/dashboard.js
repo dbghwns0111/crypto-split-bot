@@ -238,6 +238,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (_stratTableOpen) _calcPlannerDebounced();
         });
     });
+    document.getElementById('strat-input-auto-rebase')?.addEventListener('change', () => {
+        _stratInputsUserSet = true;
+    });
 
     // 전략현황: 저장 / 테이블 토글
     document.getElementById('strat-save-btn')?.addEventListener('click', _saveStratSettings);
@@ -1413,6 +1416,8 @@ function _renderStratSettings(s) {
             const el = document.getElementById(id);
             if (el) el.value = val;
         });
+        const autoRebaseEl = document.getElementById('strat-input-auto-rebase');
+        if (autoRebaseEl) autoRebaseEl.checked = !!s.auto_rebase_enabled;
     }
 
     _updateStratCalc();
@@ -1472,6 +1477,7 @@ async function _saveStratSettings() {
     const pctSell    = mode === 'pct' ? sellVal : (symData?.trigger_pct_sell || 0);
     const krwSell    = mode === 'krw' ? sellVal : (symData?.trigger_krw_sell || 0);
     const startPrice = parseFloat(document.getElementById('strat-input-start-price')?.value || 0);
+    const autoRebase = !!document.getElementById('strat-input-auto-rebase')?.checked;
 
     if (rounds <= 0 || amount <= 0) {
         _showAlert('최대 차수와 1회 주문금액을 입력해주세요.', 'warning');
@@ -1484,7 +1490,8 @@ async function _saveStratSettings() {
                                    trigger_pct: pct, trigger_krw: krw,
                                    trigger_pct_sell: pctSell, trigger_krw_sell: krwSell,
                                    max_rounds: rounds, order_amount: amount,
-                                   start_price: startPrice }),
+                                   start_price: startPrice,
+                                   auto_rebase_enabled: autoRebase }),
         });
         const data = await resp.json();
         if (data.ok) { _stratModeUserSet = false; _stratInputsUserSet = false; }
@@ -2567,6 +2574,7 @@ function _initSettingsPage() {
             hourly_enabled:           document.getElementById('settings-hourly-enabled')?.checked,
             hourly_interval_hours:    document.getElementById('settings-hourly-interval')?.value,
             time_sync_interval_hours: document.getElementById('settings-timesync-interval')?.value,
+            auto_rebase_interval_minutes: document.getElementById('settings-auto-rebase-interval')?.value,
         }));
 
     document.getElementById('settings-security-save')
@@ -2646,6 +2654,7 @@ async function _fetchSettings() {
         _setNumVal('settings-report-minute', data.report?.minute);
         _setNumVal('settings-hourly-interval',   data.report?.hourly_interval_hours);
         _setNumVal('settings-timesync-interval', data.system?.time_sync_interval_hours);
+        _setNumVal('settings-auto-rebase-interval', data.strategy?.auto_rebase_interval_minutes);
         const hourlyEnabledEl = document.getElementById('settings-hourly-enabled');
         if (hourlyEnabledEl) hourlyEnabledEl.checked = data.report?.hourly_enabled !== false;
 

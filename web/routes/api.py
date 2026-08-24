@@ -961,6 +961,7 @@ def get_strategy():
             "trigger_krw":      trigger_krw,
             "trigger_pct_sell": trigger_pct_sell_raw,
             "trigger_krw_sell": trigger_krw_sell_raw,
+            "auto_rebase_enabled": bool(pair_cfg.get("auto_rebase_enabled", False)),
             "buy_trigger_price":  buy_trig,
             "sell_trigger_price": sell_trig,
             "circuit_breaker":  cb_on,
@@ -1073,6 +1074,7 @@ def save_strategy_settings():
         "trigger_krw_sell":  float,
         "max_rounds":        int,
         "order_amount":      int,
+        "auto_rebase_enabled": bool,
     }
     old_pair = dict(pair)  # 텔레그램 알림용 — 값 변경 전 스냅샷
 
@@ -1139,6 +1141,9 @@ def save_strategy_settings():
                 new_v = float(pair["trigger_pct_sell"] or 0)
                 changes["매도 간격"] = (f"{old_v}%" if old_v else "매수와 동일",
                                      f"{new_v}%" if new_v else "매수와 동일")
+            if "auto_rebase_enabled" in body:
+                changes["자동 시작가 트레일링"] = ("사용" if old_pair.get("auto_rebase_enabled") else "중지",
+                                            "사용" if pair["auto_rebase_enabled"] else "중지")
             if "max_rounds" in body:
                 changes["최대 차수"] = (f"{old_pair.get('max_rounds', 0)}차", f"{pair['max_rounds']}차")
             if "order_amount" in body:
@@ -1326,6 +1331,7 @@ def get_settings():
         "strategy": {
             "order_timeout":       cfg.get("strategy", {}).get("order_timeout", 300),
             "price_poll_interval": cfg.get("strategy", {}).get("price_poll_interval", 1),
+            "auto_rebase_interval_minutes": cfg.get("strategy", {}).get("auto_rebase_interval_minutes", 30),
         },
         "report": {
             "hour":                  cfg.get("report", {}).get("hour", 0),
@@ -1433,6 +1439,7 @@ def save_settings():
         "hourly_enabled":           ("report",   "hourly_enabled",           bool, True),
         "time_sync_interval_hours": ("system",   "time_sync_interval_hours", int,  6),
         "membership":               ("exchange", "membership",               str,  "화이트"),
+        "auto_rebase_interval_minutes": ("strategy", "auto_rebase_interval_minutes", int, 30),
     }
     # 텔레그램 알림용 — yaml 값 변경 전 스냅샷(민감정보 아님, before→after 그대로 표시)
     old_yaml_vals = {
@@ -1448,6 +1455,14 @@ def save_settings():
                 return jsonify({"ok": False, "message": "간격은 숫자(시간)여야 합니다."}), 400
             if not (1 <= h <= 23):
                 return jsonify({"ok": False, "message": "간격은 1~23시간 사이여야 합니다."}), 400
+
+    if body.get("auto_rebase_interval_minutes") is not None:
+        try:
+            m = int(body["auto_rebase_interval_minutes"])
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "message": "간격은 숫자(분)여야 합니다."}), 400
+        if not (5 <= m <= 240):
+            return jsonify({"ok": False, "message": "간격은 5~240분 사이여야 합니다."}), 400
 
     yaml_changed = any(body.get(k) is not None for k in yaml_fields)
     if yaml_changed:
@@ -1481,6 +1496,7 @@ def save_settings():
                 "hourly_enabled":           ("정각 현황 알림",        lambda v: "사용" if v else "중지"),
                 "time_sync_interval_hours": ("시계 동기화 간격",      lambda v: f"{v}시간"),
                 "membership":               ("멤버십 등급",           lambda v: f"{v}"),
+                "auto_rebase_interval_minutes": ("자동 시작가 트레일링 간격", lambda v: f"{v}분"),
             }
             for field in yaml_fields:
                 if body.get(field) is not None:

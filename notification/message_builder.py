@@ -207,6 +207,20 @@ def build_virtual_catchup(
     ])
 
 
+def build_auto_rebase(
+    symbol: str,
+    old_price: float,
+    new_price: float,
+) -> str:
+    """자동 시작가 트레일링(래칫) 알림 메시지."""
+    return "\n".join([
+        f"📈 {symbol} 시작가 자동 상향",
+        _DIV,
+        f"💲 시작가     {int(old_price):,}원 → {int(new_price):,}원",
+        f"ℹ️ 0차 대기 중 가격이 시작가 위로 유지되어 간격 1칸만큼 자동 조정되었습니다.",
+    ])
+
+
 def build_api_error(symbol: str, error: str) -> str:
     """API 오류 알림 메시지."""
     return "\n".join([

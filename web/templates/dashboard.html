@@ -108,6 +108,14 @@
           <span class="cs-strat-unit">차</span>
         </div>
       </div>
+      <div class="cs-strat-row">
+        <span class="cs-strat-label">자동 시작가 트레일링</span>
+        <label class="cs-switch" title="0차 대기 중 가격이 시작가 위로 유지되면, 설정 탭의 판단 주기마다 조건을 확인해 시작가를 간격 1칸씩 자동으로 올립니다">
+          <input type="checkbox" id="strat-input-auto-rebase">
+          <span class="cs-switch-slider"></span>
+        </label>
+      </div>
+      <div class="cs-settings-notice">가격이 시작가보다 오래 높게 유지될 때만 조금씩 시작가를 따라 올려, 다음 조정 때 더 유리한 가격에 재진입하도록 돕습니다. 간격/주기는 설정 탭에서 조정합니다.</div>
       <div class="cs-strat-calc">
         <div class="cs-strat-calc-row">
           <span class="cs-strat-calc-label">총 필요자금</span>
@@ -574,6 +582,14 @@
         </div>
       </div>
       <div class="cs-settings-notice">Windows 시계를 NTP로 재동기화하는 주기입니다 (재시작 불필요)</div>
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">자동 시작가 트레일링 간격</span>
+        <div class="cs-settings-input-wrap cs-settings-unit-wrap">
+          <input type="number" class="cs-settings-input cs-settings-input-sm" id="settings-auto-rebase-interval" min="5" max="240" step="1">
+          <span class="cs-settings-unit">분</span>
+        </div>
+      </div>
+      <div class="cs-settings-notice">전략 탭에서 자동 시작가 트레일링을 켠 종목에 한해, 이 주기마다 조건을 확인해 시작가를 간격 1칸씩 올립니다 (재시작 불필요)</div>
       <div class="cs-settings-actions">
         <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-system-save">저장</button>
       </div>

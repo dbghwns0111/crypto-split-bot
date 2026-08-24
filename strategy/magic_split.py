@@ -86,6 +86,8 @@ class MagicSplit:
         self._max_round_notified = False
         # 잔고 부족 알림 중복 방지 (잔고 회복 시 자동 리셋)
         self._balance_warned = False
+        # 자동 시작가 트레일링(래칫) 마지막 판단 시각
+        self._last_rebase_check = 0.0
 
         self._volatility      = VolatilityMeter(exchange, symbol, self._ticker, cfg)
         self._circuit_breaker = CircuitBreaker(symbol, cfg)
@@ -97,6 +99,7 @@ class MagicSplit:
         if self._running:
             return
         self._circuit_breaker.reset()
+        self._last_rebase_check = time.monotonic()
         self._restore_state(virtual_catchup=virtual_catchup)
         self._running = True
         upsert_state(self._symbol, reference_price=self._reference_price,
@@ -322,6 +325,9 @@ class MagicSplit:
                     # 0차: 시작가 이하 도달 시 시작가에서 즉시 매수
                     if current_price <= self._start_price:
                         self._place_buy_at_start()
+                    else:
+                        # 가격이 시작가 위로 이탈 — 옵션 활성 시 자동 시작가 트레일링(래칫) 판단
+                        self._maybe_auto_rebase(current_price, pair, trigger_pct, trigger_krw)
                 else:
                     if trigger_mode == "krw":
                         do_buy = should_buy_krw(current_price, self._reference_price, trigger_krw)
@@ -393,6 +399,43 @@ class MagicSplit:
             _log.info("시작가 매수 주문: %s 가격=%d 수량=%s", self._symbol, price, quantity)
         except Exception as exc:
             _log.error("시작가 매수 실패 (%s): %s", self._symbol, exc)
+
+    def _maybe_auto_rebase(
+        self, current_price: float, pair: dict,
+        trigger_pct: float, trigger_krw: float,
+    ) -> None:
+        """0차 상태에서 가격이 시작가 위로 계속 유지되면 시작가를 간격 1칸씩 자동 상향한다 (선택 기능).
+
+        포지션이 없는 0차에서만 동작하므로 자금 리스크는 없다. 급등을 감지한
+        즉시 반영하지 않고 주기(auto_rebase_interval_minutes)마다 조건을 다시
+        확인해 정확히 간격 1칸만 올리는 래칫 방식이라, 반짝 급등 후 급락하는
+        경우에도 노출되는 손해가 "경과한 주기 수 × 간격"으로 제한된다.
+        """
+        if not pair.get("auto_rebase_enabled", False):
+            return
+        interval_min = float(self._cfg["strategy"].get("auto_rebase_interval_minutes", 30))
+        now = time.monotonic()
+        if now - self._last_rebase_check < interval_min * 60:
+            return
+        self._last_rebase_check = now
+
+        trigger_mode = pair.get("trigger_mode", "pct")
+        if trigger_mode == "krw":
+            step = trigger_krw
+        else:
+            step = self._start_price * trigger_pct / 100
+        if step <= 0 or current_price <= self._start_price + step:
+            return
+
+        old_start = self._start_price
+        new_start = old_start + step
+        self._start_price = new_start
+        self._reference_price = new_start
+        set_start_price(self._symbol, new_start)
+        set_reference_price(self._symbol, new_start)
+        _log.info("자동 시작가 상향(래칫): %s %s → %s (현재가=%s)",
+                  self._symbol, old_start, new_start, current_price)
+        self._notify("auto_rebase", old_price=old_start, new_price=new_start)
 
     def _place_sell(self, trigger_pct: float, trigger_mode: str = "pct", trigger_krw: float = 0.0) -> None:
         current_buy = get_filled_buy_for_round(self._symbol, self._current_round)
