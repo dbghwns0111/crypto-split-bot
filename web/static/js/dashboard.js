@@ -2529,6 +2529,7 @@ function _exportTradesCsv() {
 
 let _settingsLoaded = false;
 let _membershipHistoryLoaded = false;
+let _feeRateHistoryLoaded = false;
 
 function _initSettingsPage() {
     // 비밀번호 표시/숨기기 토글 (이벤트 위임)
@@ -2589,6 +2590,16 @@ function _initSettingsPage() {
             _settingsLoaded = false;  // 다음 탭 진입 시 재로드
             _membershipHistoryLoaded = false;
             _fetchMembershipHistory();
+        });
+
+    document.getElementById('settings-fee-rate-save')
+        ?.addEventListener('click', async () => {
+            const feeRate = parseFloat(document.getElementById('settings-fee-rate')?.value);
+            if (isNaN(feeRate)) return;
+            await _saveSettings({ fee_rate: feeRate });
+            _settingsLoaded = false;
+            _feeRateHistoryLoaded = false;
+            _fetchFeeRateHistory();
         });
 }
 
@@ -2663,6 +2674,7 @@ async function _fetchSettings() {
             memEl.value = data.exchange.membership;
             _applyTierColor(data.exchange.membership);
         }
+        _setNumVal('settings-fee-rate', data.exchange?.fee_rate);
 
         // 접근 보안 상태
         const sec = data.security || {};
@@ -2679,6 +2691,25 @@ async function _fetchSettings() {
     } catch { _showAlert('설정을 불러오지 못했습니다.', 'danger'); }
 
     _fetchMembershipHistory();
+    _fetchFeeRateHistory();
+}
+
+async function _fetchFeeRateHistory() {
+    if (_feeRateHistoryLoaded) return;
+    const list = document.getElementById('fee-rate-history-list');
+    if (!list) return;
+    try {
+        const data = await _fetchJson('/api/settings/fee-rate-history');
+        const rows = data.history || [];
+        list.innerHTML = rows.length === 0 ? '' : rows.map(r => {
+            const label = r.is_default ? '이력 기록 전 기본값' : `${r.effective_date}~`;
+            return `<div class="cs-membership-history-row">
+                <span class="cs-membership-history-month">${label}</span>
+                <span class="cs-membership-history-tier">${r.fee_rate}%</span>
+            </div>`;
+        }).join('');
+        _feeRateHistoryLoaded = true;
+    } catch { /* 조용히 실패 — 부가 정보이므로 알림 없음 */ }
 }
 
 async function _fetchMembershipHistory() {

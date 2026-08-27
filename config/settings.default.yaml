@@ -1,6 +1,7 @@
 exchange:
   name: bithumb
   membership: 화이트
+  fee_rate: 0.04  # 거래 수수료율(%). 이벤트 등으로 일시 변경 시 여기서 조정 (설정 탭에서도 가능)
 pairs:
   ETH:
     ticker: KRW-ETH

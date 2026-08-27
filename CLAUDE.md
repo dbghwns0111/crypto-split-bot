@@ -38,7 +38,9 @@ main.py 실행
 ### 매도 조건
 - pct: 현재가 ≥ 기준가 × (1 + trigger_pct_sell% + 0.08%) 이면 매도
 - krw: 현재가 ≥ 기준가 + trigger_krw_sell 이면 매도
-(수수료 0.04% × 2회 반영, 반드시 수익이 나는 가격에만 매도)
+(수수료 0.04% × 2회 반영, 반드시 수익이 나는 가격에만 매도 — 이 매도 여유폭
+`sell_extra_pct`는 트리거 계산용 고정 설정값으로, 아래 손익 계산용
+`exchange.fee_rate`(실시간 조정 가능)와는 별개다)
 
 ### 매수/매도 간격 독립 설정
 - `trigger_krw_sell`/`trigger_pct_sell`을 매수(`trigger_krw`/`trigger_pct`)와 별도로
@@ -194,7 +196,8 @@ crypto-split-bot/
 ```yaml
 exchange:
   name: bithumb
-  membership: 화이트       # 화이트/일반 (수수료율에 영향)
+  membership: 화이트       # 화이트/일반 (포인트 적립률에 영향)
+  fee_rate: 0.04           # 거래 수수료율(%) — 이벤트 등으로 일시 변경 시 조정, 설정 탭에서도 가능
 
 pairs:
   ETH:
@@ -300,6 +303,15 @@ system:
   위함. 최초 실행 시 이력이 비어 있으면 그 시점의 설정값을 과거 전체
   기본값(effective_date='2000-01-01')으로 1건 자동 기록함 — 이 기능 도입
   이전 과거는 정확한 이력이 없어 최선으로 근사)
+
+### fee_rate_history
+- effective_date (PK), fee_rate
+  (거래 수수료율 변경 이력 — 빗썸 API 거래 수수료 무료 이벤트처럼 한시적으로
+  요율이 바뀌는 경우를 위함. membership_history와 동일한 소급 재계산 방지
+  목적이지만, 멤버십처럼 매월 1일 단위가 아니라 저장한(또는 지정한) 정확한
+  날짜부터 적용되도록 기록한다 — 이벤트는 월 경계와 무관하게 임의의 날짜에
+  시작/종료되기 때문. 최초 실행 시 이력이 비어 있으면 그 시점의 설정값을
+  과거 전체 기본값(effective_date='2000-01-01')으로 1건 자동 기록함)
 
 ## 텔레그램 알림 항목
 - 봇 시작 / 재시작 / 중지
@@ -444,7 +456,10 @@ POST /api/settings            → 시스템 설정 저장 (ip_whitelist는 IP �
                                  즉시 반영, 재시작 불필요 / hourly_enabled로 정각 현황
                                  알림 자체를 켜고 끌 수 있음, 스케줄러 pause_job/
                                  resume_job으로 즉시 반영 / auto_rebase_interval_minutes는
-                                 5~240 범위 검증 후 즉시 반영, 재시작 불필요)
+                                 5~240 범위 검증 후 즉시 반영, 재시작 불필요 / fee_rate는
+                                 0~1 범위 검증 후 fee_rate_history에 오늘 날짜로 기록,
+                                 과거 손익 재계산에는 소급 적용 안 됨)
+GET  /api/settings/fee-rate-history → 거래 수수료율 변경 이력 목록 (설정 탭 표시용)
 POST /api/settings/telegram/test → 텔레그램 테스트 메시지
 POST /api/assets/manual-price → 수동 평균매수가 저장
 

@@ -453,6 +453,19 @@
         <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-membership-save">저장</button>
       </div>
       <div class="cs-membership-history" id="membership-history-list"></div>
+
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">거래 수수료율</span>
+        <div class="cs-settings-input-wrap cs-settings-unit-wrap">
+          <input type="number" class="cs-settings-input cs-settings-input-sm" id="settings-fee-rate" min="0" max="1" step="0.001">
+          <span class="cs-settings-unit">%</span>
+        </div>
+      </div>
+      <div class="cs-settings-notice">빗썸 API 거래 수수료 무료 이벤트 등으로 일시 변경될 때 사용하세요. 저장한 날짜부터 적용되며, 과거 거래의 손익 기록은 그 당시 적용되던 요율로 계속 계산됩니다.</div>
+      <div class="cs-settings-actions">
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="settings-fee-rate-save">저장</button>
+      </div>
+      <div class="cs-membership-history" id="fee-rate-history-list"></div>
     </div>
   </div>
 

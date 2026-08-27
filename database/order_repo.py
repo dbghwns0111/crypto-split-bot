@@ -458,18 +458,21 @@ def _fetch_matched_rounds(
 
 
 def _round_fee_and_points(
-    buy_amount: float, sell_amount: float, filled_at: str, fee_rate: float,
+    buy_amount: float, sell_amount: float, filled_at: str,
 ) -> tuple[float, float]:
-    """차수 하나의 수수료/포인트를 매도 체결일 기준 멤버십 이력으로 계산한다.
+    """차수 하나의 수수료/포인트를 매도 체결일 기준 이력으로 계산한다.
 
-    포인트 적립률은 등급이 보통 월 단위로 바뀌므로 "현재" 설정이 아니라 매도
-    체결일 당시 적용 중이던 등급을 조회해서 써야 과거 손익이 소급 변경되지 않는다.
-    수수료율은 빗썸이 등급과 무관하게 고정이라 인자로 받은 값을 그대로 쓴다.
+    수수료율·포인트 적립률 모두 "현재" 설정이 아니라 매도 체결일 당시
+    적용 중이던 값을 조회해서 써야 과거 손익이 소급 변경되지 않는다
+    (수수료 이벤트/멤버십 등급 모두 시점에 따라 달라질 수 있음).
     """
+    from database.fee_repo import get_fee_rate_at
     from database.membership_repo import get_membership_at
     from utils.math_utils import get_point_rate
 
-    membership = get_membership_at((filled_at or "")[:10])
+    date_str   = (filled_at or "")[:10]
+    fee_rate   = get_fee_rate_at(date_str)
+    membership = get_membership_at(date_str)
     point_rate = get_point_rate(membership)
     turnover   = buy_amount + sell_amount
     return turnover * fee_rate / 100.0, turnover * point_rate / 100.0
@@ -481,7 +484,6 @@ def get_pnl_rounds(
     end: Optional[str] = None,
     symbol_filter: Optional[str] = None,
     limit: int = 200,
-    fee_rate: float = 0.04,
 ) -> list[dict]:
     """완료된 차수별 실현손익을 반환한다.
 
@@ -490,7 +492,7 @@ def get_pnl_rounds(
 
     각 행에 buy_is_virtual(가상 캐치업 매수 여부)을 포함한다 — 실제 거래대금
     집계 시 가상 매수분을 제외하기 위함(손익 계산 자체는 그대로 유지).
-    포인트 적립률은 매도 체결일 기준 멤버십 이력을 조회해 적용한다(_round_fee_and_points 참고).
+    수수료율/포인트 적립률은 매도 체결일 기준 이력을 조회해 적용한다(_round_fee_and_points 참고).
     """
     result = []
     for r in _fetch_matched_rounds(symbols, start, end, symbol_filter, limit):
@@ -499,7 +501,7 @@ def get_pnl_rounds(
         buy_p  = float(r.get("buy_price")   or 0)
         sell_p = float(r.get("sell_price")  or 0)
         qty    = float(r.get("quantity")    or 0)
-        fee, points = _round_fee_and_points(buy_a, sell_a, r.get("filled_at"), fee_rate)
+        fee, points = _round_fee_and_points(buy_a, sell_a, r.get("filled_at"))
         r["pnl"]    = round((sell_p - buy_p) * qty - fee + points, 0) if buy_p > 0 else None
         r["fee"]    = round(fee, 0)    if buy_p > 0 else None
         r["points"] = round(points, 0) if buy_p > 0 else None
@@ -508,10 +510,10 @@ def get_pnl_rounds(
     return result
 
 
-def get_hourly_pnl(symbols: list, start: str, end: str, fee_rate: float = 0.04) -> list[dict]:
+def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
     """기간 내 시간대별(0-23시) 실현손익을 반환한다. 누락 시간은 0으로 채워 24개 반환.
 
-    포인트 적립률은 get_pnl_rounds()와 동일하게 매도 체결일 기준 멤버십 이력을 쓴다.
+    수수료율/포인트 적립률 모두 get_pnl_rounds()와 동일하게 매도 체결일 기준 이력을 쓴다.
     """
     from datetime import datetime
 
@@ -529,18 +531,18 @@ def get_hourly_pnl(symbols: list, start: str, end: str, fee_rate: float = 0.04) 
         if buy_p > 0:
             sell_p, qty = float(r.get("sell_price") or 0), float(r.get("quantity") or 0)
             fee, points = _round_fee_and_points(
-                float(r.get("buy_amount") or 0), float(r.get("sell_amount") or 0), filled_at, fee_rate,
+                float(r.get("buy_amount") or 0), float(r.get("sell_amount") or 0), filled_at,
             )
             bucket["realized_pnl"] += (sell_p - buy_p) * qty - fee + points
 
     return [{**b, "realized_pnl": round(b["realized_pnl"])} for b in by_hour.values()]
 
 
-def get_weekday_pnl(symbols: list, start: str, end: str, fee_rate: float = 0.04) -> list[dict]:
+def get_weekday_pnl(symbols: list, start: str, end: str) -> list[dict]:
     """기간 내 요일별(월~일) 실현손익을 반환한다. 누락 요일은 0으로 채워 7개 반환.
 
     weekday: 0=월 ... 6=일 (datetime.weekday()와 동일한 규칙).
-    포인트 적립률은 get_pnl_rounds()와 동일하게 매도 체결일 기준 멤버십 이력을 쓴다.
+    수수료율/포인트 적립률 모두 get_pnl_rounds()와 동일하게 매도 체결일 기준 이력을 쓴다.
     """
     from datetime import datetime
 
@@ -558,7 +560,7 @@ def get_weekday_pnl(symbols: list, start: str, end: str, fee_rate: float = 0.04)
         if buy_p > 0:
             sell_p, qty = float(r.get("sell_price") or 0), float(r.get("quantity") or 0)
             fee, points = _round_fee_and_points(
-                float(r.get("buy_amount") or 0), float(r.get("sell_amount") or 0), filled_at, fee_rate,
+                float(r.get("buy_amount") or 0), float(r.get("sell_amount") or 0), filled_at,
             )
             bucket["realized_pnl"] += (sell_p - buy_p) * qty - fee + points
 

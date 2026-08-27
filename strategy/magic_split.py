@@ -67,7 +67,7 @@ class MagicSplit:
         self._order_timeout  = cfg["strategy"]["order_timeout"]
         self._sell_extra_pct = cfg["strategy"]["sell_extra_pct"]
         membership = cfg.get("exchange", {}).get("membership", "화이트")
-        self._fee_rate   = 0.04
+        self._fee_rate   = float(cfg.get("exchange", {}).get("fee_rate", 0.04))
         self._point_rate = get_point_rate(membership)
 
         # 런타임 상태

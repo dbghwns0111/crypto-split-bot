@@ -78,6 +78,12 @@ def create_tables(conn: sqlite3.Connection) -> None:
             membership     TEXT NOT NULL
         );
 
+        -- ── 거래 수수료율 변경 이력 (수수료 이벤트 등 소급 재계산 방지용) ─────
+        CREATE TABLE IF NOT EXISTS fee_rate_history (
+            effective_date TEXT PRIMARY KEY,   -- 이 날짜부터 해당 수수료율 적용
+            fee_rate       REAL NOT NULL
+        );
+
         -- ── 일별 보유자산 스냅샷 (원금 변동 추이) ─────────────────────────
         CREATE TABLE IF NOT EXISTS asset_snapshots (
             date         TEXT PRIMARY KEY,     -- YYYY-MM-DD (KST)

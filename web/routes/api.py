@@ -1228,7 +1228,7 @@ def get_strategy_planner():
     rounds      = min(max_rounds, _MAX_ROUNDS_GUARD)
     sell_extra  = float(cfg.get("strategy", {}).get("sell_extra_pct", 0.08))
     membership  = cfg.get("exchange", {}).get("membership", "화이트")
-    fee_rate    = 0.04
+    fee_rate    = float(cfg.get("exchange", {}).get("fee_rate", 0.04))
     point_rate  = get_point_rate(membership)
 
     rows: list[dict] = []
@@ -1323,6 +1323,7 @@ def get_settings():
             "access_key": _mask(access_key, 4),
             "secret_key": "****" if secret_key else "",
             "membership": membership,
+            "fee_rate":   float(cfg.get("exchange", {}).get("fee_rate", 0.04)),
         },
         "telegram": {
             "bot_token": _mask(bot_token, 6),
@@ -1358,6 +1359,25 @@ def get_membership_history():
                 "membership":      r["membership"],
                 # 이력 기록 이전(이 기능 도입 이전) 과거 전체에 적용되는 기본값 표시라 실제 월이 아님
                 "is_default":      r["effective_date"] == SENTINEL_DATE,
+            }
+            for r in rows
+        ],
+    })
+
+
+@api_bp.route("/settings/fee-rate-history")
+def get_fee_rate_history():
+    """설정 탭: 거래 수수료율 변경 이력 — 손익 재계산에 실제로 쓰이는 값 그대로 노출."""
+    from database.fee_repo import SENTINEL_DATE, get_history
+
+    rows = get_history()
+    return jsonify({
+        "history": [
+            {
+                "effective_date": r["effective_date"],
+                "fee_rate":       r["fee_rate"],
+                # 이력 기록 이전(이 기능 도입 이전) 과거 전체에 적용되는 기본값 표시라 실제 변경일이 아님
+                "is_default":     r["effective_date"] == SENTINEL_DATE,
             }
             for r in rows
         ],
@@ -1440,6 +1460,7 @@ def save_settings():
         "time_sync_interval_hours": ("system",   "time_sync_interval_hours", int,  6),
         "membership":               ("exchange", "membership",               str,  "화이트"),
         "auto_rebase_interval_minutes": ("strategy", "auto_rebase_interval_minutes", int, 30),
+        "fee_rate":                 ("exchange", "fee_rate",                 float, 0.04),
     }
     # 텔레그램 알림용 — yaml 값 변경 전 스냅샷(민감정보 아님, before→after 그대로 표시)
     old_yaml_vals = {
@@ -1464,6 +1485,14 @@ def save_settings():
         if not (5 <= m <= 240):
             return jsonify({"ok": False, "message": "간격은 5~240분 사이여야 합니다."}), 400
 
+    if body.get("fee_rate") is not None:
+        try:
+            fr = float(body["fee_rate"])
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "message": "수수료율은 숫자(%)여야 합니다."}), 400
+        if not (0 <= fr <= 1):
+            return jsonify({"ok": False, "message": "수수료율은 0~1% 사이여야 합니다."}), 400
+
     yaml_changed = any(body.get(k) is not None for k in yaml_fields)
     if yaml_changed:
         try:
@@ -1487,6 +1516,11 @@ def save_settings():
                 from database.membership_repo import record_membership_change
                 record_membership_change(cfg["exchange"]["membership"])
 
+            # 수수료율 변경 이력 기록 — 손익 재계산 시 과거 거래에 소급 적용하지 않기 위함
+            if body.get("fee_rate") is not None:
+                from database.fee_repo import record_fee_rate_change
+                record_fee_rate_change(cfg["exchange"]["fee_rate"])
+
             yaml_labels = {
                 "order_timeout":            ("미체결 자동취소",      lambda v: f"{v}초"),
                 "price_poll_interval":      ("시세 조회 간격",        lambda v: f"{v}초"),
@@ -1497,6 +1531,7 @@ def save_settings():
                 "time_sync_interval_hours": ("시계 동기화 간격",      lambda v: f"{v}시간"),
                 "membership":               ("멤버십 등급",           lambda v: f"{v}"),
                 "auto_rebase_interval_minutes": ("자동 시작가 트레일링 간격", lambda v: f"{v}분"),
+                "fee_rate":                 ("거래 수수료율",         lambda v: f"{v}%"),
             }
             for field in yaml_fields:
                 if body.get(field) is not None:
