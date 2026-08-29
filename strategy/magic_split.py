@@ -66,9 +66,6 @@ class MagicSplit:
         self._poll_interval  = cfg["strategy"]["price_poll_interval"]
         self._order_timeout  = cfg["strategy"]["order_timeout"]
         self._sell_extra_pct = cfg["strategy"]["sell_extra_pct"]
-        membership = cfg.get("exchange", {}).get("membership", "화이트")
-        self._fee_rate   = float(cfg.get("exchange", {}).get("fee_rate", 0.04))
-        self._point_rate = get_point_rate(membership)
 
         # 런타임 상태
         self._running = False
@@ -254,6 +251,23 @@ class MagicSplit:
     def _current_max_rounds(self) -> int:
         """cfg에서 현재 최대 차수를 동적으로 읽는다 (런타임 변경 즉시 반영)."""
         return int(self._cfg["pairs"][self._symbol].get("max_rounds", self._max_rounds))
+
+    @property
+    def _current_fee_rate(self) -> float:
+        """cfg에서 현재 거래 수수료율을 동적으로 읽는다 (설정 탭 변경 즉시 반영).
+
+        매도 체결 시점에 매번 새로 읽어야, 설정 탭에서 수수료율을 바꿨을 때
+        재시작 없이도 실시간 알림·일일손익 기록에 바로 반영된다(반대로 __init__
+        시점에 한 번만 캐시하면, 봇 실행 중 수수료율을 바꿔도 재시작 전까지는
+        옛 값으로 계산돼 웹 대시보드의 사후 재계산 값과 어긋나 보이는 원인이 됨).
+        """
+        return float(self._cfg.get("exchange", {}).get("fee_rate", 0.04))
+
+    @property
+    def _current_point_rate(self) -> float:
+        """cfg에서 현재 멤버십 등급 기준 포인트 적립률을 동적으로 읽는다 (즉시 반영)."""
+        membership = self._cfg.get("exchange", {}).get("membership", "화이트")
+        return get_point_rate(membership)
 
     # ── 루프 ─────────────────────────────────────────────────────────────────
 
@@ -523,7 +537,7 @@ class MagicSplit:
         net_pnl   = 0.0
         if buy_order and buy_order.get("filled_price"):
             buy_price = float(buy_order["filled_price"])
-            pnl = calc_pnl(buy_price, filled_price, qty, self._fee_rate, self._point_rate)
+            pnl = calc_pnl(buy_price, filled_price, qty, self._current_fee_rate, self._current_point_rate)
             net_pnl = pnl["net"]
             add_trade_pnl(self._symbol, pnl["net"], pnl["fee"], pnl["points"])
 
@@ -712,7 +726,7 @@ class MagicSplit:
                             pnl = calc_pnl(
                                 float(latest_buy["filled_price"]),
                                 filled_price, filled_qty,
-                                self._fee_rate, self._point_rate,
+                                self._current_fee_rate, self._current_point_rate,
                             )
                             add_trade_pnl(self._symbol, pnl["net"], pnl["fee"], pnl["points"])
                         self._current_round = max(0, self._current_round - 1)

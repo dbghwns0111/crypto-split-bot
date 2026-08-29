@@ -134,10 +134,10 @@ def build_sell_filled(
         rate   = (price - buy_price) / buy_price * 100
         sign_r = "+" if rate >= 0 else ""
         icon   = "📈" if net_pnl >= 0 else "📉"
-        lines.append(f"{icon} 순수익     {sign}{int(net_pnl):,}원 ({sign_r}{rate:.2f}%)")
+        lines.append(f"{icon} 실현손익   {sign}{int(net_pnl):,}원 ({sign_r}{rate:.2f}%)")
     else:
         icon = "📈" if net_pnl >= 0 else "📉"
-        lines.append(f"{icon} 순수익     {sign}{int(net_pnl):,}원")
+        lines.append(f"{icon} 실현손익   {sign}{int(net_pnl):,}원")
     return "\n".join(lines)
 
 
@@ -355,7 +355,7 @@ def build_hourly_status(hour: int, statuses: list[dict]) -> str:
                 lines.append(f"🟠 매도대기  {sell_p:,.0f}원")
             else:
                 lines.append(f"🟠 매도대기  -")
-            lines.append(f"{pnl_icon} 일일수익   {sign}{pnl:,.0f}원  (매수 {buys} / 매도 {sells})")
+            lines.append(f"{pnl_icon} 일일손익   {sign}{pnl:,.0f}원  (매수 {buys} / 매도 {sells})")
         else:
             lines.append(f"📊 {sym}  중지됨")
 
@@ -402,14 +402,14 @@ def build_daily_report(
             f"🔄 매수/매도  {buys}/{sells}회",
             f"💸 수수료     -{fee:,.0f}원",
             f"🎁 포인트     +{points:,.0f}원 (비현금)",
-            f"{net_icon} 순수익     {sign_n}{net:,.0f}원",
+            f"{net_icon} 손익       {sign_n}{net:,.0f}원",
         ]
 
     sign_g   = "+" if grand_net >= 0 else ""
     net_icon = "📈" if grand_net >= 0 else "📉"
     lines += [
         _DIV,
-        f"{net_icon} 전체순수익  {sign_g}{grand_net:,.0f}원",
+        f"{net_icon} 총손익     {sign_g}{grand_net:,.0f}원",
         f"💵 KRW잔고   {total_krw:,.0f}원",
     ]
     for sym, bal in balances.items():

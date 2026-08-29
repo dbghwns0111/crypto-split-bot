@@ -142,7 +142,7 @@ class TelegramCommandHandler:
             "📋 CryptoSplit 명령어\n"
             "─────────────────\n"
             "📊 현황 조회\n"
-            "/status   — 차수·트리거·수익 현황\n"
+            "/status   — 차수·트리거·손익 현황\n"
             "/balance  — 잔고 + 코인 평가금액\n"
             "/pnl      — 오늘 실현손익 요약\n"
             "/report   — 오늘 결산 즉시 전송\n"
@@ -220,7 +220,7 @@ class TelegramCommandHandler:
                     counts   = get_today_trade_counts(symbol)
                     sign     = "+" if net_pnl >= 0 else ""
                     icon     = "📈" if net_pnl >= 0 else "📉"
-                    lines.append(f"{icon} 오늘수익    {sign}{int(net_pnl):,}원  (매수 {counts['buy']} / 매도 {counts['sell']})")
+                    lines.append(f"{icon} 오늘 손익   {sign}{int(net_pnl):,}원  (매수 {counts['buy']} / 매도 {counts['sell']})")
                 except Exception:
                     pass
             else:

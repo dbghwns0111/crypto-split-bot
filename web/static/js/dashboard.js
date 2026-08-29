@@ -451,7 +451,7 @@ function _renderPnlStats(data) {
     const o    = (data && data.overall) || {};
     const days = data.days || 30;
 
-    // 일평균수익
+    // 일평균손익
     const dailyPnlEl = document.getElementById('stat-daily-pnl');
     if (dailyPnlEl) {
         const a = o.daily_avg_pnl ?? 0;
@@ -613,7 +613,7 @@ function _renderDistChart() {
     const canvas = document.getElementById('pnl-hourly-chart');
     if (!canvas || typeof Chart === 'undefined' || !data) return;
 
-    _setEl('dist-chart-title', _hourlyChartMode === 'weekday' ? '요일별 평균 수익 분포' : '시간대별 평균 수익 분포');
+    _setEl('dist-chart-title', _hourlyChartMode === 'weekday' ? '요일별 평균손익 분포' : '시간대별 평균손익 분포');
 
     const css    = getComputedStyle(document.documentElement);
     const green  = (css.getPropertyValue('--cs-green')  || '#00A870').trim();
@@ -1150,7 +1150,7 @@ function _showGapModal(symbol, data, isFresh = false) {
                     <strong>🔮 가상 채우기<span class="cs-badge-rec">권장</span></strong>
                     <div class="cs-gap-mode-desc">
                         그리드 가격 기준으로 ${data.filled}개 차수 기록을 생성합니다.<br>
-                        실제 매수 없이 수량·수익 정합성을 유지합니다.<br>
+                        실제 매수 없이 수량·손익 정합성을 유지합니다.<br>
                         ⚠ 위 필요 잔고만큼 코인이 지갑에 있어야 매도가 가능합니다.
                     </div>
                 </div>
@@ -1608,7 +1608,7 @@ async function _calcAndRenderPriceTable() {
         const rows = (data && data.rows) || [];
         const sum  = (data && data.summary) || {};
 
-        // 요약: 자본 소진가 / 1회전 예상순수익
+        // 요약: 자본 소진가 / 1회전 예상손익
         _setEl('strat-calc-exhaust', sum.exhaust_price > 0
             ? `${Math.round(sum.exhaust_price).toLocaleString()}원 (${sum.exhaust_drop_pct}%)` : '-');
         const netEl = document.getElementById('strat-calc-totalnet');
@@ -1718,7 +1718,7 @@ function _makeStratMonitorCard(sym) {
         </div>
         <div id="strat-card-${sym}-orders"></div>
         <div class="cs-strat-card-footer">
-            <span class="cs-strat-pnl-label">오늘 순수익</span>
+            <span class="cs-strat-pnl-label">오늘 손익</span>
             <span class="cs-strat-pnl-val cs-neutral" id="strat-card-${sym}-pnl">-</span>
             <span class="cs-strat-trades-val" id="strat-card-${sym}-trades">-</span>
         </div>
@@ -2194,7 +2194,7 @@ function _confirmDeleteSelected() {
     if (_selectedOrderIds.size === 0) return;
     const n = _selectedOrderIds.size;
     _setEl('modalTitle', '선택 내역 삭제');
-    _setEl('modalBody',  `선택한 ${n}건의 내역을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 수익 통계에 영향을 줄 수 있습니다.`);
+    _setEl('modalBody',  `선택한 ${n}건의 내역을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 손익 통계에 영향을 줄 수 있습니다.`);
     document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
     _setReauthVisible(false);
     _pendingDeleteFn = _doDeleteSelected;
@@ -2207,7 +2207,7 @@ function _confirmDeleteRange() {
     const sym   = _tradesSym || 'all';
     const symLabel = sym === 'all' ? '전체 심볼' : sym;
     _setEl('modalTitle', '기간 전체 삭제');
-    _setEl('modalBody',  `${start} ~ ${end} 기간의 ${symLabel} 내역을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 수익 통계에 영향을 줄 수 있습니다.`);
+    _setEl('modalBody',  `${start} ~ ${end} 기간의 ${symLabel} 내역을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 손익 통계에 영향을 줄 수 있습니다.`);
     document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
     _setReauthVisible(true);
     _pendingDeleteFn = _doDeleteRange;
@@ -2384,15 +2384,15 @@ function _renderTradePnl() {
         sumEl.style.display = '';
         sumEl.innerHTML = `<div class="cs-summary-section">
             <div class="cs-summary-row">
-                <span class="cs-summary-label">기간 누적 순손익</span>
+                <span class="cs-summary-label">기간 누적 손익</span>
                 <span class="cs-summary-value ${_colorClass(periodPnl)}">${_sign(periodPnl)}${Math.round(periodPnl).toLocaleString()}원</span>
             </div>
             <div class="cs-summary-row">
-                <span class="cs-summary-label">오늘 순손익</span>
+                <span class="cs-summary-label">오늘 손익</span>
                 <span class="cs-summary-value ${_colorClass(todayPnl)}">${_sign(todayPnl)}${Math.round(todayPnl).toLocaleString()}원</span>
             </div>
             <div class="cs-summary-row">
-                <span class="cs-summary-label">시간당 평균 순손익</span>
+                <span class="cs-summary-label">시간당 평균 손익</span>
                 <span class="cs-summary-value ${_colorClass(hourlyAvg)}">${_sign(hourlyAvg)}${Math.round(hourlyAvg).toLocaleString()}원</span>
             </div>
             <div class="cs-summary-row">

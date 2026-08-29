@@ -1164,7 +1164,7 @@ def save_strategy_settings():
 
 @api_bp.route("/strategy/planner")
 def get_strategy_planner():
-    """그리드 플래너: 차수별 매수가·수량·매도가·순수익 + 자본/소진가/예상수익 요약.
+    """그리드 플래너: 차수별 매수가·수량·매도가·손익 + 자본/소진가/예상손익 요약.
 
     실제 봇과 동일한 순수 함수(trigger/math_utils)로 계산해 매매 결과와 일치시킨다.
     매매 알고리즘은 변경하지 않고 읽기만 한다.

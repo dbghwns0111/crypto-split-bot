@@ -130,7 +130,7 @@
           <span class="cs-strat-calc-val" id="strat-calc-exhaust">-</span>
         </div>
         <div class="cs-strat-calc-row">
-          <span class="cs-strat-calc-label">1회전 예상순수익</span>
+          <span class="cs-strat-calc-label">1회전 예상손익</span>
           <span class="cs-strat-calc-val cs-green" id="strat-calc-totalnet">-</span>
         </div>
       </div>
@@ -146,7 +146,7 @@
       <div class="cs-price-table-scroll">
         <table class="cs-price-table">
           <thead>
-            <tr><th>차수</th><th>매수가</th><th>수량</th><th>매도가</th><th>하락률</th><th>순수익</th></tr>
+            <tr><th>차수</th><th>매수가</th><th>수량</th><th>매도가</th><th>하락률</th><th>손익</th></tr>
           </thead>
           <tbody id="strat-price-tbody"></tbody>
         </table>
@@ -231,7 +231,7 @@
     <!-- 성과 통계 카드 -->
     <div class="cs-stat-grid">
       <div class="cs-stat-card">
-        <span class="cs-stat-label">일평균수익</span>
+        <span class="cs-stat-label">일평균손익</span>
         <span class="cs-stat-value cs-neutral" id="stat-daily-pnl">-</span>
         <span class="cs-stat-sub" id="stat-daily-pnl-sub">-</span>
       </div>
@@ -252,17 +252,17 @@
       </div>
     </div>
 
-    <!-- 일별 수익 차트 -->
+    <!-- 일별 손익 차트 -->
     <div class="cs-chart-box">
       <div class="cs-chart-canvas-wrap">
         <canvas id="pnl-daily-chart"></canvas>
       </div>
     </div>
 
-    <!-- 시간대별/요일별 수익 분포 -->
+    <!-- 시간대별/요일별 손익 분포 -->
     <div class="cs-chart-box cs-chart-box--sm">
       <div class="cs-chart-title-row">
-        <div class="cs-chart-title" id="dist-chart-title">시간대별 수익 분포</div>
+        <div class="cs-chart-title" id="dist-chart-title">시간대별 평균손익 분포</div>
         <div class="cs-mode-toggle" id="dist-mode-toggle">
           <button class="cs-mode-btn active" data-mode="hour">시간대별</button>
           <button class="cs-mode-btn" data-mode="weekday">요일별</button>
