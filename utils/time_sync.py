@@ -9,37 +9,7 @@ from utils.logger import get_logger
 
 _log = get_logger("utils.time_sync")
 
-_NTP_PEERS = "time.windows.com pool.ntp.org"
 _NTP_SERVERS = ["pool.ntp.org", "time.windows.com", "time.google.com"]
-
-
-def _run(args: list[str], timeout: int = 30) -> bool:
-    """명령어를 실행하고 종료 코드가 0이면 True를 반환한다."""
-    try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-        return r.returncode == 0
-    except Exception:
-        return False
-
-
-def _configure_w32tm() -> None:
-    """Windows Time 서비스를 재등록하고 NTP 서버를 설정한다."""
-    _log.info("Windows Time 서비스 재설정 시도")
-    steps = [
-        ["net", "stop", "W32Time"],
-        ["w32tm", "/unregister"],
-        ["w32tm", "/register"],
-        ["sc", "sidtype", "W32Time", "unrestricted"],
-        ["sc", "config", "W32Time", "type=", "own"],
-        ["net", "start", "W32Time"],
-        ["w32tm", "/config",
-         "/manualpeerlist:" + _NTP_PEERS,
-         "/syncfromflags:manual",
-         "/reliable:YES",
-         "/update"],
-    ]
-    for cmd in steps:
-        _run(cmd)  # 일부 단계 실패해도 계속 진행
 
 
 def _get_ntp_offset(server: str) -> float | None:
@@ -88,9 +58,18 @@ def _sync_via_powershell() -> bool:
 def sync_windows_time() -> bool:
     """Windows 시계를 NTP 서버와 동기화한다.
 
-    1단계: w32tm /resync /force 시도
-    2단계: 실패하면 서비스 재설정 후 재시도
-    3단계: w32tm 서비스 자체가 불가하면 PowerShell 직접 동기화
+    1단계: w32tm /resync /force 시도 (이미 정상 동작 중인 W32Time 서비스에게
+    즉시 재동기화만 요청 — 서비스 설정 자체는 건드리지 않는다)
+    2단계: 실패하면 W32Time 서비스와 무관하게 PowerShell로 NTP 서버에서 직접
+    시각을 받아와 Set-Date로 시스템 시계를 맞춘다
+
+    과거에는 1단계 실패 시 W32Time 서비스를 net stop/unregister/register 하고
+    sc sidtype/sc config로 서비스 SID 유형까지 바꾸는 재설정을 시도했으나, 이
+    재설정이 반복 실행되면 서비스 SID 유형이 실행 중인 프로세스와 호환되지
+    않는 상태가 되어(Windows 시스템 오류 1290) OS 재부팅 전까지 서비스 자체가
+    시작 불가능해지는 사고가 발생했다. 서비스 설정을 바꾸는 조치는 완전히
+    제거하고, 서비스가 불안정할 때는 서비스에 의존하지 않는 PowerShell 경로로
+    바로 넘어가도록 단순화했다.
 
     빗썸 API JWT는 요청 시각 타임스탬프를 포함하므로 시계가 수십 초 이상
     어긋나면 expired_jwt 401 오류가 발생한다.
@@ -99,7 +78,6 @@ def sync_windows_time() -> bool:
         True — 동기화 성공, False — 실패(권한 부족 등)
     """
     try:
-        # 1단계: w32tm 직접 재동기화
         r = subprocess.run(
             ["w32tm", "/resync", "/force"],
             capture_output=True, text=True, timeout=30,
@@ -107,32 +85,16 @@ def sync_windows_time() -> bool:
         if r.returncode == 0:
             _log.info("Windows 시간 동기화 완료 (w32tm)")
             return True
-
-        # 2단계: 서비스 재설정 후 재시도
-        _log.warning("w32tm /resync 실패 (exit=%d) — 서비스 재설정 후 재시도", r.returncode)
-        _configure_w32tm()
-        r2 = subprocess.run(
-            ["w32tm", "/resync", "/force"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if r2.returncode == 0:
-            _log.info("Windows 시간 동기화 완료 (서비스 재설정 후)")
-            return True
-
-        # 3단계: w32tm 서비스 사용 불가 → PowerShell 직접 동기화
-        _log.warning("w32tm 서비스 복구 실패 — PowerShell 직접 동기화 시도")
-        if _sync_via_powershell():
-            return True
-
-        _log.error("모든 시간 동기화 방법 실패")
-        return False
-
+        _log.warning("w32tm /resync 실패 (exit=%d) — PowerShell 직접 동기화로 대체", r.returncode)
     except FileNotFoundError:
         _log.warning("w32tm 없음 — PowerShell 직접 동기화 시도")
-        return _sync_via_powershell()
     except subprocess.TimeoutExpired:
         _log.warning("w32tm 타임아웃 — PowerShell 직접 동기화 시도")
-        return _sync_via_powershell()
     except Exception as exc:
-        _log.error("시간 동기화 오류: %s", exc)
-        return False
+        _log.error("w32tm 실행 오류: %s — PowerShell 직접 동기화 시도", exc)
+
+    if _sync_via_powershell():
+        return True
+
+    _log.error("모든 시간 동기화 방법 실패")
+    return False
