@@ -207,6 +207,17 @@ def build_virtual_catchup(
     ])
 
 
+def build_clock_offset_alert(skew_sec: float) -> str:
+    """OS 시계 오차 자동 보정 알림 메시지."""
+    direction = "느립니다" if skew_sec > 0 else "빠릅니다"
+    return "\n".join([
+        "⏱️ 시계 오차 자동 보정",
+        _DIV,
+        f"🕒 OS 시계    NTP 기준보다 {abs(skew_sec):,.1f}초 {direction}",
+        "ℹ️ API 요청 시각은 NTP 기준으로 자체 보정 중이라 매매는 정상 진행됩니다.",
+    ])
+
+
 def build_auto_rebase(
     symbol: str,
     old_price: float,

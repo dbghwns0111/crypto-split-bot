@@ -44,6 +44,9 @@ def build_components(cfg: dict):
     notifier  = TelegramNotifier(bot_token, chat_id)
     set_notifier_fn(notifier.send_time_sync_alert)
 
+    from utils import ntp_clock
+    ntp_clock.set_notifier_fn(notifier.send_clock_offset_alert)
+
     bot_manager = BotManager(exchange, cfg, notifier)
 
     sched = NotificationScheduler(notifier, bot_manager, exchange, cfg)
@@ -137,6 +140,10 @@ def main() -> None:
 
     # 시작 시 시계 동기화 1회 실행 (JWT 만료 예방)
     sync_windows_time()
+
+    # NTP 기준 시각 보정 시작 — OS 시계가 틀어져도 빗썸 JWT 타임스탬프는 정확히 유지
+    from utils import ntp_clock
+    ntp_clock.start(cfg)
 
     # 컴포넌트 초기화 — 봇 자동시작 없음
     exchange, bot_manager, notifier, sched, app, cmd_handler = build_components(cfg)

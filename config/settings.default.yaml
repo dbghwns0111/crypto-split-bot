@@ -66,6 +66,8 @@ report:
   hourly_interval_hours: 1      # 정각 현황 알림 발송 간격 (시간, 1=매시간 정각, 0시는 항상 제외)
   hourly_enabled: true          # 정각 현황 알림 사용 여부 (false로 끄면 알림 자체를 안 보냄)
 system:
+  ntp_clock_enabled: true       # 빗썸 API 타임스탬프를 NTP 기준으로 자체 보정 (OS 시계 드리프트 무력화)
+  ntp_refresh_interval_sec: 60  # NTP 기준 시각 재측정 주기 (초)
   time_sync_interval_hours: 6   # Windows 시계 동기화 간격 (시간) — 설정 탭에서 변경 가능
   db_backup_interval_hours: 6   # DB 자동 백업 주기 (시간)
   db_backup_keep: 14            # 보관할 백업 파일 개수 (초과 시 오래된 것부터 삭제)

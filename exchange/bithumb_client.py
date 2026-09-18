@@ -32,6 +32,14 @@ class BithumbClient(ExchangeBase):
         self._secret_key = secret_key
         self._has_credentials = bool(access_key and secret_key)
         self._pb = _import_bithumb()
+        # JWT 타임스탬프 NTP 보정 재적용(멱등) — main.py 시작 시점에 라이브러리 import가
+        # 아직 안 됐거나 실패했을 경우의 안전망. 보정이 꺼져 있으면 아무것도 하지 않는다.
+        try:
+            from utils import ntp_clock
+            if ntp_clock.is_synced():
+                ntp_clock.install_bithumb_time_patch()
+        except Exception as exc:
+            _log.warning("JWT 시각 보정 재적용 실패: %s", exc)
         self._private = self._pb.Bithumb(access_key, secret_key)
         if not self._has_credentials:
             _log.warning("API 키가 설정되지 않았습니다 — .env 파일에 BITHUMB_ACCESS_KEY / BITHUMB_SECRET_KEY를 입력하세요")

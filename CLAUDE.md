@@ -182,7 +182,8 @@ crypto-split-bot/
 │   ├── __init__.py
 │   ├── logger.py
 │   ├── time_utils.py
-│   ├── time_sync.py           # Windows NTP 시계 동기화
+│   ├── time_sync.py           # Windows NTP 시계 동기화 (OS 시계 자체를 교정)
+│   ├── ntp_clock.py           # NTP 기준 시각 유지 (API 타임스탬프를 OS 시계와 분리)
 │   └── math_utils.py
 ├── tests/
 │   ├── __init__.py
@@ -257,6 +258,8 @@ report:
   hourly_enabled: true      # 정각 현황 알림 사용 여부 — 설정 탭 토글로 즉시 반영(재시작 불필요)
 
 system:
+  ntp_clock_enabled: true       # API 타임스탬프를 NTP 기준으로 자체 보정 (아래 "시계 오차 대응" 참고)
+  ntp_refresh_interval_sec: 60  # NTP 기준 시각 재측정 주기 (초)
   time_sync_interval_hours: 6  # 설정 탭에서 즉시 반영(재시작 불필요)
   db_backup_interval_hours: 6
   db_backup_keep: 14
@@ -327,7 +330,8 @@ system:
 - API 오류
 - 봇 워치독 자동 복구 / 복구 실패 (3분마다 점검)
 - DB 백업 실패 경고 (성공은 무알림)
-- 시간 동기화 결과
+- 시간 동기화 결과 (주기 동기화는 실패 시에만 발송)
+- 시계 오차 자동 보정 (OS 시계 오차 5초 초과 시, 최대 1시간에 1회 — "시계 오차 대응" 참고)
 
 - 정각 가동 현황 리포트 (running 봇만 표시, 기본 매시간(0시 제외) — 설정 탭에서
   간격(시간) 조정 및 사용 여부(토글) 설정 가능)
@@ -493,7 +497,8 @@ main.py
   → db_configure() + create_tables() — DB 초기화/마이그레이션
   → check_integrity() — DB 무결성 검사 (실패 시 텔레그램 경고)
   → backup_database() — 시작 시 백업 1회
-  → sync_windows_time() — NTP 동기화 1회
+  → sync_windows_time() — OS 시계 NTP 동기화 1회
+  → ntp_clock.start(cfg) — NTP 기준 시각 보정 시작 + 빗썸 JWT 타임스탬프 패치
   → build_components()
       BithumbClient, TelegramNotifier, BotManager
       NotificationScheduler (APScheduler 시작)
@@ -502,6 +507,47 @@ main.py
   → sched.start(), cmd_handler.start()
   → app.run() — 메인 스레드 블록
 ```
+
+## 시계 오차 대응 (JWT 만료 방지) — 2026-09-18
+
+빗썸 API는 JWT payload의 `timestamp`(ms)를 서버 시각과 대조해 허용 오차를 벗어나면
+`expired_jwt` 401을 반환한다. 클라우드PC(Windows Server 2012 R2, 몽클라우드)의 시계
+드리프트가 심해서 이 오류가 반복됐고, **2026-09-18 새벽에는 3시간 동안 15회 발생하며
+그 시간대 매매가 전혀 이뤄지지 않는 사고**가 있었다.
+
+### 2단 방어 구조
+1. **`utils/ntp_clock.py` — API 타임스탬프를 OS 시계에서 분리 (주 방어선)**
+   - NTP 서버에서 받은 정확한 시각을 **monotonic 시계에 앵커로 고정**하고
+     `now()`가 앵커 + 경과시간을 반환한다. monotonic은 시스템 시계 조정의 영향을
+     받지 않으므로, **OS 시계가 얼마나 틀어지든 API 타임스탬프는 정확하게 유지된다.**
+   - `install_bithumb_time_patch()`가 `python_bithumb.private_api.time`을 교체해
+     라이브러리가 JWT를 만들 때(`private_api.py` 47/347/388행의
+     `round(time.time() * 1000)`) 보정된 시각을 쓰게 한다. 라이브러리 소스를
+     수정하지 않으므로 pip 업그레이드에 영향받지 않는다. `time.sleep` 등 나머지
+     속성은 원본 time 모듈로 위임한다.
+   - 기본 60초마다 재측정(`ntp_refresh_interval_sec`), `expired_jwt` 감지 시에도
+     즉시 재측정한다(UDP 1회라 가볍고 관리자 권한 불필요).
+2. **`utils/time_sync.py` — OS 시계 자체 교정 (보조)**
+   - DB 기록 시각·스케줄러 정확도를 위해 여전히 필요하지만, 관리자 권한과 정상
+     동작하는 W32Time 서비스가 필요하고 서브프로세스까지 띄우므로 무겁다.
+     `exchange/retry.py`는 이걸 **30분에 한 번만**(`_OS_SYNC_COOLDOWN`) 보조로 실행한다.
+
+### 하지 말 것
+- **`time_sync.py`에서 W32Time 서비스 설정을 바꾸지 말 것.** 과거
+  `_configure_w32tm()`이 `sc sidtype`/`sc config`로 서비스를 재설정했는데, 이게 반복
+  실행되면서 서비스 SID 유형이 깨져 **OS 재부팅으로도 복구되지 않는 상태**(시스템
+  오류 1290 → 이후 `w32tm` 전 명령 액세스 거부)가 됐다. 복구에 `sc sidtype w32time
+  none` + 서비스 재등록이 필요했다. 해당 로직은 제거됐고 다시 넣으면 안 된다.
+- **시계 관련 성공 알림을 매번 보내지 말 것.** 예전엔 동기화 성공 시마다 텔레그램을
+  보내서 밤새 수십 건이 쏟아졌고, 정작 "매매가 멈췄다"는 사실을 그 알림들이 덮어버렸다.
+  지금은 ①오차 5초 초과 시 최대 1시간에 1회 정보성 알림, ②NTP·OS 동기화가 **둘 다**
+  실패했을 때만 경고를 보낸다.
+
+### 남은 한계
+OS 시계가 계속 틀어지는 것 자체는 해결되지 않으므로, DB 기록 시각·일일 결산 경계·
+APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 관측된 수준은 수십 초라
+실무상 영향은 작음). 이것까지 없애려면 `utils/time_utils.py`와 스케줄러도 `ntp_clock`
+기준으로 옮겨야 하는데, 영향 범위가 커서 보류 중이다.
 
 ## 개발 주의사항
 

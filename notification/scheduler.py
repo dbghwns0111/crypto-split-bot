@@ -165,11 +165,17 @@ class NotificationScheduler:
             _log.error("정각 현황 전송 실패: %s", exc)
 
     def _job_time_sync(self) -> None:
-        """주기적 Windows 시간 동기화 — 결과를 텔레그램으로 알림."""
+        """주기적 Windows 시간 동기화 — 실패했을 때만 텔레그램으로 알림.
+
+        성공 알림까지 매번 보내면 알림이 쌓여 정작 중요한 경고가 묻힌다.
+        API 타임스탬프는 utils/ntp_clock 이 OS 시계와 무관하게 따로 보정하므로,
+        이 잡의 성공 여부는 DB 기록 시각 정확도에만 영향을 준다.
+        """
         try:
             from utils.time_sync import sync_windows_time
             ok = sync_windows_time()
-            self._notifier.send_time_sync_alert(ok)
+            if not ok:
+                self._notifier.send_time_sync_alert(False)
         except Exception as exc:
             _log.error("주기적 시간 동기화 실패: %s", exc)
 

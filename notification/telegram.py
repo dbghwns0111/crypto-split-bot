@@ -14,6 +14,7 @@ import requests
 from notification.message_builder import (
     build_api_error,
     build_auto_rebase,
+    build_clock_offset_alert,
     build_bot_restarted,
     build_bot_started,
     build_bot_stopped,
@@ -159,6 +160,9 @@ class TelegramNotifier:
 
     def send_time_sync_alert(self, success: bool, reason: str = "") -> bool:
         return self.send(build_time_sync_alert(success, reason))
+
+    def send_clock_offset_alert(self, skew_sec: float = 0.0, **_: Any) -> bool:
+        return self.send(build_clock_offset_alert(skew_sec))
 
     def send_db_backup_alert(self, success: bool, detail: str = "") -> bool:
         return self.send(build_db_backup_alert(success, detail))
