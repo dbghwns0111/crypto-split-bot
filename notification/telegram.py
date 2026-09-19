@@ -4,7 +4,9 @@ send() 는 즉시 리턴 (큐에 적재) — 트레이딩 루프를 절대 블�
 별도 sender 스레드가 rate-limit 및 3회 재시도를 처리한다.
 """
 
+import html
 import queue
+import re
 import threading
 import time
 from typing import Any, Optional
@@ -12,6 +14,7 @@ from typing import Any, Optional
 import requests
 
 from notification.message_builder import (
+    is_card,
     build_api_error,
     build_auto_rebase,
     build_clock_offset_alert,
@@ -43,6 +46,17 @@ _TIMEOUT   = 10      # HTTP 요청 타임아웃 (초)
 _RATE_GAP  = 1.0     # 전송 최소 간격 (초)
 _MAX_RETRY = 3
 _QUEUE_MAX = 100     # 큐 최대 크기 (초과 시 오래된 메시지 폐기)
+# message_builder 가 <b>/<pre> 태그를 붙여 보내므로 HTML 모드로 전송한다.
+# 동적 값 이스케이프는 message_builder.card() 가 책임진다.
+_PARSE_MODE = "HTML"
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(text: str) -> str:
+    """HTML 파싱 실패 시 평문 폴백용 — 태그 제거 + 엔티티 복원."""
+    plain = _TAG_RE.sub("", text)
+    return html.unescape(plain)
 
 
 class TelegramNotifier:
@@ -223,14 +237,26 @@ class TelegramNotifier:
                 )
 
     def _send_with_retry(self, text: str) -> bool:
-        url     = _API_URL.format(token=self._token)
-        payload = {"chat_id": self._chat_id, "text": text}
+        url = _API_URL.format(token=self._token)
+        # card() 를 거치지 않은 평문(예: magic_split 의 타임아웃 경고)은 여기서
+        # 이스케이프한다 — 호출부가 이스케이프를 잊어도 400이 나지 않게.
+        body = text if is_card(text) else html.escape(text, quote=False)
+        payload = {"chat_id": self._chat_id, "text": body,
+                   "parse_mode": _PARSE_MODE}
 
         for attempt in range(_MAX_RETRY):
             try:
                 resp = requests.post(url, json=payload, timeout=_TIMEOUT)
                 if resp.status_code == 200:
                     return True
+                if resp.status_code == 400 and payload.get("parse_mode"):
+                    # HTML 파싱 실패 — 태그를 벗겨 평문으로 한 번 더 시도한다.
+                    # 포맷 버그 하나 때문에 체결 알림이 통째로 사라지는 것을 막는
+                    # 마지막 안전망이라 재시도 횟수와 무관하게 즉시 폴백한다.
+                    _log.warning("텔레그램 HTML 파싱 실패 — 평문으로 재전송: %.80s",
+                                 text.replace(chr(10), " "))
+                    payload = {"chat_id": self._chat_id, "text": _strip_html(text)}
+                    continue
                 if resp.status_code == 429:
                     retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
                     _log.warning("텔레그램 rate limit — %d초 대기 (시도 %d/%d)", retry_after, attempt + 1, _MAX_RETRY)

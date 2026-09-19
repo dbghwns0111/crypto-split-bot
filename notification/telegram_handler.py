@@ -1,10 +1,13 @@
 """TelegramCommandHandler — getUpdates long-polling으로 채팅 명령어를 수신하고 봇을 제어한다."""
 
+import html
 import threading
 import time
 
 import requests
 
+import notification.message_builder as mb
+from notification.telegram import _strip_html
 from portfolio.balance import get_all_balances
 from utils.logger import get_logger
 
@@ -168,71 +171,64 @@ class TelegramCommandHandler:
         )
 
     def _cmd_status(self) -> str:
+        """정각 알림(build_hourly_status)과 같은 표 렌더러를 공유한다.
+
+        같은 봇이 두 가지 양식으로 말하지 않도록 status_table()/trigger_lines()를
+        그대로 쓰고, 명령으로 직접 물어본 경우에만 시작가·기준가 표를 덧붙인다.
+        """
         from database.pnl_repo import get_daily_pnl
 
-        now   = time.strftime("%H:%M")
-        lines = [f"📊 봇 상태 [{now}]"]
-
+        statuses = []
         for symbol, status in self._bot_manager.get_all_status().items():
-            lines.append("─────────────────")
-            ticker     = status.get("ticker", f"KRW-{symbol}")
-            running    = status.get("running", False)
-            round_     = status.get("current_round", 0)
-            ref_p      = status.get("reference_price", 0)
-            start_p    = status.get("start_price", 0)
-            buy_p      = status.get("pending_buy_price", 0)
-            sell_p     = status.get("pending_sell_price", 0)
-            pair_cfg   = self._cfg.get("pairs", {}).get(symbol, {})
-            max_rounds = int(pair_cfg.get("max_rounds", 50))
-
+            ticker = status.get("ticker", f"KRW-{symbol}")
             try:
                 price = self._exchange.get_current_price(ticker)
             except Exception:
                 price = 0
+            pair_cfg = self._cfg.get("pairs", {}).get(symbol, {})
+            pnl_data = get_daily_pnl(symbol) or {}
+            statuses.append({
+                "symbol":             symbol,
+                "running":            status.get("running", False),
+                "current_price":      price,
+                "current_round":      status.get("current_round", 0),
+                "max_rounds":         int(pair_cfg.get("max_rounds", 50)),
+                "today_pnl":          float(pnl_data.get("realized_pnl", 0) or 0),
+                "start_price":        status.get("start_price", 0),
+                "reference_price":    status.get("reference_price", 0),
+                "pending_buy_price":  status.get("pending_buy_price", 0),
+                "pending_sell_price": status.get("pending_sell_price", 0),
+            })
 
-            if running:
-                lines.append(f"🟢 {symbol} 실행중 · {round_}/{max_rounds}차")
-                if start_p > 0:
-                    lines.append(f"📍 시작가    {int(start_p):,}원")
-                if ref_p > 0:
-                    lines.append(f"📌 기준가    {int(ref_p):,}원")
-                if price > 0:
-                    lines.append(f"💲 현재가    {price:,.0f}원")
+        title = f"봇 상태 · {time.strftime('%H:%M')}"
+        if not statuses:
+            return mb.card(f"{mb.ICON_STOPPED} {title}", foot="등록된 종목이 없습니다.")
 
-                if round_ >= max_rounds:
-                    lines.append(f"🔵 매수 중단 (최대 {max_rounds}차 도달)")
-                elif buy_p > 0:
-                    lines.append(f"🔵 {round_ + 1}차 매수 대기  {int(buy_p):,}원 이하")
-                else:
-                    lines.append(f"🔵 매수 주문 처리중")
+        running = [s for s in statuses if s["running"]]
+        icon    = mb.ICON_RUNNING if running else mb.ICON_STOPPED
+        total   = sum(s["today_pnl"] for s in statuses)
 
-                if sell_p > 0:
-                    lines.append(f"🟠 {round_}차 매도 대기  {int(sell_p):,}원 이상")
-                elif round_ > 0:
-                    lines.append(f"🟠 매도 주문 처리중")
-                else:
-                    lines.append(f"🟠 매도 없음 (보유 없음)")
+        body = mb.status_table(statuses)
 
-                try:
-                    from database.order_repo import get_today_trade_counts
-                    pnl_data = get_daily_pnl(symbol) or {}
-                    net_pnl  = float(pnl_data.get("realized_pnl", 0))
-                    counts   = get_today_trade_counts(symbol)
-                    sign     = "+" if net_pnl >= 0 else ""
-                    icon     = "📈" if net_pnl >= 0 else "📉"
-                    lines.append(f"{icon} 오늘 손익   {sign}{int(net_pnl):,}원  (매수 {counts['buy']} / 매도 {counts['sell']})")
-                except Exception:
-                    pass
-            else:
-                lines.append(f"🔴 {symbol} 중지됨")
-                if round_ > 0:
-                    lines.append(f"📌 종료차수  {round_}차")
-                if ref_p > 0:
-                    lines.append(f"📍 기준가    {int(ref_p):,}원")
-                if price > 0:
-                    lines.append(f"💲 현재가    {price:,.0f}원")
+        # 시작가·기준가는 /status 에서만 보여준다 (정각 알림은 표만)
+        price_rows = [
+            [s["symbol"],
+             mb._num(s["start_price"])     if s["start_price"]     else "—",
+             mb._num(s["reference_price"]) if s["reference_price"] else "—"]
+            for s in statuses
+            if s["start_price"] or s["reference_price"]
+        ]
+        if price_rows:
+            body.append("")
+            body += mb.table(["종목", "시작가", "기준가"], price_rows)
 
-        return "\n".join(lines)
+        trig = mb.trigger_lines(statuses)
+        return mb.card(
+            f"{icon} {title}",
+            body,
+            sub=f"{len(running)}/{len(statuses)} 종목 실행중 · 오늘 {mb.signed(total)}",
+            foot=("대기 트리거\n" + "\n".join(trig)) if trig else None,
+        )
 
     def _cmd_balance(self) -> str:
         try:
@@ -240,47 +236,51 @@ class TelegramCommandHandler:
         except Exception as exc:
             return f"잔고 조회 실패: {exc}"
 
-        lines = ["💰 잔고 현황", "─────────────────"]
-        krw       = balances.get("KRW", 0.0)
-        total_est = krw
-        lines.append(f"KRW    {krw:,.0f}원")
+        krw_bal   = balances.get("KRW", 0.0)
+        total_est = krw_bal
+        rows      = [["KRW", "—", mb.krw(krw_bal)]]
 
         for symbol in self._bot_manager.symbols:
-            bot      = self._bot_manager.bots[symbol]
-            ticker   = bot.ticker
+            ticker   = self._bot_manager.bots[symbol].ticker
             currency = ticker.replace("KRW-", "")
             qty      = balances.get(currency, 0.0)
             try:
                 price   = self._exchange.get_current_price(ticker)
                 est_krw = qty * price
                 total_est += est_krw
-                lines.append(f"{symbol}    {qty:g} {currency}  ≈ {int(est_krw):,}원")
+                rows.append([symbol, mb.qty(qty), mb.krw(est_krw)])
             except Exception:
-                lines.append(f"{symbol}    {qty:g} {currency}")
+                rows.append([symbol, mb.qty(qty), "—"])
 
-        lines.append("─────────────────")
-        lines.append(f"총 평가액   {int(total_est):,}원")
-        return "\n".join(lines)
+        rows.append(["총계", "—", mb.krw(total_est)])
+        return mb.card("💰 잔고 현황",
+                       mb.table(["자산", "수량", "평가금액"], rows),
+                       sub=f"총 평가액 {mb.krw(total_est)}")
 
     def _cmd_pnl(self) -> str:
         from database.pnl_repo import get_daily_pnl
 
-        today = time.strftime("%Y-%m-%d")
-        lines = [f"📊 오늘 실현손익  [{today}]", "─────────────────"]
-        total = 0.0
+        today  = time.strftime("%Y-%m-%d")
+        total  = 0.0
+        trades_total = 0
+        rows   = []
         for symbol in self._bot_manager.symbols:
             pnl_data = get_daily_pnl(symbol) or {}
-            pnl    = float(pnl_data.get("realized_pnl", 0))
-            trades = int(pnl_data.get("trade_count", 0))
-            total += pnl
-            sign = "+" if pnl >= 0 else ""
-            icon = "📈" if pnl >= 0 else "📉"
-            lines.append(f"{icon} {symbol}  {sign}{int(pnl):,}원  ({trades}회)")
-        lines.append("─────────────────")
-        total_sign = "+" if total >= 0 else ""
-        total_icon = "📈" if total >= 0 else "📉"
-        lines.append(f"{total_icon} 합계  {total_sign}{int(total):,}원")
-        return "\n".join(lines)
+            pnl      = float(pnl_data.get("realized_pnl", 0) or 0)
+            trades   = int(pnl_data.get("trade_count", 0) or 0)
+            total        += pnl
+            trades_total += trades
+            rows.append([symbol, mb.signed(pnl, unit=""), f"{trades}회"])
+
+        body = mb.table(["종목", "손익", "거래"], rows)
+        if len(rows) > 1:
+            body.append(mb.rule(body))
+            body += mb.table(["", "", ""], [[
+                "합계", mb.signed(total, unit=""), f"{trades_total}회",
+            ]])[1:]
+
+        return mb.card(f"📊 오늘 실현손익 · {today}", body,
+                       sub=f"합계 {mb.signed(total)}")
 
     def _cmd_set(self, args: list[str]) -> str:
         import os
@@ -443,12 +443,27 @@ class TelegramCommandHandler:
     # ── 응답 전송 ─────────────────────────────────────────────────────────────
 
     def _reply(self, chat_id: int, text: str) -> None:
-        url = f"{_BASE_URL.format(token=self._token)}/sendMessage"
+        """명령어 응답 전송.
+
+        /status·/balance·/report 는 card() 가 만든 HTML 이고, 나머지 단문은
+        평문이다. 평문에는 사용자가 친 명령어나 예외 문자열이 섞일 수 있어
+        (예: "<class 'ValueError'>") 그대로 HTML 로 보내면 400이 난다 —
+        card 가 아니면 이스케이프하고, 그래도 400이면 평문으로 한 번 더 보낸다.
+        """
+        url  = f"{_BASE_URL.format(token=self._token)}/sendMessage"
+        body = text if mb.is_card(text) else html.escape(text, quote=False)
         try:
-            requests.post(
+            resp = requests.post(
                 url,
-                json={"chat_id": chat_id, "text": text},
+                json={"chat_id": chat_id, "text": body, "parse_mode": "HTML"},
                 timeout=10,
             )
+            if resp.status_code == 400:
+                _log.warning("명령어 응답 HTML 파싱 실패 — 평문으로 재전송")
+                requests.post(
+                    url,
+                    json={"chat_id": chat_id, "text": _strip_html(text)},
+                    timeout=10,
+                )
         except Exception as exc:
             _log.error("명령어 응답 전송 실패: %s", exc)

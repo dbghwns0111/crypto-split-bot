@@ -10,6 +10,10 @@ from database.models import create_tables
 from database.pnl_repo import add_trade_pnl
 
 from notification.message_builder import (
+    ICON_BUY,
+    ICON_RUNNING,
+    ICON_SELL,
+    ICON_STOPPED,
     build_api_error,
     build_buy_filled,
     build_daily_report,
@@ -65,8 +69,9 @@ class TestBuildBuyFilled:
         assert "3차" in msg
 
     def test_emoji_present(self):
+        # 매수는 웹 대시보드의 매수 트리거와 같은 빨강(.cs-negative)
         msg = build_buy_filled("ETH", 3_245_000, 0.015, 3)
-        assert "✅" in msg
+        assert ICON_BUY in msg
 
 
 class TestBuildSellFilled:
@@ -89,8 +94,9 @@ class TestBuildSellFilled:
         assert "+0" in msg
 
     def test_emoji_present(self):
+        # 매도는 웹 대시보드의 매도 트리거와 같은 초록(.cs-positive)
         msg = build_sell_filled("ETH", 3_000_000, 0.01, 1)
-        assert "💰" in msg
+        assert ICON_SELL in msg
 
 
 class TestBuildMaxRound:
@@ -166,20 +172,20 @@ class TestBuildHourlyStatus:
     def _make_stopped(self, symbol="ETH"):
         return {"symbol": symbol, "running": False}
 
-    def test_all_running_green_icon(self):
+    def test_all_running_uses_running_icon(self):
         statuses = [self._make_running("ETH"), self._make_running("USDT", 1_385, 1, 3_200, 8)]
         msg = build_hourly_status(10, statuses)
-        assert "🟢" in msg
+        assert ICON_RUNNING in msg
 
-    def test_all_stopped_red_icon(self):
+    def test_all_stopped_uses_stopped_icon(self):
         statuses = [self._make_stopped("ETH"), self._make_stopped("USDT")]
         msg = build_hourly_status(10, statuses)
-        assert "🔴" in msg
+        assert ICON_STOPPED in msg
 
-    def test_any_running_gives_green(self):
+    def test_any_running_gives_running_icon(self):
         statuses = [self._make_running("ETH"), self._make_stopped("USDT")]
         msg = build_hourly_status(10, statuses)
-        assert "🟢" in msg
+        assert ICON_RUNNING in msg
 
     def test_hour_formatted_two_digits(self):
         msg = build_hourly_status(9, [self._make_running()])
@@ -195,7 +201,7 @@ class TestBuildHourlyStatus:
 
     def test_running_symbol_shows_round(self):
         msg = build_hourly_status(10, [self._make_running("ETH", rnd=5)])
-        assert "5차" in msg
+        assert "5/50차" in msg
 
     def test_positive_pnl_has_plus(self):
         msg = build_hourly_status(10, [self._make_running(pnl=12_400)])
@@ -224,7 +230,7 @@ class TestBuildHourlyStatus:
 
     def test_empty_statuses(self):
         msg = build_hourly_status(10, [])
-        assert "🔴" in msg   # any_running=False → red
+        assert ICON_STOPPED in msg   # 실행 중인 봇 없음
         assert "10:00" in msg
 
 
@@ -236,9 +242,9 @@ class TestBuildDailyReport:
         msg = build_daily_report("2026-01-15", [], 0, {})
         assert "2026-01-15" in msg
 
-    def test_contains_symbol_section(self):
+    def test_contains_symbol_row(self):
         msg = build_daily_report("2026-01-15", [self._make_symbol_data()], 0, {})
-        assert "[ETH]" in msg
+        assert "ETH" in msg
 
     def test_realized_pnl_formatted(self):
         msg = build_daily_report("2026-01-15", [self._make_symbol_data(realized=38_200)], 0, {})
@@ -248,18 +254,20 @@ class TestBuildDailyReport:
         msg = build_daily_report("2026-01-15", [self._make_symbol_data(fee=4_350)], 0, {})
         assert "4,350" in msg
 
-    def test_grand_net_is_realized_minus_fee(self):
+    def test_grand_net_is_realized_pnl_as_is(self):
+        # realized_pnl 은 pnl_repo 단계에서 이미 수수료가 차감된 순손익이다.
+        # 여기서 수수료를 또 빼면 이중 차감 — 과거에 실제로 있었던 버그라
+        # 이 테스트가 그 회귀를 막는다.
         data = self._make_symbol_data(realized=38_200, fee=4_350)
         msg = build_daily_report("2026-01-15", [data], 0, {})
-        net = 38_200 - 4_350  # 33,850
-        assert "33,850" in msg
+        assert "38,200" in msg
+        assert "33,850" not in msg
 
     def test_total_net_sums_multiple_symbols(self):
         eth  = self._make_symbol_data("ETH",  realized=38_200, fee=4_350)
         usdt = self._make_symbol_data("USDT", realized=12_400, fee=1_240)
         msg = build_daily_report("2026-01-15", [eth, usdt], 0, {})
-        # (38200-4350) + (12400-1240) = 33850 + 11160 = 45010
-        assert "45,010" in msg
+        assert "50,600" in msg   # 38,200 + 12,400 (수수료 재차감 없음)
 
     def test_krw_balance(self):
         msg = build_daily_report("2026-01-15", [], 512_000, {})
@@ -270,14 +278,18 @@ class TestBuildDailyReport:
         assert "ETH" in msg
         assert "USDT" in msg
 
-    def test_divider_present(self):
-        msg = build_daily_report("2026-01-15", [self._make_symbol_data()], 0, {})
+    def test_total_rule_present_for_multiple_symbols(self):
+        # 합계선은 종목이 2개 이상일 때만 그린다 (1종목이면 합계 = 그 종목)
+        msg = build_daily_report("2026-01-15", [
+            self._make_symbol_data("ETH"), self._make_symbol_data("BTC"),
+        ], 0, {})
         assert "─" in msg
+        assert "합계" in msg
 
     def test_positive_grand_net_has_plus(self):
         data = self._make_symbol_data(realized=10_000, fee=1_000)
         msg = build_daily_report("2026-01-15", [data], 0, {})
-        assert "+9,000" in msg
+        assert "+10,000" in msg
 
     def test_emoji_present(self):
         msg = build_daily_report("2026-01-15", [], 0, {})

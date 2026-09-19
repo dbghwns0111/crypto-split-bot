@@ -1664,8 +1664,12 @@ def test_telegram():
         }), 400
 
     try:
+        from notification.message_builder import card
+
         notifier = TelegramNotifier(token, chat_id)
-        notifier.send("🔔 CryptoSplit 테스트 메시지입니다.")
+        # 실제 알림과 같은 카드 양식으로 보내 서식이 정상 렌더되는지도 함께 확인한다
+        notifier.send(card("🔔 CryptoSplit 테스트",
+                           foot="텔레그램 알림 설정이 정상입니다."))
         return jsonify({"ok": True, "message": "테스트 메시지를 전송했습니다."})
     except Exception as exc:
         _log.error("텔레그램 테스트 전송 실패: %s", exc)
