@@ -179,6 +179,7 @@ crypto-split-bot/
 │       │                      # apple-touch-icon, favicon-32, logo-64
 │       └── js/
 │           ├── dashboard.js
+│           ├── capslock.js       # 비밀번호 칸 Caps Lock 안내 (로그인/대시보드 공용)
 │           └── chart.umd.min.js  # Chart.js v4.4.1 로컬 번들
 ├── utils/
 │   ├── __init__.py
@@ -506,6 +507,16 @@ DELETE /api/trades/orders     → 주문 내역 삭제 (ids 지정 시 선택삭
 ```
 
 ## 웹 접근 보안 (`web/auth.py`)
+- **Caps Lock 안내** (`web/static/js/capslock.js`, 2026-09-19): 비밀번호 칸에
+  포커스가 있을 때 Caps Lock이 켜져 있으면 칸 아래에 경고를 띄운다. 로그인
+  화면·설정 탭(접속 비밀번호/API 키/Bot Token)·재인증 모달 전부에 적용.
+  비밀번호는 입력값이 가려져 오타를 알아채기 어려운데 로그인은 5회 실패 시
+  10분 잠기므로 실수 몇 번이 곧바로 잠금이 된다. Caps Lock 상태는
+  KeyboardEvent/MouseEvent의 `getModifierState()`로만 읽을 수 있어(focus
+  이벤트엔 없음) 첫 키 입력이나 클릭 시점에 안내가 나타난다. 초기화 시점의
+  `type="password"` 입력칸을 대상으로 잡으므로 표시/숨기기 토글로 text가 돼도
+  계속 동작한다. 로그인 화면은 `dashboard.js`를 안 쓰므로 독립 스크립트로 분리함.
+
 - **비밀번호 로그인**: `.env`의 `WEB_PASSWORD` 설정 시에만 활성화(fail-open —
   미설정 시 인증 자체가 비활성되어 자기잠금 방지). `hmac.compare_digest`로
   타이밍 공격 방어
