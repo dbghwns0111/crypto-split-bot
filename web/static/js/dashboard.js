@@ -107,6 +107,10 @@ const TRADES_PRESET_KEY = 'cs-trades-presets';
 let _selectedOrderIds   = new Set();
 let _pendingDeleteFn    = null;
 let _pendingRebaseFn    = null;
+let _pendingConfirmFn   = null;  // 범용 확인 모달 콜백 (전략/설정 저장 등)
+let _settingsData       = null;  // 설정 탭 마지막 조회값 — 변경 여부 판정용
+let _pollPromise        = null;  // 진행 중인 폴링 — 응답이 밀릴 때 요청이 쌓이는 것 방지
+let _userActions        = 0;     // 진행 중인 사용자 요청 수 — 그 동안 폴링을 양보한다
 
 // 투자내역 페이징 — 기간 전체 데이터를 받아 요약은 전체로, 표는 페이지 단위로 렌더
 const TRADES_PAGE_SIZE = 50;
@@ -128,7 +132,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const confirmModalEl = document.getElementById('confirmModal');
     _modal = new bootstrap.Modal(confirmModalEl);
-    document.getElementById('confirmBtn').addEventListener('click', _executeAction);
+    _watchModal(confirmModalEl);
+    const confirmBtn = document.getElementById('confirmBtn');
+    confirmBtn.addEventListener('click', () => _busy(confirmBtn, _executeAction));
     // 비밀번호 재인증 입력칸 등에서 Enter로도 확인 버튼과 동일하게 동작하도록 지원
     confirmModalEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -140,13 +146,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const gapModalEl = document.getElementById('gapModal');
     if (gapModalEl) {
         _gapModal = new bootstrap.Modal(gapModalEl);
-        document.getElementById('gapConfirmBtn').addEventListener('click', _executeGapAction);
+        _watchModal(gapModalEl);
+        const gapBtn = document.getElementById('gapConfirmBtn');
+        gapBtn.addEventListener('click', () => _busy(gapBtn, _executeGapAction));
     }
 
     // 이벤트 위임 (시작/중지 버튼)
     document.addEventListener('click', e => {
         const btn = e.target.closest('[data-action][data-symbol]');
-        if (btn) _openConfirm(btn.dataset.symbol, btn.dataset.action);
+        if (btn) _busy(btn, () => _openConfirm(btn.dataset.symbol, btn.dataset.action));
     });
 
     // 누적손익 기간 선택 (차트/통계)
@@ -188,8 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('bulk-stop-btn')?.addEventListener('click',  () => _confirmBulk('stop'));
 
     // 거래소자산 새로고침 버튼
-    const refreshBtn = document.getElementById('assets-refresh-btn');
-    if (refreshBtn) refreshBtn.addEventListener('click', () => _fetchAssets());
+    _onClickBusy('assets-refresh-btn', () => _fetchAssets());
 
     // 수동 평균매수가 편집 버튼 (이벤트 위임)
     document.addEventListener('click', e => {
@@ -243,11 +250,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // 전략현황: 저장 / 테이블 토글
-    document.getElementById('strat-save-btn')?.addEventListener('click', _saveStratSettings);
+    _onClickBusy('strat-save-btn',   _saveStratSettings);
     document.getElementById('strat-table-btn')?.addEventListener('click', _togglePriceTable);
-    document.getElementById('strat-rebase-btn')?.addEventListener('click', _confirmRebaseStartPrice);
+    _onClickBusy('strat-rebase-btn', _confirmRebaseStartPrice);
 
     _initBottomNav();
+    _initPullToRefresh();
     _initTradesPage();
     _initSettingsPage();
     _initTier();
@@ -280,6 +288,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     _startPolling();
+
+    // 화면이 가려져 있는 동안(다른 앱/탭)에는 폴링을 멈추고, 돌아오면 즉시 한 번 갱신
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            if (_timer) { clearInterval(_timer); _timer = null; }
+        } else if (!_timer) {
+            _startPolling();
+        }
+    });
 });
 
 // ── 하단 네비 ─────────────────────────────────────────────────────────────────
@@ -306,7 +323,7 @@ function _switchPage(page) {
 // ── 폴링 ──────────────────────────────────────────────────────────────────────
 
 function _startPolling() {
-    _fetchActivePage();
+    _fetchActivePage(true);   // 탭 진입/복귀 직후에는 양보하지 않고 바로 한 번 갱신
     let ms;
     if (_activePage === 'home') ms = POLL.realtime;
     else if (_activePage === 'strategy') ms = POLL.strategy;
@@ -315,7 +332,7 @@ function _startPolling() {
         else if (_tradesActiveSubTab === 'assets') ms = POLL.assets;
         else return;  // 체결/실현손익은 수동 조회, 폴링 없음
     } else return;  // 설정 등
-    _timer = setInterval(_fetchActivePage, ms);
+    _timer = setInterval(() => _fetchActivePage(), ms);
 }
 
 function _restartPolling() {
@@ -323,7 +340,23 @@ function _restartPolling() {
     _startPolling();
 }
 
-async function _fetchActivePage() {
+
+// 폴링 응답이 느릴 때(클라우드PC + VPN + 거래소 API) 다음 틱이 그대로 겹쳐서
+// 나가면 브라우저의 호스트당 동시 연결(6개)이 폴링으로 가득 차고, 그 뒤에 눌린
+// 버튼의 POST가 큐에서 대기하게 된다 — 이것이 "클릭이 한 번에 안 먹는" 주원인이다.
+// 이전 폴링이 끝나지 않았으면 이번 틱은 건너뛴다.
+function _fetchActivePage(force = false) {
+    // 사용자가 누른 요청(시작/중지/저장 등)이 처리 중이면 폴링은 양보한다
+    if (!force && _userActions > 0) return Promise.resolve();
+    if (_pollPromise) {
+        if (!force) return _pollPromise;
+        return _pollPromise.then(() => _fetchActivePage(true));
+    }
+    _pollPromise = _doFetchActivePage().finally(() => { _pollPromise = null; });
+    return _pollPromise;
+}
+
+async function _doFetchActivePage() {
     try {
         if (_activePage === 'home') {
             await Promise.all([_fetchStrategy(), _fetchHomeSummary()]);
@@ -343,7 +376,9 @@ async function _fetchActivePage() {
         } else if (_activePage === 'settings') {
             await _fetchSettings();
         }
-        _setEl('last-updated', `갱신: ${new Date().toLocaleTimeString('ko-KR', { hour12: false })}`);
+        const _n = new Date();
+        const _p2 = v => String(v).padStart(2, '0');
+        _setEl('last-updated', `갱신 ${_p2(_n.getHours())}:${_p2(_n.getMinutes())}:${_p2(_n.getSeconds())}`);
     } catch (err) {
         console.error('[CryptoSplit] fetch error:', err);
     }
@@ -402,6 +437,7 @@ function _reauthPassword() {
 }
 
 function _confirmBulk(action) {
+    _resetPending();
     _pendingBulk = action;
     if (action === 'stop') {
         _setEl('modalTitle', '전체 중지 확인');
@@ -413,7 +449,7 @@ function _confirmBulk(action) {
         document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
     }
     _setReauthVisible(true);
-    _modal.show();
+    _showModal(_modal, document.getElementById('confirmModal'));
 }
 
 // ── 탭 2: 누적손익 ────────────────────────────────────────────────────────────
@@ -1006,7 +1042,8 @@ async function _savePriceEdit(sym) {
 
 // ── 모달 (기존 로직 유지) ─────────────────────────────────────────────────────
 
-function _openConfirm(symbol, action) {
+async function _openConfirm(symbol, action) {
+    _resetPending();
     _setReauthVisible(false);
     // OFF 종목은 시작 차단 → ON 변경 안내 팝업
     if (action === 'start_resume' || action === 'start_fresh') {
@@ -1019,25 +1056,19 @@ function _openConfirm(symbol, action) {
                 `홈에서 ${symbol}를 ON으로 변경한 뒤 시작해 주세요.`);
             const btn = document.getElementById('confirmBtn');
             if (btn) btn.className = 'cs-btn cs-btn-secondary';
-            _modal.show();
+            _showModal(_modal, document.getElementById('confirmModal'));
             return;
         }
     }
-    if (action === 'start_resume') {
-        _openGapCheck(symbol, false);
-        return;
-    }
-    if (action === 'start_fresh') {
-        _openGapCheck(symbol, true);
-        return;
-    }
+    if (action === 'start_resume') return _openGapCheck(symbol, false);
+    if (action === 'start_fresh')  return _openGapCheck(symbol, true);
     if (action === 'reset') {
         _pendingAction = 'reset';
         _pendingSymbol = symbol;
         _setEl('modalTitle', `${symbol} 전략 초기화`);
         _setEl('modalBody',  `${symbol} 전략 상태를 초기화하시겠습니까?\n현재 차수와 기준가가 0으로 리셋됩니다.\n(거래 이력은 유지됩니다)`);
         document.getElementById('confirmBtn').className = 'cs-btn cs-btn-warning';
-        _modal.show();
+        _showModal(_modal, document.getElementById('confirmModal'));
         return;
     }
     _pendingAction = action;
@@ -1046,7 +1077,7 @@ function _openConfirm(symbol, action) {
     _setEl('modalTitle', '자동매매 중지 확인');
     _setEl('modalBody',  `${symbol} 자동매매를 중지하시겠습니까?\n미체결 주문이 자동으로 취소됩니다.`);
     document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
-    _modal.show();
+    _showModal(_modal, document.getElementById('confirmModal'));
 }
 
 async function _openGapCheck(symbol, isFresh) {
@@ -1069,7 +1100,7 @@ async function _openGapCheck(symbol, isFresh) {
                 _setEl('modalBody',  `${symbol} 이어서 시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
             }
             document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
-            _modal.show();
+            _showModal(_modal, document.getElementById('confirmModal'));
         }
     } catch {
         // 오류 시 일반 확인 모달로 폴백
@@ -1085,7 +1116,7 @@ async function _openGapCheck(symbol, isFresh) {
             _setEl('modalBody',  `${symbol} 이어서 시작하시겠습니까?\n기존 차수와 기준가가 유지됩니다.`);
         }
         document.getElementById('confirmBtn').className = 'cs-btn cs-btn-success';
-        _modal.show();
+        _showModal(_modal, document.getElementById('confirmModal'));
     }
 }
 
@@ -1188,7 +1219,7 @@ function _showGapModal(symbol, data, isFresh = false) {
         });
     });
 
-    _gapModal.show();
+    _showModal(_gapModal, document.getElementById('gapModal'));
 }
 
 async function _executeGapAction() {
@@ -1218,6 +1249,15 @@ async function _executeGapAction() {
 }
 
 async function _executeAction() {
+    // 범용 확인 처리 (전략/설정 저장 등)
+    if (_pendingConfirmFn) {
+        const fn = _pendingConfirmFn;
+        _pendingConfirmFn = null;
+        _modal.hide();
+        await fn();
+        return;
+    }
+
     // 삭제 확인 처리
     if (_pendingDeleteFn) {
         const fn = _pendingDeleteFn;
@@ -1298,13 +1338,88 @@ async function _executeAction() {
 
 // ── 유틸 ──────────────────────────────────────────────────────────────────────
 
-// 상태 변경(POST/PUT/PATCH/DELETE) 요청 전용 — CSRF 토큰 자동 부여
+// 버튼을 누른 순간부터 요청이 끝날 때까지 잠그고 진행 중임을 보여준다.
+// 응답이 1~2초 걸리는 동안 아무 반응이 없으면 사용자는 "안 눌렸다"고 생각하고
+// 다시 누르는데, 그 두 번째 클릭이 중복 요청이 되거나 모달 전환과 겹쳐
+// 오히려 아무 일도 일어나지 않는 경우가 있었다.
+async function _busy(el, fn) {
+    if (!el) return fn();
+    if (el.dataset.csBusy === '1') return;   // 처리 중 — 연타 무시
+    el.dataset.csBusy = '1';
+    el.classList.add('is-busy');
+    const wasDisabled = el.disabled;
+    el.disabled = true;
+    try {
+        return await fn();
+    } finally {
+        delete el.dataset.csBusy;
+        el.classList.remove('is-busy');
+        el.disabled = wasDisabled;
+    }
+}
+
+// 클릭 핸들러를 _busy로 감싸 등록하는 헬퍼
+function _onClickBusy(id, fn) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', () => _busy(el, () => fn(el)));
+    return el;
+}
+
+// 부트스트랩 모달은 닫히는 애니메이션(약 0.15초) 중에 show()를 호출하면 무시한다.
+// "확인 → 다음 모달" 같은 연속 전환에서 두 번째 모달이 안 뜨는 원인이었다.
+function _watchModal(el) {
+    if (!el) return;
+    el.addEventListener('hide.bs.modal',   () => { el.dataset.csHiding = '1'; });
+    el.addEventListener('hidden.bs.modal', () => { delete el.dataset.csHiding; });
+}
+
+function _showModal(inst, el) {
+    if (!inst || !el) return;
+    if (el.dataset.csHiding) {   // 닫히는 중 — 완전히 닫힌 뒤에 연다
+        el.addEventListener('hidden.bs.modal', () => inst.show(), { once: true });
+        return;
+    }
+    if (el.classList.contains('show')) return;  // 이미 열려 있음
+    inst.show();
+}
+
+// 확인 모달에 물려 있던 이전 작업을 전부 비운다. 모달을 닫기만 하고 취소한
+// 경우 콜백이 남아 있다가 다음에 연 전혀 다른 확인에서 실행될 수 있어서,
+// 모달을 여는 쪽에서 항상 먼저 비운다.
+function _resetPending() {
+    _pendingAction = _pendingSymbol = null;
+    _pendingBulk = null;
+    _pendingDeleteFn = _pendingRebaseFn = _pendingConfirmFn = null;
+}
+
+// 범용 확인 모달 — 전략/설정 저장처럼 "확인 후 실행"이 필요한 모든 곳에서 사용
+function _confirmThen({ title, body, btnClass = 'cs-btn cs-btn-primary', onOk }) {
+    _resetPending();
+    _setEl('modalTitle', title);
+    _setEl('modalBody',  body);
+    const btn = document.getElementById('confirmBtn');
+    if (btn) btn.className = btnClass;
+    _setReauthVisible(false);
+    _pendingConfirmFn = onOk;
+    _showModal(_modal, document.getElementById('confirmModal'));
+}
+
+// 변경 내역 목록([라벨, 이전값, 새값][])을 확인 모달 본문 문자열로 만든다
+function _changeLines(changes) {
+    return changes.map(([label, from, to]) => `· ${label}: ${from} → ${to}`).join('\n');
+}
+
+// 상태 변경(POST/PUT/PATCH/DELETE) 요청 전용 — CSRF 토큰 자동 부여.
+// 사용자가 누른 요청이 나가 있는 동안에는 폴링을 멈춰서(_userActions) 브라우저
+// 연결이 폴링으로 막혀 버튼 응답이 늦어지는 일이 없게 한다.
 function _apiFetch(url, opts = {}) {
     const headers = Object.assign(
         { 'Content-Type': 'application/json', 'X-CSRF-Token': _csrfToken },
         opts.headers || {},
     );
-    return fetch(url, Object.assign({}, opts, { headers }));
+    _userActions += 1;
+    return fetch(url, Object.assign({}, opts, { headers }))
+        .finally(() => { _userActions = Math.max(0, _userActions - 1); });
 }
 
 async function _fetchJson(url, opts = null) {
@@ -1414,10 +1529,13 @@ function _renderStratSettings(s) {
                       'strat-input-start-price': startPriceVal };
         Object.entries(ids).forEach(([id, val]) => {
             const el = document.getElementById(id);
-            if (el) el.value = val;
+            // 폴링(3초)이 사용자가 지금 입력 중인 칸을 덮어쓰면 값이 되돌아간 것처럼
+            // 보여 "저장이 안 먹는다"고 느끼게 된다 — 포커스 중인 칸은 건드리지 않는다.
+            if (el && document.activeElement !== el) el.value = val;
         });
         const autoRebaseEl = document.getElementById('strat-input-auto-rebase');
-        if (autoRebaseEl) autoRebaseEl.checked = !!s.auto_rebase_enabled;
+        if (autoRebaseEl && document.activeElement !== autoRebaseEl)
+            autoRebaseEl.checked = !!s.auto_rebase_enabled;
     }
 
     _updateStratCalc();
@@ -1463,8 +1581,9 @@ function _updateStratCalc() {
     _setEl('strat-calc-cover',   cover);
 }
 
-async function _saveStratSettings() {
-    if (!_stratActiveSym) return;
+// 화면 입력값으로 저장 payload를 만든다 (검증 실패 시 null)
+function _buildStratPayload() {
+    if (!_stratActiveSym) return null;
     const mode       = document.querySelector('#strat-mode-toggle .cs-mode-btn.active')?.dataset.mode || 'pct';
     const triggerVal = parseFloat(document.getElementById('strat-input-trigger')?.value || 0);
     const sellVal    = parseFloat(document.getElementById('strat-input-trigger-sell')?.value || 0);
@@ -1481,20 +1600,89 @@ async function _saveStratSettings() {
 
     if (rounds <= 0 || amount <= 0) {
         _showAlert('최대 차수와 1회 주문금액을 입력해주세요.', 'warning');
+        return null;
+    }
+    return {
+        symData,
+        payload: { symbol: _stratActiveSym, trigger_mode: mode,
+                   trigger_pct: pct, trigger_krw: krw,
+                   trigger_pct_sell: pctSell, trigger_krw_sell: krwSell,
+                   max_rounds: rounds, order_amount: amount,
+                   start_price: startPrice,
+                   auto_rebase_enabled: autoRebase },
+    };
+}
+
+// 저장하려는 값과 현재 서버값을 비교해 실제 변경된 항목만 뽑는다.
+// 변경이 없으면 저장 요청 자체를 보내지 않아 텔레그램에 "X → X" 알림이 가지 않는다.
+function _diffStrat(payload, s) {
+    if (!s) return [];
+    const out  = [];
+    const mode = payload.trigger_mode;
+    const oldMode = s.trigger_mode || 'pct';
+    const modeLabel = m => (m === 'krw' ? '고정금액(원)' : '퍼센트(%)');
+    const krwTxt  = v => `${Math.round(v || 0).toLocaleString()}원`;
+    const pctTxt  = v => `${(+v || 0)}%`;
+    const sellTxt = (v, fmt) => ((+v || 0) > 0 ? fmt(v) : '매수와 동일');
+
+    if (mode !== oldMode) out.push(['트리거 방식', modeLabel(oldMode), modeLabel(mode)]);
+    if (mode === 'krw') {
+        if (+payload.trigger_krw !== +(s.trigger_krw || 0))
+            out.push(['매수 간격', krwTxt(s.trigger_krw), krwTxt(payload.trigger_krw)]);
+        if (+payload.trigger_krw_sell !== +(s.trigger_krw_sell || 0))
+            out.push(['매도 간격', sellTxt(s.trigger_krw_sell, krwTxt), sellTxt(payload.trigger_krw_sell, krwTxt)]);
+    } else {
+        if (+payload.trigger_pct !== +(s.trigger_pct || 0))
+            out.push(['매수 간격', pctTxt(s.trigger_pct), pctTxt(payload.trigger_pct)]);
+        if (+payload.trigger_pct_sell !== +(s.trigger_pct_sell || 0))
+            out.push(['매도 간격', sellTxt(s.trigger_pct_sell, pctTxt), sellTxt(payload.trigger_pct_sell, pctTxt)]);
+    }
+    if (+payload.max_rounds !== +(s.max_rounds || 0))
+        out.push(['최대 차수', `${s.max_rounds || 0}차`, `${payload.max_rounds}차`]);
+    if (+payload.order_amount !== +(s.order_amount || 0))
+        out.push(['1회 주문금액', krwTxt(s.order_amount), krwTxt(payload.order_amount)]);
+    if (!!payload.auto_rebase_enabled !== !!s.auto_rebase_enabled)
+        out.push(['자동 시작가 트레일링', s.auto_rebase_enabled ? '사용' : '중지',
+                  payload.auto_rebase_enabled ? '사용' : '중지']);
+    // 시작가는 0(미입력)이면 서버에서 무시하므로 변경으로 치지 않는다
+    const newSp = Math.round(payload.start_price || 0);
+    const oldSp = Math.round(s.start_price || 0);
+    if (newSp > 0 && newSp !== oldSp) out.push(['시작가', krwTxt(oldSp), krwTxt(newSp)]);
+    return out;
+}
+
+async function _saveStratSettings() {
+    const built = _buildStratPayload();
+    if (!built) return;
+    const { payload, symData } = built;
+
+    const changes = _diffStrat(payload, symData);
+    if (changes.length === 0) {
+        _showAlert('변경된 항목이 없습니다.', 'info');
         return;
     }
+    const roundNote = (symData?.current_round > 0 && changes.some(c => c[0] === '시작가'))
+        ? '\n\n※ 현재 차수가 0이 아니라 시작가는 즉시 반영되지 않고, 다음에 0차로 돌아왔을 때 적용됩니다.'
+        : '';
+    _confirmThen({
+        title: `${payload.symbol} 전략 설정 저장`,
+        body:  `아래 항목을 변경합니다.\n\n${_changeLines(changes)}${roundNote}`,
+        onOk:  () => _doSaveStratSettings(payload),
+    });
+}
+
+async function _doSaveStratSettings(payload) {
     try {
         const resp = await _apiFetch(API.strategySettings, {
             method: 'POST',
-            body: JSON.stringify({ symbol: _stratActiveSym, trigger_mode: mode,
-                                   trigger_pct: pct, trigger_krw: krw,
-                                   trigger_pct_sell: pctSell, trigger_krw_sell: krwSell,
-                                   max_rounds: rounds, order_amount: amount,
-                                   start_price: startPrice,
-                                   auto_rebase_enabled: autoRebase }),
+            body: JSON.stringify(payload),
         });
         const data = await resp.json();
-        if (data.ok) { _stratModeUserSet = false; _stratInputsUserSet = false; }
+        if (data.ok) {
+            _stratModeUserSet = false;
+            _stratInputsUserSet = false;
+            await _fetchStrategy();   // 옛 값이 잠깐 되돌아와 보이는 것 방지
+        }
         _showAlert(data.message, data.ok ? 'success' : 'danger');
     } catch { _showAlert('저장 중 오류가 발생했습니다.', 'danger'); }
 }
@@ -1504,6 +1692,7 @@ async function _saveStratSettings() {
 // 원가 왜곡) 리셋 후 재시작이 유일하게 안전한 방법이다. 이 함수는 그 과정을
 // 기존 API 호출만으로 순서대로 실행할 뿐, 새 백엔드 로직은 없다.
 function _confirmRebaseStartPrice() {
+    _resetPending();
     const symbol = _stratActiveSym;
     if (!symbol) return;
     const newPrice = parseFloat(document.getElementById('strat-input-start-price')?.value || 0);
@@ -1520,7 +1709,7 @@ function _confirmRebaseStartPrice() {
     document.getElementById('confirmBtn').className = 'cs-btn cs-btn-warning';
     _setReauthVisible(false);
     _pendingRebaseFn = () => _doRebaseStartPrice(symbol, newPrice);
-    _modal.show();
+    _showModal(_modal, document.getElementById('confirmModal'));
 }
 
 async function _doRebaseStartPrice(symbol, newPrice) {
@@ -2197,8 +2386,9 @@ function _confirmDeleteSelected() {
     _setEl('modalBody',  `선택한 ${n}건의 내역을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 손익 통계에 영향을 줄 수 있습니다.`);
     document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
     _setReauthVisible(false);
+    _resetPending();
     _pendingDeleteFn = _doDeleteSelected;
-    _modal.show();
+    _showModal(_modal, document.getElementById('confirmModal'));
 }
 
 function _confirmDeleteRange() {
@@ -2210,8 +2400,9 @@ function _confirmDeleteRange() {
     _setEl('modalBody',  `${start} ~ ${end} 기간의 ${symLabel} 내역을 모두 삭제하시겠습니까?\n이 작업은 되돌릴 수 없으며 손익 통계에 영향을 줄 수 있습니다.`);
     document.getElementById('confirmBtn').className = 'cs-btn cs-btn-danger';
     _setReauthVisible(true);
+    _resetPending();
     _pendingDeleteFn = _doDeleteRange;
-    _modal.show();
+    _showModal(_modal, document.getElementById('confirmModal'));
 }
 
 async function _doDeleteSelected() {
@@ -2531,6 +2722,120 @@ let _settingsLoaded = false;
 let _membershipHistoryLoaded = false;
 let _feeRateHistoryLoaded = false;
 
+// 설정 항목 정의 — 입력칸 / 서버 현재값 / 표시 포맷을 한 곳에 모아두고,
+// 저장 시 "실제로 바뀐 항목"만 골라 보낸다. 값이 그대로면 요청 자체를 보내지
+// 않으므로 텔레그램에 "X → X" 같은 무의미한 변경 알림이 가지 않는다.
+// secret: true 인 항목은 서버가 마스킹해서 내려주므로 비교가 불가능하다 —
+// 입력칸에 무언가 적었을 때만 변경으로 본다.
+const SETTINGS_SPECS = {
+    access_key:  { id: 'settings-access-key',  label: '빗썸 Access Key',   secret: true },
+    secret_key:  { id: 'settings-secret-key',  label: '빗썸 Secret Key',   secret: true },
+    bot_token:   { id: 'settings-tg-token',    label: '텔레그램 Bot Token', secret: true },
+    web_password:{ id: 'settings-web-password',label: '웹 접속 비밀번호',   secret: true },
+    chat_id: {
+        id: 'settings-tg-chat-id', label: '텔레그램 Chat ID',
+        get: d => d?.telegram?.chat_id ?? '', parse: v => String(v ?? '').trim(),
+        fmt: v => (v ? String(v) : '미설정'),
+    },
+    order_timeout: {
+        id: 'settings-order-timeout', label: '미체결 자동취소',
+        get: d => d?.strategy?.order_timeout, parse: v => parseInt(v, 10), fmt: v => `${v}초`,
+    },
+    price_poll_interval: {
+        id: 'settings-poll-interval', label: '시세 조회 간격',
+        get: d => d?.strategy?.price_poll_interval, parse: v => parseInt(v, 10), fmt: v => `${v}초`,
+    },
+    report_hour: {
+        id: 'settings-report-hour', label: '결산 시각(시)',
+        get: d => d?.report?.hour, parse: v => parseInt(v, 10), fmt: v => `${String(v).padStart(2, '0')}시`,
+    },
+    report_minute: {
+        id: 'settings-report-minute', label: '결산 시각(분)',
+        get: d => d?.report?.minute, parse: v => parseInt(v, 10), fmt: v => `${String(v).padStart(2, '0')}분`,
+    },
+    hourly_enabled: {
+        id: 'settings-hourly-enabled', label: '정각 현황 알림', bool: true,
+        get: d => d?.report?.hourly_enabled !== false, parse: v => !!v, fmt: v => (v ? '사용' : '중지'),
+    },
+    hourly_interval_hours: {
+        id: 'settings-hourly-interval', label: '정각 현황 알림 간격',
+        get: d => d?.report?.hourly_interval_hours, parse: v => parseInt(v, 10), fmt: v => `${v}시간`,
+    },
+    time_sync_interval_hours: {
+        id: 'settings-timesync-interval', label: '시계 동기화 간격',
+        get: d => d?.system?.time_sync_interval_hours, parse: v => parseInt(v, 10), fmt: v => `${v}시간`,
+    },
+    auto_rebase_interval_minutes: {
+        id: 'settings-auto-rebase-interval', label: '자동 시작가 트레일링 간격',
+        get: d => d?.strategy?.auto_rebase_interval_minutes, parse: v => parseInt(v, 10), fmt: v => `${v}분`,
+    },
+    membership: {
+        id: 'settings-membership', label: '멤버십 등급',
+        get: d => d?.exchange?.membership, parse: v => String(v || ''), fmt: v => String(v || '-'),
+    },
+    fee_rate: {
+        id: 'settings-fee-rate', label: '거래 수수료율',
+        get: d => d?.exchange?.fee_rate, parse: v => parseFloat(v), fmt: v => `${v}%`,
+    },
+    ip_whitelist: {
+        id: 'settings-ip-whitelist', label: 'IP 화이트리스트', allowEmpty: true,
+        get: d => (d?.security?.ip_whitelist || []).join(', '),
+        parse: v => String(v ?? '').split(',').map(x => x.trim()).filter(Boolean).join(', '),
+        fmt: v => (v ? v : '전체 허용'),
+    },
+};
+
+// 지정한 항목들 중 실제로 바뀐 것만 모은다 → { payload, changes }
+function _collectSettings(keys) {
+    const payload = {};
+    const changes = [];
+    for (const key of keys) {
+        const spec = SETTINGS_SPECS[key];
+        const el   = document.getElementById(spec.id);
+        if (!el) continue;
+
+        if (spec.secret) {
+            const v = (el.value || '').trim();
+            if (!v) continue;                       // 미입력 = 변경 없음
+            payload[key] = v;
+            changes.push([spec.label, '기존 값', '새 값']);  // 값 자체는 표시하지 않음
+            continue;
+        }
+        const raw = spec.bool ? el.checked : el.value;
+        // 빈 칸은 "변경 없음"으로 본다 — 단 allowEmpty 항목(화이트리스트)은
+        // 비우는 것 자체가 유의미한 변경(전체 허용)이라 그대로 진행한다.
+        if (!spec.bool && !spec.allowEmpty && String(raw).trim() === '') continue;
+        const next = spec.parse(raw);
+        if (typeof next === 'number' && Number.isNaN(next)) continue;
+        const prev = spec.parse(spec.get(_settingsData));
+        if (String(prev) === String(next)) continue;
+        payload[key] = next;
+        changes.push([spec.label, spec.fmt(prev), spec.fmt(next)]);
+    }
+    return { payload, changes };
+}
+
+// 설정 그룹 저장 공통 흐름: 변경 판정 → 확인 팝업 → 저장
+function _saveSettingsGroup(title, keys, { note = '', after = null } = {}) {
+    if (!_settingsData) {
+        _showAlert('설정을 불러오는 중입니다. 잠시 후 다시 시도해주세요.', 'warning');
+        return;
+    }
+    const { payload, changes } = _collectSettings(keys);
+    if (changes.length === 0) {
+        _showAlert('변경된 항목이 없습니다.', 'info');
+        return;
+    }
+    _confirmThen({
+        title,
+        body: `아래 항목을 변경합니다.\n\n${_changeLines(changes)}${note ? `\n\n${note}` : ''}`,
+        onOk: async () => {
+            const ok = await _saveSettings(payload);
+            if (ok && after) after(payload);
+        },
+    });
+}
+
 function _initSettingsPage() {
     // 비밀번호 표시/숨기기 토글 (이벤트 위임)
     document.addEventListener('click', e => {
@@ -2543,64 +2848,57 @@ function _initSettingsPage() {
         btn.classList.toggle('cs-pwd-active', !showing);
     });
 
-    document.getElementById('settings-exchange-save')
-        ?.addEventListener('click', () => _saveSettings({
-            access_key: document.getElementById('settings-access-key')?.value,
-            secret_key: document.getElementById('settings-secret-key')?.value,
+    _onClickBusy('settings-exchange-save', () => _saveSettingsGroup(
+        '거래소 API 키 변경', ['access_key', 'secret_key'],
+        { note: '변경 후 앱을 재시작해야 적용됩니다.' }));
+
+    _onClickBusy('settings-telegram-save', () => _saveSettingsGroup(
+        '텔레그램 설정 변경', ['bot_token', 'chat_id'],
+        { note: 'Bot Token 변경은 앱 재시작 후 적용됩니다.' }));
+
+    _onClickBusy('settings-telegram-test', _testTelegram);
+
+    _onClickBusy('settings-strategy-save', () => _saveSettingsGroup(
+        '매매 공통 설정 변경', ['order_timeout', 'price_poll_interval']));
+
+    _onClickBusy('settings-report-save', () => _saveSettingsGroup(
+        '일일 리포트 시각 변경', ['report_hour', 'report_minute']));
+
+    _onClickBusy('settings-system-save', () => _saveSettingsGroup(
+        '알림·시스템 주기 변경',
+        ['hourly_enabled', 'hourly_interval_hours', 'time_sync_interval_hours',
+         'auto_rebase_interval_minutes']));
+
+    _onClickBusy('settings-security-save', () => _saveSettingsGroup(
+        '접근 보안 설정 변경', ['web_password', 'ip_whitelist'],
+        {
+            note: '비밀번호를 변경하면 다른 기기의 기존 로그인 세션이 모두 해제됩니다.',
+            after: () => {
+                const pwdEl = document.getElementById('settings-web-password');
+                if (pwdEl) pwdEl.value = '';
+            },
         }));
 
-    document.getElementById('settings-telegram-save')
-        ?.addEventListener('click', () => _saveSettings({
-            bot_token: document.getElementById('settings-tg-token')?.value,
-            chat_id:   document.getElementById('settings-tg-chat-id')?.value,
+    _onClickBusy('settings-membership-save', () => _saveSettingsGroup(
+        '멤버십 등급 변경', ['membership'],
+        {
+            note: '이번 달 1일부터 적용되며, 지난 달까지의 손익 기록은 그대로 유지됩니다.',
+            after: (payload) => {
+                _applyTierColor(payload.membership);
+                _membershipHistoryLoaded = false;
+                _fetchMembershipHistory();
+            },
         }));
 
-    document.getElementById('settings-telegram-test')
-        ?.addEventListener('click', _testTelegram);
-
-    document.getElementById('settings-strategy-save')
-        ?.addEventListener('click', () => _saveSettings({
-            order_timeout:       document.getElementById('settings-order-timeout')?.value,
-            price_poll_interval: document.getElementById('settings-poll-interval')?.value,
+    _onClickBusy('settings-fee-rate-save', () => _saveSettingsGroup(
+        '거래 수수료율 변경', ['fee_rate'],
+        {
+            note: '오늘 날짜부터 적용되며, 과거 거래의 손익은 그 당시 요율로 계속 계산됩니다.',
+            after: () => {
+                _feeRateHistoryLoaded = false;
+                _fetchFeeRateHistory();
+            },
         }));
-
-    document.getElementById('settings-report-save')
-        ?.addEventListener('click', () => _saveSettings({
-            report_hour:   document.getElementById('settings-report-hour')?.value,
-            report_minute: document.getElementById('settings-report-minute')?.value,
-        }));
-
-    document.getElementById('settings-system-save')
-        ?.addEventListener('click', () => _saveSettings({
-            hourly_enabled:           document.getElementById('settings-hourly-enabled')?.checked,
-            hourly_interval_hours:    document.getElementById('settings-hourly-interval')?.value,
-            time_sync_interval_hours: document.getElementById('settings-timesync-interval')?.value,
-            auto_rebase_interval_minutes: document.getElementById('settings-auto-rebase-interval')?.value,
-        }));
-
-    document.getElementById('settings-security-save')
-        ?.addEventListener('click', _saveSecurity);
-
-    document.getElementById('settings-membership-save')
-        ?.addEventListener('click', async () => {
-            const membership = document.getElementById('settings-membership')?.value;
-            if (!membership) return;
-            await _saveSettings({ membership });
-            _applyTierColor(membership);
-            _settingsLoaded = false;  // 다음 탭 진입 시 재로드
-            _membershipHistoryLoaded = false;
-            _fetchMembershipHistory();
-        });
-
-    document.getElementById('settings-fee-rate-save')
-        ?.addEventListener('click', async () => {
-            const feeRate = parseFloat(document.getElementById('settings-fee-rate')?.value);
-            if (isNaN(feeRate)) return;
-            await _saveSettings({ fee_rate: feeRate });
-            _settingsLoaded = false;
-            _feeRateHistoryLoaded = false;
-            _fetchFeeRateHistory();
-        });
 }
 
 function _applyTierColor(name) {
@@ -2634,6 +2932,7 @@ function _initTier() {
     // 2) 서버 권위값으로 갱신 (탭 진입 여부와 무관)
     _fetchJson('/api/settings')
         .then(data => {
+            if (!_settingsData) _settingsData = data;
             const m = data?.exchange?.membership;
             if (m) _applyTierColor(m);
         })
@@ -2644,6 +2943,7 @@ async function _fetchSettings() {
     if (_settingsLoaded) return;
     try {
         const data = await _fetchJson('/api/settings');
+        _settingsData = data;   // 저장 시 "바뀐 항목"을 가려내기 위한 기준값
 
         // 서버 접속 주소
         const ip   = data.server?.ip   || location.hostname;
@@ -2746,19 +3046,16 @@ function _setNumVal(id, val) {
     if (el && val !== undefined && val !== null) el.value = val;
 }
 
+// 변경된 항목만 담긴 payload를 저장한다. 성공 여부를 돌려준다.
 async function _saveSettings(body) {
-    const filtered = {};
-    for (const [k, v] of Object.entries(body)) {
-        if (v !== '' && v !== null && v !== undefined) filtered[k] = v;
-    }
-    if (Object.keys(filtered).length === 0) {
-        _showAlert('변경된 항목이 없습니다.', 'warning');
-        return;
+    if (!body || Object.keys(body).length === 0) {
+        _showAlert('변경된 항목이 없습니다.', 'info');
+        return false;
     }
     try {
         const resp = await _apiFetch('/api/settings', {
             method:  'POST',
-            body:    JSON.stringify(filtered),
+            body:    JSON.stringify(body),
         });
         const data = await resp.json();
         _showAlert(data.message, data.ok ? (data.needs_restart ? 'warning' : 'success') : 'danger');
@@ -2766,29 +3063,11 @@ async function _saveSettings(body) {
             _settingsLoaded = false;
             await _fetchSettings();
         }
-    } catch { _showAlert('저장 중 오류가 발생했습니다.', 'danger'); }
-}
-
-async function _saveSecurity() {
-    const pwd = document.getElementById('settings-web-password')?.value ?? '';
-    const wl  = document.getElementById('settings-ip-whitelist')?.value ?? '';
-    // ip_whitelist 는 항상 전송(빈 값=전체허용), 비밀번호는 입력 시에만 전송(미입력=변경없음)
-    const body = { ip_whitelist: wl };
-    if (pwd) body.web_password = pwd;
-    try {
-        const resp = await _apiFetch('/api/settings', {
-            method:  'POST',
-            body:    JSON.stringify(body),
-        });
-        const data = await resp.json();
-        _showAlert(data.message, data.ok ? 'success' : 'danger');
-        if (data.ok) {
-            const pwdEl = document.getElementById('settings-web-password');
-            if (pwdEl) pwdEl.value = '';
-            _settingsLoaded = false;
-            await _fetchSettings();
-        }
-    } catch { _showAlert('보안 설정 저장 중 오류가 발생했습니다.', 'danger'); }
+        return !!data.ok;
+    } catch {
+        _showAlert('저장 중 오류가 발생했습니다.', 'danger');
+        return false;
+    }
 }
 
 async function _testTelegram() {
@@ -2797,4 +3076,81 @@ async function _testTelegram() {
         const data = await resp.json();
         _showAlert(data.message, data.ok ? 'success' : 'danger');
     } catch { _showAlert('전송 중 오류가 발생했습니다.', 'danger'); }
+}
+
+// ── 당겨서 새로고침 (모바일) ──────────────────────────────────────────────────
+// 스크롤 컨테이너(#cs-main)가 최상단일 때 아래로 당기면 페이지를 새로고침한다.
+// 폰에서는 주소창이 없거나(홈화면 바로가기/standalone) 접기 쉬워서 새로고침
+// 수단이 사실상 없었다. 탭 상태는 sessionStorage에 남아 있어 그대로 복원된다.
+const PTR_TRIGGER = 70;   // px — 이 이상 당기면 새로고침
+const PTR_MAX     = 110;  // px — 표시기가 더 내려가지 않는 한계
+
+function _initPullToRefresh() {
+    const scroller = document.getElementById('cs-main');
+    if (!scroller || !('ontouchstart' in window)) return;
+
+    const ind = document.createElement('div');
+    ind.className = 'cs-ptr';
+    ind.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+        'stroke-linecap="round" stroke-linejoin="round">' +
+        '<polyline points="19 12 12 19 5 12"/><line x1="12" y1="5" x2="12" y2="19"/></svg>';
+    document.body.appendChild(ind);
+
+    let startY = 0, startX = 0, pulling = false, locked = false, dist = 0;
+
+    const place = (d, animate) => {
+        ind.classList.toggle('cs-ptr-animating', !!animate);
+        const shown = Math.min(d, PTR_MAX);
+        ind.style.transform = `translateY(${shown - 48}px) rotate(${Math.min(180, d / PTR_TRIGGER * 180)}deg)`;
+        ind.style.opacity = String(Math.min(1, d / PTR_TRIGGER));
+    };
+
+    const reset = () => {
+        pulling = false;
+        dist = 0;
+        ind.classList.remove('cs-ptr-spinning');
+        ind.classList.add('cs-ptr-animating');
+        ind.style.transform = 'translateY(-48px)';
+        ind.style.opacity = '0';
+    };
+
+    scroller.addEventListener('touchstart', e => {
+        if (locked || e.touches.length !== 1) return;
+        // 모달이 열려 있으면 개입하지 않는다
+        if (document.querySelector('.modal.show')) return;
+        if (scroller.scrollTop > 0) return;
+        startY = e.touches[0].clientY;
+        startX = e.touches[0].clientX;
+        pulling = true;
+        dist = 0;
+    }, { passive: true });
+
+    scroller.addEventListener('touchmove', e => {
+        if (!pulling || locked) return;
+        const dy = e.touches[0].clientY - startY;
+        const dx = Math.abs(e.touches[0].clientX - startX);
+        // 가로 스와이프(차트/표 가로스크롤)거나 위로 올리는 중이면 제스처를 넘긴다
+        if (dy <= 0 || dx > Math.abs(dy)) { if (dist === 0) pulling = false; return; }
+        if (scroller.scrollTop > 0) { reset(); return; }
+        dist = dy * 0.5;   // 고무줄 느낌 — 실제 이동량의 절반만 반영
+        if (dist > 6 && e.cancelable) e.preventDefault();
+        place(dist, false);
+    }, { passive: false });
+
+    const finish = () => {
+        if (!pulling || locked) { pulling = false; return; }
+        if (dist >= PTR_TRIGGER) {
+            locked = true;
+            ind.classList.add('cs-ptr-animating', 'cs-ptr-spinning');
+            ind.style.transform = 'translateY(22px)';
+            ind.style.opacity = '1';
+            location.reload();
+            return;
+        }
+        reset();
+    };
+
+    scroller.addEventListener('touchend',    finish, { passive: true });
+    scroller.addEventListener('touchcancel', reset,  { passive: true });
 }

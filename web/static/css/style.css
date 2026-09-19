@@ -53,7 +53,43 @@
 /* ── 리셋 & 기본 ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* 모바일에서 첫 탭이 먹지 않는 원인 중 하나가 브라우저의 '더블탭 확대' 대기다.
+   touch-action: manipulation 을 주면 확대 제스처 판정을 기다리지 않고 즉시
+   click 이 발생한다. 조작 가능한 요소 전체에 일괄 적용한다. */
+button, a, label, select, summary,
+input[type="checkbox"], input[type="radio"],
+.cs-btn, .cs-chip, .cs-nav-item, .cs-mode-btn, .cs-home-tab, .cs-switch {
+  touch-action: manipulation;
+}
+
+/* 요청이 끝날 때까지 버튼을 잠그고 진행 중임을 보여준다 — 응답이 느릴 때
+   사용자가 같은 버튼을 연타해 중복 요청이 나가는 것을 막는다. */
+.is-busy {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.6;
+  cursor: progress;
+}
+.is-busy::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: cs-spin 0.6s linear infinite;
+}
+@keyframes cs-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .is-busy::after { animation-duration: 2s; }
+}
+
 body {
+  overscroll-behavior-y: none;
   background: var(--cs-outer);
   color: var(--cs-text);
   font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -83,6 +119,10 @@ body {
   height: calc(100dvh - var(--cs-nav-h));
   overflow-y: auto;
   overflow-x: hidden;
+  /* 브라우저 기본 당겨서 새로고침/바운스와 충돌하지 않도록 스크롤 체이닝 차단
+     — 자체 구현한 당겨서 새로고침(cs-ptr)이 제스처를 전담한다. */
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   background: var(--cs-bg);
   box-shadow: var(--cs-shadow-md);
 }
@@ -97,6 +137,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;                /* 등급 뱃지와 갱신시각이 맞닿지 않도록 */
   padding: 19px 16px 12px;  /* 16px + 3px for tier line */
   border-bottom: 1px solid var(--cs-border);
 }
@@ -116,6 +157,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -135,8 +177,23 @@ body {
 .cs-last-updated {
   font-size: 13px;
   color: var(--cs-muted);
-  flex-shrink: 0;
+  flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* 좁은 화면(폰)에서는 제목/뱃지/갱신시각을 한 줄에 담기 위해 한 단계씩 줄인다.
+   이 축소가 없으면 등급 뱃지와 갱신시각이 서로 겹쳐 보인다. */
+@media (max-width: 430px) {
+  .cs-page-header { padding-left: 14px; padding-right: 14px; gap: 8px; }
+  .cs-page-title  { font-size: 19px; }
+  .cs-tier-badge  { font-size: 11px; padding: 2px 8px; margin-left: 5px; gap: 4px; }
+  .cs-tier-badge::before { width: 6px; height: 6px; }
+  .cs-last-updated { font-size: 11px; }
+}
+@media (max-width: 360px) {
+  .cs-page-title   { font-size: 17px; }
+  .cs-logo-img     { height: 20px; }
+  .cs-last-updated { font-size: 10px; }
 }
 
 /* ── 하단 네비게이션 ─────────────────────────────────────────────────────── */
@@ -1514,6 +1571,9 @@ body {
 }
 .cs-preset-add-btn:hover { color: var(--cs-accent); border-color: var(--cs-accent); }
 
+/* 확인 모달 본문은 줄바꿈을 그대로 살린다 — 변경 내역을 한 줄에 하나씩 보여준다 */
+#modalBody { white-space: pre-line; }
+
 /* ── 확인 모달: 민감 작업 재인증(비밀번호) ──────────────────────────────── */
 .cs-confirm-reauth {
   padding: 0 20px 14px;
@@ -1524,3 +1584,39 @@ body {
 .cs-confirm-reauth-label { font-size: 13px; color: var(--cs-muted); font-weight: 600; }
 .cs-confirm-reauth #confirm-reauth-input,
 .cs-confirm-reauth input.cs-settings-input { width: 100%; }
+
+/* ── 모바일 터치 영역 보정 ───────────────────────────────────────────────── */
+/* 13~14px 짜리 작은 버튼은 손가락으로 정확히 누르기 어려워 '안 눌렸다'고
+   느끼기 쉽다. 폰 화면에서는 최소 높이를 확보한다(레이아웃은 그대로). */
+@media (max-width: 430px) {
+  .cs-btn { min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
+  .cs-btn-sm { min-height: 36px; }
+  .cs-chip, .cs-mode-btn, .cs-home-tab { min-height: 36px; }
+}
+
+/* ── 당겨서 새로고침 (모바일) ────────────────────────────────────────────── */
+/* 스크롤 컨테이너(#cs-main) 최상단에서 아래로 당기면 나타나는 표시기.
+   상단 고정이라 내용 레이아웃에는 영향을 주지 않는다. */
+.cs-ptr {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-left: -18px;
+  border-radius: 50%;
+  background: var(--cs-card);
+  box-shadow: var(--cs-shadow-sm);
+  border: 1px solid var(--cs-border);
+  color: var(--cs-accent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-48px);
+}
+.cs-ptr.cs-ptr-animating { transition: transform 0.2s ease, opacity 0.2s ease; }
+.cs-ptr svg { width: 18px; height: 18px; }
+.cs-ptr.cs-ptr-spinning svg { animation: cs-spin 0.8s linear infinite; }

@@ -1121,42 +1121,52 @@ def save_strategy_settings():
         _log.info("[설정변경] %s 전략 설정 저장: %s", symbol,
                   {k: body[k] for k in allowed if k in body})
 
-        notifier = current_app.config.get("NOTIFIER")
-        if notifier:
-            changes: dict[str, tuple[str, str]] = {}
-            if "trigger_mode" in body:
-                _fmt_mode = lambda m: "고정금액(원)" if m == "krw" else "퍼센트(%)"
-                changes["트리거 방식"] = (_fmt_mode(old_pair.get("trigger_mode")), _fmt_mode(pair["trigger_mode"]))
-            if "trigger_krw" in body:
-                changes["매수 간격"] = (f"{int(old_pair.get('trigger_krw') or 0):,}원", f"{int(pair['trigger_krw']):,}원")
-            if "trigger_pct" in body:
-                changes["매수 간격"] = (f"{old_pair.get('trigger_pct', 0)}%", f"{pair['trigger_pct']}%")
-            if "trigger_krw_sell" in body:
-                old_v = int(old_pair.get("trigger_krw_sell") or 0)
-                new_v = int(pair["trigger_krw_sell"] or 0)
-                changes["매도 간격"] = (f"{old_v:,}원" if old_v else "매수와 동일",
-                                     f"{new_v:,}원" if new_v else "매수와 동일")
-            if "trigger_pct_sell" in body:
-                old_v = float(old_pair.get("trigger_pct_sell") or 0)
-                new_v = float(pair["trigger_pct_sell"] or 0)
-                changes["매도 간격"] = (f"{old_v}%" if old_v else "매수와 동일",
-                                     f"{new_v}%" if new_v else "매수와 동일")
-            if "auto_rebase_enabled" in body:
-                changes["자동 시작가 트레일링"] = ("사용" if old_pair.get("auto_rebase_enabled") else "중지",
-                                            "사용" if pair["auto_rebase_enabled"] else "중지")
-            if "max_rounds" in body:
-                changes["최대 차수"] = (f"{old_pair.get('max_rounds', 0)}차", f"{pair['max_rounds']}차")
-            if "order_amount" in body:
-                changes["1회 주문금액"] = (f"{int(old_pair.get('order_amount') or 0):,}원", f"{int(pair['order_amount']):,}원")
-            if start_price_raw is not None and float(start_price_raw) > 0:
-                changes["시작가"] = (f"{int(old_start_price):,}원", f"{int(float(start_price_raw)):,}원")
-            if changes:
-                try:
-                    notifier.send_strategy_settings_changed(symbol, changes)
-                except Exception as exc:
-                    _log.warning("전략 설정 변경 알림 실패: %s", exc)
+        # 값이 실제로 달라진 항목만 모은다 — 같은 값을 다시 저장했을 때
+        # "15,000원 → 15,000원" 같은 무의미한 텔레그램 알림이 가지 않도록.
+        changes: dict[str, tuple[str, str]] = {}
 
-        return jsonify({"ok": True, "message": start_price_note or "저장 완료"})
+        def _chg(label: str, before: str, after: str) -> None:
+            if before != after:
+                changes[label] = (before, after)
+
+        if "trigger_mode" in body:
+            _fmt_mode = lambda m: "고정금액(원)" if m == "krw" else "퍼센트(%)"
+            _chg("트리거 방식", _fmt_mode(old_pair.get("trigger_mode")), _fmt_mode(pair["trigger_mode"]))
+        if "trigger_krw" in body:
+            _chg("매수 간격", f"{int(old_pair.get('trigger_krw') or 0):,}원", f"{int(pair['trigger_krw']):,}원")
+        if "trigger_pct" in body:
+            _chg("매수 간격", f"{old_pair.get('trigger_pct', 0)}%", f"{pair['trigger_pct']}%")
+        if "trigger_krw_sell" in body:
+            old_v = int(old_pair.get("trigger_krw_sell") or 0)
+            new_v = int(pair["trigger_krw_sell"] or 0)
+            _chg("매도 간격", f"{old_v:,}원" if old_v else "매수와 동일",
+                 f"{new_v:,}원" if new_v else "매수와 동일")
+        if "trigger_pct_sell" in body:
+            old_v = float(old_pair.get("trigger_pct_sell") or 0)
+            new_v = float(pair["trigger_pct_sell"] or 0)
+            _chg("매도 간격", f"{old_v}%" if old_v else "매수와 동일",
+                 f"{new_v}%" if new_v else "매수와 동일")
+        if "auto_rebase_enabled" in body:
+            _chg("자동 시작가 트레일링", "사용" if old_pair.get("auto_rebase_enabled") else "중지",
+                 "사용" if pair["auto_rebase_enabled"] else "중지")
+        if "max_rounds" in body:
+            _chg("최대 차수", f"{old_pair.get('max_rounds', 0)}차", f"{pair['max_rounds']}차")
+        if "order_amount" in body:
+            _chg("1회 주문금액", f"{int(old_pair.get('order_amount') or 0):,}원", f"{int(pair['order_amount']):,}원")
+        if start_price_raw is not None and float(start_price_raw) > 0:
+            _chg("시작가", f"{int(old_start_price):,}원", f"{int(float(start_price_raw)):,}원")
+
+        notifier = current_app.config.get("NOTIFIER")
+        if notifier and changes:
+            try:
+                notifier.send_strategy_settings_changed(symbol, changes)
+            except Exception as exc:
+                _log.warning("전략 설정 변경 알림 실패: %s", exc)
+
+        if not changes:
+            return jsonify({"ok": True, "changed": False, "message": "변경된 항목이 없습니다."})
+        return jsonify({"ok": True, "changed": True,
+                        "message": start_price_note or "저장 완료"})
     except Exception as exc:
         _log.error("전략 설정 저장 오류: %s", exc)
         return jsonify({"ok": False, "message": str(exc)}), 500
@@ -1425,6 +1435,8 @@ def save_settings():
             val = (body.get(field) or "").strip()
             if not val:
                 continue
+            if val == (os.environ.get(env_key) or ""):
+                continue  # 같은 값 — 변경 아님(재시작 안내/알림 모두 생략)
             _dotenv_set_key(env_path, env_key, val)
             os.environ[env_key] = val
             section, attr = cfg_targets[field]
@@ -1436,7 +1448,9 @@ def save_settings():
         return jsonify({"ok": False, "message": f"env 저장 실패: {exc}"}), 500
 
     # ── 웹 접근 비밀번호 (.env WEB_PASSWORD) — 재시작 없이 즉시 적용 ──────────────
-    if "web_password" in body:
+    # 같은 비밀번호를 다시 저장하면 세션 지문(pw_fp)만 다시 계산돼 애꿎은
+    # 다른 기기 로그인이 끊기므로, 값이 실제로 달라진 경우에만 저장한다.
+    if "web_password" in body and (body.get("web_password") or "").strip() != (os.environ.get("WEB_PASSWORD") or ""):
         try:
             from dotenv import set_key as _dotenv_set_key
             pwd = (body.get("web_password") or "").strip()
@@ -1511,13 +1525,16 @@ def save_settings():
                 yaml.dump(raw, f, allow_unicode=True,
                           default_flow_style=False, sort_keys=False)
 
-            # 멤버십 등급 변경 이력 기록 — 손익 재계산 시 과거 등급을 소급 적용하지 않기 위함
-            if body.get("membership") is not None:
+            # 멤버십 등급 변경 이력 기록 — 손익 재계산 시 과거 등급을 소급 적용하지 않기 위함.
+            # 같은 등급을 다시 저장한 경우엔 이력을 남기지 않는다(무의미한 행 누적 방지).
+            if (body.get("membership") is not None
+                    and cfg["exchange"]["membership"] != old_yaml_vals["membership"]):
                 from database.membership_repo import record_membership_change
                 record_membership_change(cfg["exchange"]["membership"])
 
             # 수수료율 변경 이력 기록 — 손익 재계산 시 과거 거래에 소급 적용하지 않기 위함
-            if body.get("fee_rate") is not None:
+            if (body.get("fee_rate") is not None
+                    and float(cfg["exchange"]["fee_rate"]) != float(old_yaml_vals["fee_rate"])):
                 from database.fee_repo import record_fee_rate_change
                 record_fee_rate_change(cfg["exchange"]["fee_rate"])
 
@@ -1534,9 +1551,14 @@ def save_settings():
                 "fee_rate":                 ("거래 수수료율",         lambda v: f"{v}%"),
             }
             for field in yaml_fields:
-                if body.get(field) is not None:
-                    name, fmt = yaml_labels[field]
-                    changed.append(f"{name}: {fmt(old_yaml_vals[field])} → {fmt(cfg[yaml_fields[field][0]][yaml_fields[field][1]])}")
+                if body.get(field) is None:
+                    continue
+                name, fmt = yaml_labels[field]
+                section, key, _cast, _default = yaml_fields[field]
+                before, after = fmt(old_yaml_vals[field]), fmt(cfg[section][key])
+                if before == after:
+                    continue  # 같은 값 재저장 — 변경 알림에서 제외
+                changed.append(f"{name}: {before} → {after}")
         except Exception as exc:
             _log.error("yaml 저장 오류: %s", exc)
             return jsonify({"ok": False, "message": f"yaml 저장 실패: {exc}"}), 500
@@ -1585,15 +1607,18 @@ def save_settings():
                         "message": f"잘못된 IP/CIDR 형식: {', '.join(invalid)}",
                     }), 400
 
+                old_wl = list(cfg["web"]["auth"].get("ip_whitelist", []) or [])
                 raw["web"]["auth"]["ip_whitelist"] = wl
                 cfg["web"]["auth"]["ip_whitelist"] = wl
-                changed.append(f"IP 화이트리스트: {old_wl_count}개 → {len(wl)}개")
+                if wl != old_wl:
+                    changed.append(f"IP 화이트리스트: {old_wl_count}개 → {len(wl)}개")
 
             if "auth_enabled" in body:
                 en = bool(body.get("auth_enabled"))
                 raw["web"]["auth"]["enabled"] = en
                 cfg["web"]["auth"]["enabled"] = en
-                changed.append(f"접근 보안 사용: {'ON' if old_auth_enabled else 'OFF'} → {'ON' if en else 'OFF'}")
+                if en != old_auth_enabled:
+                    changed.append(f"접근 보안 사용: {'ON' if old_auth_enabled else 'OFF'} → {'ON' if en else 'OFF'}")
 
             with open(yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(raw, f, allow_unicode=True,
@@ -1602,20 +1627,25 @@ def save_settings():
             _log.error("웹 보안 설정 저장 오류: %s", exc)
             return jsonify({"ok": False, "message": f"보안 설정 저장 실패: {exc}"}), 500
 
+    if not changed:
+        # 같은 값을 다시 저장한 경우 — 텔레그램 알림도 보내지 않는다
+        return jsonify({"ok": True, "changed": False, "needs_restart": False,
+                        "message": "변경된 항목이 없습니다."})
+
     msg = "저장 완료"
     if needs_restart:
         msg += " — API 키/토큰 변경은 앱 재시작 후 적용됩니다"
     _log.info("[설정변경] 시스템 설정 저장 (재시작필요=%s)", needs_restart)
 
-    if changed:
-        notifier = current_app.config.get("NOTIFIER")
-        if notifier:
-            try:
-                notifier.send_system_settings_changed(changed)
-            except Exception as exc:
-                _log.warning("시스템 설정 변경 알림 실패: %s", exc)
+    notifier = current_app.config.get("NOTIFIER")
+    if notifier:
+        try:
+            notifier.send_system_settings_changed(changed)
+        except Exception as exc:
+            _log.warning("시스템 설정 변경 알림 실패: %s", exc)
 
-    return jsonify({"ok": True, "message": msg, "needs_restart": needs_restart})
+    return jsonify({"ok": True, "changed": True, "message": msg,
+                    "needs_restart": needs_restart})
 
 
 @api_bp.route("/settings/telegram/test", methods=["POST"])
