@@ -419,6 +419,16 @@ system:
 하단 네비 4탭 구조 — 각 탭이 하나의 작업(job)에 대응하도록 재설계됨
 (2026-07-09 IA 재설계). 서브탭 없는 탭은 별도 표기 없음.
 
+> **탭별 주소 (2026-10-27)**: `/home`, `/strategy`, `/trades`(요약), `/trades/fills|pnl|assets`,
+> `/settings`. 화면은 여전히 **한 페이지(SPA)**이고 탭 전환 시 `history.pushState`로
+> 주소만 바꾼다(재로딩 없음 — ZeroTier 경유라 페이지 이동식(MPA)은 느려서 채택 안 함).
+> 서버(`web/routes/dashboard.py`)는 이 경로들에 같은 `dashboard.html`을 주고,
+> `dashboard.js`의 `_parseRoute()`가 주소를 읽어 탭을 연다. 뒤로가기는 `popstate`
+> → `_applyRoute()`. `/`로 들어오면 예전처럼 sessionStorage의 마지막 탭을 복원한다
+> (`manifest.json` `start_url: "/"` 유지). 탭/서브탭을 추가하면 `PAGES`/`TRADES_TABS`
+> (JS)와 `_TRADES_TABS`·라우트(서버)를 함께 갱신할 것. 경로는 깊어질 수 있으므로
+> 템플릿/JS의 URL은 반드시 `/`로 시작하는 절대경로나 `url_for`로 쓸 것.
+
 ### 홈 — 운영 현황 (모니터링 + 제어, 서브탭 없음)
 - 상단 KPI 스트립: 오늘 매수금액 / 오늘 매도금액 / 오늘 총손익
 - 전체 가동/중지 바 (ON 종목만 대상, 종목별 전체제어 ON/OFF 토글)
@@ -658,6 +668,24 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 - Windows 호환성 유지 (클라우드 PC 환경)
 - 봇 재시작 시 DB에서 이전 상태(기준가/차수) 자동 복구
 - 코드 커밋 후 반드시 git push까지 완료 (클라우드 PC에서 pull로 반영)
+
+### ★ 코드 변경 후 "클라우드PC 반영 방법" 반드시 안내
+코드를 수정했으면 작업 마무리 답변 끝에 **아래 3단계 중 무엇이 필요한지** 한 줄로
+명확히 알려줄 것(근거가 된 변경 파일 종류도 함께). 여러 개에 걸치면 가장 높은 단계 기준.
+사용자는 이 안내를 보고 전략 재가동 수고를 감수할지 판단한다.
+
+| 단계 | 언제 | 클라우드PC에서 할 일 | 전략 재가동 |
+|---|---|---|---|
+| **① pull만** | 정적 파일만 변경: `web/static/**`(js/css/이미지/manifest) | `git pull` → 브라우저 새로고침 | **불필요** (봇 계속 가동) |
+| **② 프로세스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `git pull` → 관리자 PowerShell에서 `Stop-Process -Name pythonw -Force` → `schtasks /run /tn "CryptoSplit"` | **필요** — 재시작 시 전 종목 중지 상태로 올라옴(자동 시작 금지 원칙). 텔레그램 `/resumeall` 또는 웹 홈 [전체 가동]으로 DB 상태 그대로 이어서 시작 |
+| **③ 서비스 재설치** | `install_service.ps1`/`run_service.bat` 생성 로직 변경, 프로젝트 폴더 이동, Python 재설치·경로 변경 | `uninstall_service.bat` → `install_service.bat` (둘 다 관리자 실행) | **필요** (②와 동일) |
+
+- `requirements.txt`가 바뀌면 ②/③ 전에 `pip install -r requirements.txt`도 안내할 것.
+- "git pull 후 `main.py`만 실행"은 **선택지가 아니다** — 서비스 프로세스가 살아 있으면
+  단일 인스턴스 잠금(`utils/single_instance.py`) 때문에 새 실행이 즉시 종료되고 옛 코드가 계속 돈다.
+- `schtasks /end`만으로는 자식 python 프로세스가 남을 수 있으므로 `Stop-Process`로 끈다.
+- 가능하면 ② 이상이 필요한 변경과 ①로 충분한 변경을 커밋 단위로 나눠, 프론트만 고친
+  경우 전략 재가동 없이 반영할 수 있게 한다.
 
 ### 클릭이 한 번에 안 먹던 문제 — 원인과 대응 (2026-09-19)
 버튼을 한 번 눌러서는 반응이 없고 두세 번 눌러야 동작하는 증상(특히 모바일)의
