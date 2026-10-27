@@ -263,32 +263,22 @@ document.addEventListener('DOMContentLoaded', () => {
     _initSettingsPage();
     _initTier();
 
-    // F5 새로고침 후 이전 탭 상태 복원
-    const _savedPage      = sessionStorage.getItem('cs-page')       || 'home';
-    const _savedTradesTab = sessionStorage.getItem('cs-trades-tab') || 'summary';
+    // 첫 화면: 주소(/strategy 등)가 우선. 루트('/')로 들어왔을 때만 이 브라우저 탭에서
+    // 마지막으로 보던 화면(sessionStorage)을 복원한다 — 예전 즐겨찾기·홈화면 바로가기 호환.
+    const _route = _parseRoute(location.pathname) || {
+        page: PAGES.includes(sessionStorage.getItem('cs-page')) ? sessionStorage.getItem('cs-page') : 'home',
+        sub:  TRADES_TABS.includes(sessionStorage.getItem('cs-trades-tab')) ? sessionStorage.getItem('cs-trades-tab') : 'summary',
+    };
+    if (_route.page === 'trades' && _route.sub) _switchTradesTab(_route.sub, false, false);
+    _switchPage(_route.page, false, false);
+    // 현재 화면을 기록(뒤로가기 기준점). 루트 홈은 '/' 그대로 둔다.
+    const _initUrl = (location.pathname === '/' && _activePage === 'home')
+        ? '/' : _routeUrl(_activePage, _tradesActiveSubTab);
+    history.replaceState(_routeState(), '', _initUrl + location.search);
 
-    if (_savedPage !== 'home') {
-        _activePage = _savedPage;
-        document.querySelectorAll('.cs-page').forEach(el =>
-            el.classList.toggle('active', el.id === `page-${_activePage}`));
-        document.querySelectorAll('.cs-nav-item').forEach(el =>
-            el.classList.toggle('active', el.dataset.page === _activePage));
-    }
-
-    if (_activePage === 'trades' && _savedTradesTab !== 'summary') {
-        _tradesActiveSubTab = _savedTradesTab;
-        document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(b =>
-            b.classList.toggle('active', b.dataset.tradesTab === _savedTradesTab));
-        document.querySelectorAll('.cs-trades-panel').forEach(p =>
-            p.classList.toggle('active', p.id === `trades-tab-${_savedTradesTab}`));
-        const filterWrap = document.getElementById('trades-filter-wrap');
-        if (filterWrap) filterWrap.style.display =
-            (_savedTradesTab === 'fills' || _savedTradesTab === 'pnl') ? '' : 'none';
-        if (_savedTradesTab === 'assets' && !_assetHistoryLoaded) {
-            _assetHistoryLoaded = true;
-            _fetchAssetHistory();
-        }
-    }
+    window.addEventListener('popstate', (e) => {
+        _applyRoute(e.state || _parseRoute(location.pathname));
+    });
 
     _startPolling();
 
@@ -310,7 +300,9 @@ function _initBottomNav() {
     });
 }
 
-function _switchPage(page) {
+// push=false: 뒤로/앞으로(popstate) 처리 중 — 주소는 브라우저가 이미 바꿔놨다
+// restart=false: 첫 진입 시 — 폴링은 초기화 끝에 한 번만 시작한다
+function _switchPage(page, push = true, restart = true) {
     if (page === _activePage) return;
     _activePage = page;
     sessionStorage.setItem('cs-page', page);
@@ -320,7 +312,72 @@ function _switchPage(page) {
     document.querySelectorAll('.cs-nav-item').forEach(el =>
         el.classList.toggle('active', el.dataset.page === page)
     );
-    _restartPolling();
+    if (push) _pushRoute();
+    if (restart) _restartPolling();
+}
+
+function _switchTradesTab(tab, push = true, restart = true) {
+    if (tab === _tradesActiveSubTab) return;
+    const leavingListTab = _tradesActiveSubTab === 'fills' || _tradesActiveSubTab === 'pnl';
+    _tradesActiveSubTab = tab;
+    sessionStorage.setItem('cs-trades-tab', tab);
+    document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(b =>
+        b.classList.toggle('active', b.dataset.tradesTab === tab));
+    document.querySelectorAll('.cs-trades-panel').forEach(p =>
+        p.classList.toggle('active', p.id === `trades-tab-${tab}`));
+    const filterWrap = document.getElementById('trades-filter-wrap');
+    const isListTab  = tab === 'fills' || tab === 'pnl';
+    if (filterWrap) filterWrap.style.display = isListTab ? '' : 'none';
+    if (leavingListTab && !isListTab && _tradesDeleteMode) _toggleDeleteMode();
+    if (tab === 'assets' && !_assetHistoryLoaded) {
+        _assetHistoryLoaded = true;
+        _fetchAssetHistory();
+    }
+    if (push) _pushRoute();
+    if (restart) _restartPolling();
+}
+
+// ── 주소(경로) ↔ 탭 ──────────────────────────────────────────────────────────
+// 탭마다 /home, /strategy, /trades/<서브탭>, /settings 주소를 갖는다. 화면은 한 페이지라
+// 탭 전환은 지금처럼 즉시 일어나고 주소만 바뀐다 — 즐겨찾기/주소 직접 입력/뒤로가기가
+// 탭 단위로 동작한다. 서버 쪽 경로는 web/routes/dashboard.py.
+
+const PAGES       = ['home', 'strategy', 'trades', 'settings'];
+const TRADES_TABS = ['summary', 'fills', 'pnl', 'assets'];
+
+function _routeUrl(page, sub) {
+    if (page === 'trades' && sub && sub !== 'summary') return `/trades/${sub}`;
+    return `/${page}`;
+}
+
+// 경로를 {page, sub}로 — 루트('/')나 모르는 경로는 null
+function _parseRoute(path) {
+    const parts = path.split('/').filter(Boolean);
+    if (!PAGES.includes(parts[0])) return null;
+    const sub = parts[0] === 'trades'
+        ? (TRADES_TABS.includes(parts[1]) ? parts[1] : 'summary')
+        : null;
+    return { page: parts[0], sub };
+}
+
+function _routeState() {
+    return { page: _activePage, sub: _tradesActiveSubTab };
+}
+
+function _pushRoute() {
+    const url = _routeUrl(_activePage, _tradesActiveSubTab);
+    const cur = location.pathname === '/' ? '/home' : location.pathname;
+    if (cur !== url) history.pushState(_routeState(), '', url);
+}
+
+// 뒤로/앞으로 — 주소에 맞춰 탭만 바꾸고 기록은 남기지 않는다
+function _applyRoute(route) {
+    if (!route) route = { page: 'home', sub: null };
+    const pageChanged = route.page !== _activePage;
+    if (route.page === 'trades' && route.sub) {
+        _switchTradesTab(route.sub, false, !pageChanged);
+    }
+    _switchPage(route.page, false);
 }
 
 // ── 폴링 ──────────────────────────────────────────────────────────────────────
@@ -2075,26 +2132,7 @@ function _initTradesPage() {
     });
 
     document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const tab = btn.dataset.tradesTab;
-            if (tab === _tradesActiveSubTab) return;
-            const leavingListTab = _tradesActiveSubTab === 'fills' || _tradesActiveSubTab === 'pnl';
-            _tradesActiveSubTab = tab;
-            sessionStorage.setItem('cs-trades-tab', tab);
-            document.querySelectorAll('#trades-sub-tabs .cs-home-tab').forEach(b =>
-                b.classList.toggle('active', b.dataset.tradesTab === tab));
-            document.querySelectorAll('.cs-trades-panel').forEach(p =>
-                p.classList.toggle('active', p.id === `trades-tab-${tab}`));
-            const filterWrap = document.getElementById('trades-filter-wrap');
-            const isListTab  = tab === 'fills' || tab === 'pnl';
-            if (filterWrap) filterWrap.style.display = isListTab ? '' : 'none';
-            if (leavingListTab && !isListTab && _tradesDeleteMode) _toggleDeleteMode();
-            if (tab === 'assets' && !_assetHistoryLoaded) {
-                _assetHistoryLoaded = true;
-                _fetchAssetHistory();
-            }
-            _restartPolling();
-        });
+        btn.addEventListener('click', () => _switchTradesTab(btn.dataset.tradesTab));
     });
 
     document.getElementById('trades-search-btn')?.addEventListener('click', () => {

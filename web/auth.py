@@ -304,8 +304,8 @@ def login():
             session["pw_fp"] = _pw_fingerprint()
             _log.info("웹 로그인 성공: %s", remote)
             nxt = request.args.get("next") or "/"
-            # 오픈 리다이렉트 방지 — 내부 경로만 허용
-            if not nxt.startswith("/"):
+            # 오픈 리다이렉트 방지 — 내부 경로만 허용 ("//host", "/\host"는 외부 주소로 해석됨)
+            if not nxt.startswith("/") or nxt.startswith(("//", "/\\")):
                 nxt = "/"
             return redirect(nxt)
         _login_record_fail(remote)
