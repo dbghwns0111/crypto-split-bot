@@ -11,6 +11,8 @@ import os
 import signal
 import sys
 
+from werkzeug.serving import WSGIRequestHandler
+
 from bot_manager import BotManager
 from config.loader import get_config
 from database.connection import backup_database, check_integrity, close_connection
@@ -101,6 +103,17 @@ def _suppress_poll_routes() -> None:
     logging.getLogger("werkzeug").addFilter(_AccessLogFilter())
 
 
+class _KeepAliveHandler(WSGIRequestHandler):
+    """HTTP/1.1 keep-alive 요청 핸들러.
+
+    기본값(HTTP/1.0)은 요청마다 TCP 연결을 새로 맺는다. 대시보드는 ZeroTier 가상망을
+    거쳐 접속하고 몇 초마다 폴링하므로 매번의 연결 수립 지연이 그대로 체감 속도가 된다.
+    유휴 연결이 스레드를 계속 붙잡지 않도록 소켓 타임아웃을 둔다.
+    """
+    protocol_version = "HTTP/1.1"
+    timeout = 30
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="CryptoSplit 자동매매 봇")
     parser.add_argument("--port",  type=int,            help="웹 서버 포트 (기본: settings.yaml)")
@@ -184,7 +197,8 @@ def main() -> None:
     _log.info("웹 서버 시작: http://%s:%d", host, port)
 
     _suppress_poll_routes()
-    app.run(host=host, port=port, debug=args.debug, use_reloader=False)
+    app.run(host=host, port=port, debug=args.debug, use_reloader=False,
+            threaded=True, request_handler=_KeepAliveHandler)
 
 
 if __name__ == "__main__":

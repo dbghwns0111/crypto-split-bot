@@ -20,9 +20,12 @@ class BotManager:
         self._exchange = exchange
         self._cfg = cfg
         self._notifier = notifier
-        self._lock = threading.Lock()
         self._bots: dict[str, MagicSplit] = {}
         self._init_bots()
+        # 종목별 락 — 한 종목의 시작/중지(캐치업 주문·미체결 취소 등 거래소 호출)가
+        # 오래 걸려도 다른 종목의 버튼 요청이 그 뒤에 줄 서서 기다리지 않게 한다.
+        # 종목끼리는 완전히 독립적으로 동작하므로 전역 락이 필요 없다.
+        self._locks: dict[str, threading.Lock] = {sym: threading.Lock() for sym in self._bots}
 
     # ── 초기화 ────────────────────────────────────────────────────────────────
 
@@ -47,9 +50,9 @@ class BotManager:
         Returns:
             (success: bool, message: str)
         """
-        with self._lock:
-            if symbol not in self._bots:
-                return False, f"알 수 없는 심볼: {symbol}"
+        if symbol not in self._bots:
+            return False, f"알 수 없는 심볼: {symbol}"
+        with self._locks[symbol]:
             bot = self._bots[symbol]
             if bot.is_running:
                 return False, f"{symbol} 봇이 이미 실행 중입니다."
@@ -95,9 +98,9 @@ class BotManager:
         Returns:
             (success: bool, message: str)
         """
-        with self._lock:
-            if symbol not in self._bots:
-                return False, f"알 수 없는 심볼: {symbol}"
+        if symbol not in self._bots:
+            return False, f"알 수 없는 심볼: {symbol}"
+        with self._locks[symbol]:
             bot = self._bots[symbol]
             if not bot.is_running:
                 return False, f"{symbol} 봇이 실행 중이 아닙니다."
@@ -124,9 +127,9 @@ class BotManager:
 
     def reset(self, symbol: str) -> tuple[bool, str]:
         """봇을 시작하지 않고 전략 상태(차수/기준가)만 초기화한다."""
-        with self._lock:
-            if symbol not in self._bots:
-                return False, f"알 수 없는 심볼: {symbol}"
+        if symbol not in self._bots:
+            return False, f"알 수 없는 심볼: {symbol}"
+        with self._locks[symbol]:
             bot = self._bots[symbol]
             if bot.is_running:
                 return False, f"{symbol} 봇이 실행 중입니다. 먼저 중지해주세요."
@@ -145,9 +148,9 @@ class BotManager:
         차수 0(매수 전)이면 즉시 반영, 이미 매수가 진행된 상태(>0)면 DB에만
         저장해두고 다음 0차 복귀 시 적용된다(MagicSplit.set_start_price 참고).
         """
-        with self._lock:
-            if symbol not in self._bots:
-                return False, f"알 수 없는 심볼: {symbol}"
+        if symbol not in self._bots:
+            return False, f"알 수 없는 심볼: {symbol}"
+        with self._locks[symbol]:
             bot = self._bots[symbol]
             applied = bot.set_start_price(price)
             if applied:
@@ -214,8 +217,8 @@ class BotManager:
         복구를 시도하고 [{symbol, recovered}] 목록을 반환한다 (이상 없으면 빈 목록).
         """
         results = []
-        with self._lock:
-            for sym, bot in self._bots.items():
+        for sym, bot in self._bots.items():
+            with self._locks[sym]:
                 if bot.is_running and not bot.is_thread_alive:
                     _log.error("워치독: %s 봇 스레드 사망 감지 — 복구 시도", sym)
                     try:

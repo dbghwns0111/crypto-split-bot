@@ -175,6 +175,7 @@ crypto-split-bot/
 │   └── static/
 │       ├── css/style.css
 │       ├── manifest.json      # PWA 매니페스트 (홈화면 바로가기 아이콘)
+│       ├── vendor/            # Bootstrap 5.3.3 로컬 번들 (CDN 의존 제거)
 │       ├── images/            # icon-192/512, icon-maskable-512,
 │       │                      # apple-touch-icon, favicon-32, logo-64
 │       └── js/
@@ -683,6 +684,32 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
    초기 로딩이 느렸다. → `logo-64.png`(8KB)로 교체.
 6. **더블탭 확대 대기 / 작은 터치 영역** — `touch-action: manipulation`과
    폰 폭 최소 높이(`@media (max-width: 430px)`)로 대응.
+
+### 접속 안 됨 / 전략 탭 무한 로딩 / 버튼 무반응 — 후속 대응 (2026-10-27)
+위 대응 후에도 남아 있던 증상의 근본 원인은 **"응답이 영원히 안 오는 요청"**이었다.
+되돌리지 말 것:
+1. **python_bithumb의 `requests` 호출에 timeout이 전혀 없음** — 네트워크가 잠깐
+   끊기면 HTTP 요청이 무한정 매달린다. `exchange/bithumb_client.py`의
+   `_install_http_timeouts()`가 라이브러리 모듈의 `requests`를 `_TimeoutRequests`
+   대리 객체로 교체해 기본 timeout을 주입한다(ntp_clock의 time 패치와 같은 방식,
+   라이브러리 소스 무수정). 공개 API(3s 연결/5s 응답), 비공개 GET(3s/10s).
+   **주문·취소(POST/DELETE)는 연결 타임아웃만 건다** — 응답 대기 중에 끊으면
+   "주문은 들어갔는데 실패로 처리"되는 상태가 생기므로 읽기 타임아웃을 넣지 말 것.
+2. **웹 시세 조회가 종목마다 개별 + 재시도(1→2→4초)** — 거래소가 조금만 느려도
+   `/api/strategy` 1회가 수십 초. `web/routes/api.py::_get_price_cached()`는 이제
+   ①4초 캐시 → ②가동 중인 봇 루프가 1초마다 받아둔 값(`BithumbClient.peek_price`)
+   → ③전 종목 일괄 조회 1회(`get_current_prices`, 재시도 없음) 순서이고, 동시
+   요청은 락으로 한 번만 조회, 실패 시 직전 값을 보여준다.
+3. **프론트 fetch에 타임아웃이 없음** — 요청 하나가 매달리면 `_pollPromise`가 안
+   끝나 폴링·탭 전환이 통째로 멈췄다(전략 탭 무한 로딩). `_fetchWithTimeout()`으로
+   조회 15초/동작 60초(`FETCH_TIMEOUT`)에 끊는다.
+4. **`BotManager`가 전 종목 공용 락 하나** — 한 종목의 시작(캐치업 매수)/중지(미체결
+   취소)가 오래 걸리면 다른 종목 버튼이 그 뒤에서 대기했다 → 종목별 락(`_locks`).
+5. **Bootstrap을 외부 CDN에서 로드** — `<head>`의 CSS가 렌더링을 막아 CDN이 느리면
+   흰 화면에서 멈췄다 → `web/static/vendor/`에 로컬 번들(v5.3.3). 정적 파일은
+   `?v=<수정시각>` 버전 쿼리 + 30일 캐시(`web/app.py`), 웹 서버는 HTTP/1.1
+   keep-alive(`main.py::_KeepAliveHandler`) — ZeroTier 경유 접속에서 요청마다
+   TCP 연결을 새로 맺던 지연 제거.
 
 ### 알려진 이슈
 - `pytest tests/`를 실행하면 이전부터 있던 사전 실패가 **47~48개** 나온다

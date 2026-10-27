@@ -60,6 +60,9 @@ function _coinIconHtml(sym, meta) {
 }
 
 const POLL = { realtime: 4000, pnl: 15000, assets: 20000, strategy: 3000 };
+// 요청 타임아웃(ms) — 조회는 짧게(다음 폴링이 다시 가져온다), 시작/중지 같은 동작은
+// 서버에서 주문 취소·캐치업 매수까지 할 수 있어 넉넉하게.
+const FETCH_TIMEOUT = { read: 15000, action: 60000 };
 
 // ── 상태 ──────────────────────────────────────────────────────────────────────
 
@@ -1418,12 +1421,30 @@ function _apiFetch(url, opts = {}) {
         opts.headers || {},
     );
     _userActions += 1;
-    return fetch(url, Object.assign({}, opts, { headers }))
+    return _fetchWithTimeout(url, Object.assign({}, opts, { headers }), FETCH_TIMEOUT.action)
         .finally(() => { _userActions = Math.max(0, _userActions - 1); });
 }
 
+// 응답이 오지 않는 요청을 끊는다. 예전엔 타임아웃이 없어서 서버 쪽 요청 하나가
+// 매달리면 _pollPromise가 영원히 안 끝나 폴링·탭 전환이 통째로 멈췄고(전략 탭 무한
+// 로딩), 사용자 요청이 매달리면 _userActions가 내려가지 않아 폴링이 계속 양보만 했다.
+// 끊긴 요청은 브라우저 연결 슬롯(호스트당 6개)도 돌려준다.
+function _fetchWithTimeout(url, opts, ms) {
+    if (typeof AbortController === 'undefined') return fetch(url, opts);
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, Object.assign({}, opts, { signal: ctrl.signal }))
+        .catch(err => {
+            if (err && err.name === 'AbortError') {
+                throw new Error('서버 응답이 지연되고 있습니다. 잠시 후 상태를 확인해주세요.');
+            }
+            throw err;
+        })
+        .finally(() => clearTimeout(timer));
+}
+
 async function _fetchJson(url, opts = null) {
-    const res = await fetch(url, opts || {});
+    const res = await _fetchWithTimeout(url, opts || {}, FETCH_TIMEOUT.read);
     if (res.status === 401) {           // 세션 만료/미인증 → 로그인 페이지로
         location.href = '/login';
         throw new Error('unauthorized');

@@ -1,5 +1,6 @@
 """REST API 엔드포인트."""
 
+import threading
 import time
 
 from flask import Blueprint, current_app, jsonify, request
@@ -17,18 +18,56 @@ api_bp  = Blueprint("api", __name__, url_prefix="/api")
 # 가격 캐시: ticker → (price, monotonic_ts)
 _price_cache: dict[str, tuple[float, float]] = {}
 _PRICE_TTL = 4.0
+# 캐시가 만료된 순간 여러 요청(홈 폴링·전략 폴링·다른 기기)이 동시에 거래소를
+# 부르지 않도록 갱신은 한 번에 하나만 — 나머지는 그 결과를 기다렸다 재사용한다.
+_price_lock = threading.Lock()
 
 
 def _get_price_cached(ticker: str, exchange) -> float:
-    now   = time.monotonic()
+    """웹 화면용 현재가 — 거래소 호출을 최소화하고, 실패해도 화면을 막지 않는다.
+
+    ① 4초 캐시 → ② 가동 중인 봇 루프가 1초마다 받아둔 값 → ③ 전 종목 일괄 조회(HTTP 1회).
+    예전에는 종목마다 따로, 그것도 실패 시 1→2→4초 재시도까지 하며 조회해서 거래소
+    응답이 조금만 느려도 /api/strategy 한 번이 수십 초씩 걸렸다. 조회가 실패하면
+    직전 값을 그대로 보여준다(0원 표시보다 낫다).
+    """
     entry = _price_cache.get(ticker)
-    if entry:
-        price, ts = entry
-        if now - ts < _PRICE_TTL:
+    if entry and time.monotonic() - entry[1] < _PRICE_TTL:
+        return entry[0]
+
+    peek = getattr(exchange, "peek_price", None)
+    if callable(peek):
+        price = peek(ticker, _PRICE_TTL)
+        if isinstance(price, (int, float)) and price > 0:
+            _price_cache[ticker] = (price, time.monotonic())
             return price
-    price = exchange.get_current_price(ticker)
-    _price_cache[ticker] = (price, now)
-    return price
+
+    with _price_lock:
+        entry = _price_cache.get(ticker)
+        if entry and time.monotonic() - entry[1] < _PRICE_TTL:
+            return entry[0]
+        try:
+            _refresh_prices(ticker, exchange)
+        except Exception as exc:
+            if entry:
+                _log.debug("현재가 갱신 실패, 직전 값 사용 (%s): %s", ticker, exc)
+                return entry[0]
+            raise
+        return _price_cache[ticker][0]
+
+
+def _refresh_prices(ticker: str, exchange) -> None:
+    """화면에 쓰는 전 종목 현재가를 한 번에 받아 캐시에 채운다."""
+    now   = time.monotonic()
+    batch = getattr(exchange, "get_current_prices", None)
+    if callable(batch):
+        tickers = sorted({f"KRW-{c}" for c in _MARKET_COINS} | {ticker})
+        prices  = batch(tickers)
+        if isinstance(prices, dict) and ticker in prices:
+            for t, p in prices.items():
+                _price_cache[t] = (float(p), now)
+            return
+    _price_cache[ticker] = (exchange.get_current_price(ticker), now)
 
 
 def clear_price_cache() -> None:
@@ -128,7 +167,7 @@ def get_bot_gap():
     current_price = 0.0
     if exchange:
         try:
-            current_price = exchange.get_current_price(f"KRW-{symbol}")
+            current_price = _get_price_cached(f"KRW-{symbol}", exchange)
         except Exception as exc:
             _log.warning("갭 미리보기 현재가 조회 실패 (%s): %s", symbol, exc)
 

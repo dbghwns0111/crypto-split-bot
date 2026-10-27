@@ -1,6 +1,10 @@
 """python-bithumb(python_bithumb) 래퍼 — ExchangeBase 구현."""
 
+import threading
+import time
 from typing import Optional
+
+import requests
 
 from exchange.base import ExchangeBase
 from exchange.retry import with_retry
@@ -10,6 +14,57 @@ _log = get_logger("exchange.bithumb")
 
 # 재시도 대상 예외 — 지연 import 후 확정
 _RETRY_EXC = (Exception,)
+
+# python_bithumb은 requests 호출에 timeout을 전혀 주지 않아서, 네트워크가 잠깐
+# 끊기면 요청이 응답 없이 무한정 매달린다. 웹 요청 스레드가 그렇게 묶이면 화면
+# 로딩이 끝나지 않고 버튼도 반응하지 않는다. (connect, read) 초.
+_PUBLIC_TIMEOUT      = (3.05, 5)
+_PRIVATE_GET_TIMEOUT = (3.05, 10)
+# 주문/취소(POST·DELETE)는 읽기 타임아웃을 걸지 않는다 — 요청이 거래소에 도달한
+# 뒤 응답만 늦는 경우 타임아웃으로 끊으면 "주문은 들어갔는데 실패로 처리"되는
+# 애매한 상태가 생긴다. 연결 단계 타임아웃은 요청이 아예 안 나간 것이라 안전하다.
+_PRIVATE_WRITE_TIMEOUT = (3.05, None)
+
+
+class _TimeoutRequests:
+    """python_bithumb 모듈의 `requests` 자리에 끼워 기본 timeout을 주입하는 대리 객체.
+
+    라이브러리 소스를 수정하지 않으므로 pip 업그레이드에 영향받지 않는다
+    (utils/ntp_clock.py의 time 패치와 같은 방식). 호출자가 timeout을 직접 주면 그대로 쓴다.
+    """
+
+    def __init__(self, get_timeout, write_timeout):
+        self._get_timeout   = get_timeout
+        self._write_timeout = write_timeout
+
+    def request(self, method, url, **kwargs):
+        default = self._get_timeout if str(method).upper() == "GET" else self._write_timeout
+        kwargs.setdefault("timeout", default)
+        return requests.request(method, url, **kwargs)
+
+    def get(self, url, **kwargs):
+        return self.request("GET", url, **kwargs)
+
+    def post(self, url, **kwargs):
+        return self.request("POST", url, **kwargs)
+
+    def delete(self, url, **kwargs):
+        return self.request("DELETE", url, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(requests, name)
+
+
+def _install_http_timeouts() -> None:
+    """python_bithumb의 public/private API에 기본 HTTP timeout을 적용한다 (멱등)."""
+    try:
+        from python_bithumb import private_api, public_api
+    except ImportError:
+        return
+    if not isinstance(public_api.requests, _TimeoutRequests):
+        public_api.requests = _TimeoutRequests(_PUBLIC_TIMEOUT, _PUBLIC_TIMEOUT)
+    if not isinstance(private_api.requests, _TimeoutRequests):
+        private_api.requests = _TimeoutRequests(_PRIVATE_GET_TIMEOUT, _PRIVATE_WRITE_TIMEOUT)
 
 
 def _import_bithumb():
@@ -32,6 +87,11 @@ class BithumbClient(ExchangeBase):
         self._secret_key = secret_key
         self._has_credentials = bool(access_key and secret_key)
         self._pb = _import_bithumb()
+        _install_http_timeouts()
+        # 최근 조회된 시세 — 봇 루프가 1초마다 받아오는 값을 웹 화면이 재사용한다
+        # (웹 요청마다 거래소를 다시 부르지 않도록). ticker → (price, monotonic_ts)
+        self._last_prices: dict[str, tuple[float, float]] = {}
+        self._last_prices_lock = threading.Lock()
         # JWT 타임스탬프 NTP 보정 재적용(멱등) — main.py 시작 시점에 라이브러리 import가
         # 아직 안 됐거나 실패했을 경우의 안전망. 보정이 꺼져 있으면 아무것도 하지 않는다.
         try:
@@ -54,7 +114,40 @@ class BithumbClient(ExchangeBase):
         price = self._pb.get_current_price(ticker)
         if price is None:
             raise ValueError(f"현재가 조회 실패: {ticker}")
-        return float(price)
+        price = float(price)
+        self._remember_prices({ticker: price})
+        return price
+
+    def get_current_prices(self, tickers: list[str]) -> dict[str, float]:
+        """여러 종목 현재가를 HTTP 1회로 조회한다 — 웹 화면용, 재시도 없이 빠르게 실패.
+
+        Returns: {ticker: price}
+        """
+        raw = self._pb.get_current_price(list(tickers))
+        if isinstance(raw, dict):
+            prices = {t: float(p) for t, p in raw.items() if p is not None}
+        elif raw is not None and len(tickers) == 1:
+            prices = {tickers[0]: float(raw)}
+        else:
+            prices = {}
+        if not prices:
+            raise ValueError(f"현재가 일괄 조회 실패: {tickers}")
+        self._remember_prices(prices)
+        return prices
+
+    def peek_price(self, ticker: str, max_age: float) -> Optional[float]:
+        """max_age초 이내에 조회된 시세가 있으면 반환한다 (네트워크 호출 없음)."""
+        with self._last_prices_lock:
+            entry = self._last_prices.get(ticker)
+        if entry and time.monotonic() - entry[1] < max_age:
+            return entry[0]
+        return None
+
+    def _remember_prices(self, prices: dict[str, float]) -> None:
+        now = time.monotonic()
+        with self._last_prices_lock:
+            for t, p in prices.items():
+                self._last_prices[t] = (p, now)
 
     @with_retry(max_retries=3, base_delay=1.0)
     def get_ohlcv(self, ticker: str, interval: str = "minute60", count: int = 20) -> list[dict]:

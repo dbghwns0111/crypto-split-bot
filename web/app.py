@@ -21,6 +21,23 @@ def create_app(bot_manager, exchange=None, cfg=None, scheduler=None, notifier=No
     app.config["SCHEDULER"]   = scheduler
     app.config["NOTIFIER"]    = notifier
 
+    # 정적 파일 장기 캐시 + 파일 수정시각 버전 쿼리(?v=) — 기본값에선 페이지를 열 때마다
+    # CSS/JS/아이콘마다 "바뀌었나?" 확인 요청이 VPN을 건너 나갔다. 파일이 바뀌면 URL이
+    # 달라지므로 git pull 후 새 버전은 그대로 즉시 반영된다.
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 60 * 60 * 24 * 30
+
+    @app.url_defaults
+    def _static_version(endpoint, values):
+        if endpoint != "static" or "v" in values:
+            return
+        filename = values.get("filename")
+        if not filename:
+            return
+        try:
+            values["v"] = int(os.path.getmtime(os.path.join(app.static_folder, filename)))
+        except OSError:
+            pass
+
     @app.route("/images/<path:filename>")
     def serve_project_image(filename):
         return send_from_directory(_IMAGES_DIR, filename)
