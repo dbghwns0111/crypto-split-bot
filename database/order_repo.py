@@ -459,22 +459,30 @@ def _fetch_matched_rounds(
 
 def _round_fee_and_points(
     buy_amount: float, sell_amount: float, filled_at: str,
+    rate_cache: Optional[dict] = None,
 ) -> tuple[float, float]:
     """차수 하나의 수수료/포인트를 매도 체결일 기준 이력으로 계산한다.
 
     수수료율·포인트 적립률 모두 "현재" 설정이 아니라 매도 체결일 당시
     적용 중이던 값을 조회해서 써야 과거 손익이 소급 변경되지 않는다
     (수수료 이벤트/멤버십 등급 모두 시점에 따라 달라질 수 있음).
+
+    rate_cache: 한 번의 집계 안에서 날짜별 요율을 재사용하기 위한 dict. 행마다 이력
+    테이블을 2번씩 조회하던 것을 날짜당 1번으로 줄인다. 호출마다 새 dict를 넘기므로
+    설정 탭에서 요율을 바꾸면 다음 조회부터 바로 반영된다.
     """
     from database.fee_repo import get_fee_rate_at
     from database.membership_repo import get_membership_at
     from utils.math_utils import get_point_rate
 
-    date_str   = (filled_at or "")[:10]
-    fee_rate   = get_fee_rate_at(date_str)
-    membership = get_membership_at(date_str)
-    point_rate = get_point_rate(membership)
-    turnover   = buy_amount + sell_amount
+    date_str = (filled_at or "")[:10]
+    rates = rate_cache.get(date_str) if rate_cache is not None else None
+    if rates is None:
+        rates = (get_fee_rate_at(date_str), get_point_rate(get_membership_at(date_str)))
+        if rate_cache is not None:
+            rate_cache[date_str] = rates
+    fee_rate, point_rate = rates
+    turnover = buy_amount + sell_amount
     return turnover * fee_rate / 100.0, turnover * point_rate / 100.0
 
 
@@ -495,13 +503,14 @@ def get_pnl_rounds(
     수수료율/포인트 적립률은 매도 체결일 기준 이력을 조회해 적용한다(_round_fee_and_points 참고).
     """
     result = []
+    rate_cache: dict = {}
     for r in _fetch_matched_rounds(symbols, start, end, symbol_filter, limit):
         buy_a  = float(r.get("buy_amount")  or 0)
         sell_a = float(r.get("sell_amount") or 0)
         buy_p  = float(r.get("buy_price")   or 0)
         sell_p = float(r.get("sell_price")  or 0)
         qty    = float(r.get("quantity")    or 0)
-        fee, points = _round_fee_and_points(buy_a, sell_a, r.get("filled_at"))
+        fee, points = _round_fee_and_points(buy_a, sell_a, r.get("filled_at"), rate_cache)
         r["pnl"]    = round((sell_p - buy_p) * qty - fee + points, 0) if buy_p > 0 else None
         r["fee"]    = round(fee, 0)    if buy_p > 0 else None
         r["points"] = round(points, 0) if buy_p > 0 else None
@@ -518,6 +527,7 @@ def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
     from datetime import datetime
 
     by_hour = {h: {"hour": h, "trade_count": 0, "realized_pnl": 0.0} for h in range(24)}
+    rate_cache: dict = {}
     for r in _fetch_matched_rounds(symbols, start, end):
         filled_at = r.get("filled_at") or ""
         try:
@@ -532,6 +542,7 @@ def get_hourly_pnl(symbols: list, start: str, end: str) -> list[dict]:
             sell_p, qty = float(r.get("sell_price") or 0), float(r.get("quantity") or 0)
             fee, points = _round_fee_and_points(
                 float(r.get("buy_amount") or 0), float(r.get("sell_amount") or 0), filled_at,
+                rate_cache,
             )
             bucket["realized_pnl"] += (sell_p - buy_p) * qty - fee + points
 
@@ -547,6 +558,7 @@ def get_weekday_pnl(symbols: list, start: str, end: str) -> list[dict]:
     from datetime import datetime
 
     by_weekday = {w: {"weekday": w, "trade_count": 0, "realized_pnl": 0.0} for w in range(7)}
+    rate_cache: dict = {}
     for r in _fetch_matched_rounds(symbols, start, end):
         filled_at = r.get("filled_at") or ""
         try:
@@ -561,6 +573,7 @@ def get_weekday_pnl(symbols: list, start: str, end: str) -> list[dict]:
             sell_p, qty = float(r.get("sell_price") or 0), float(r.get("quantity") or 0)
             fee, points = _round_fee_and_points(
                 float(r.get("buy_amount") or 0), float(r.get("sell_amount") or 0), filled_at,
+                rate_cache,
             )
             bucket["realized_pnl"] += (sell_p - buy_p) * qty - fee + points
 

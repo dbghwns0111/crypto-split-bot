@@ -61,8 +61,9 @@ function _coinIconHtml(sym, meta) {
 
 const POLL = { realtime: 4000, pnl: 15000, assets: 20000, strategy: 3000 };
 // 요청 타임아웃(ms) — 조회는 짧게(다음 폴링이 다시 가져온다), 시작/중지 같은 동작은
-// 서버에서 주문 취소·캐치업 매수까지 할 수 있어 넉넉하게.
-const FETCH_TIMEOUT = { read: 15000, action: 60000 };
+// 서버에서 주문 취소·캐치업 매수까지 할 수 있어 넉넉하게. 체결/손익 내역은 사용자가
+// 직접 누른 기간 조회(전체기간은 수만 건)라 폴링보다 길게 기다린다.
+const FETCH_TIMEOUT = { read: 15000, list: 60000, action: 60000 };
 
 // ── 상태 ──────────────────────────────────────────────────────────────────────
 
@@ -1500,8 +1501,8 @@ function _fetchWithTimeout(url, opts, ms) {
         .finally(() => clearTimeout(timer));
 }
 
-async function _fetchJson(url, opts = null) {
-    const res = await _fetchWithTimeout(url, opts || {}, FETCH_TIMEOUT.read);
+async function _fetchJson(url, opts = null, timeoutMs = FETCH_TIMEOUT.read) {
+    const res = await _fetchWithTimeout(url, opts || {}, timeoutMs);
     if (res.status === 401) {           // 세션 만료/미인증 → 로그인 페이지로
         location.href = '/login';
         throw new Error('unauthorized');
@@ -2190,12 +2191,24 @@ function _initTradesPage() {
     });
 }
 
+// 체결/실현손익 조회 — 조회 중 표시와 실패 안내를 목록 자리에 띄운다. 예전엔 실패해도
+// 콘솔에만 남아서, 전체기간처럼 오래 걸리다 끊긴 조회가 "아무 반응 없음"으로 보였다.
+// 일→전체처럼 연달아 누르면 늦게 도착한 이전 응답이 최신 결과를 덮지 않도록 순번으로 거른다.
+let _tradesFetchSeq = 0;
+
 async function _fetchTradesActive() {
+    const seq  = ++_tradesFetchSeq;
+    const list = document.getElementById(
+        _tradesActiveSubTab === 'fills' ? 'trades-fills-list' : 'trades-pnl-list');
+    if (list) list.innerHTML = '<p class="cs-trade-empty">불러오는 중…</p>';
     try {
-        if (_tradesActiveSubTab === 'fills') await _fetchTradeFills();
-        else                                  await _fetchTradePnl();
+        if (_tradesActiveSubTab === 'fills') await _fetchTradeFills(seq);
+        else                                  await _fetchTradePnl(seq);
     } catch (err) {
         console.error('[CryptoSplit] trades fetch error:', err);
+        if (list && seq === _tradesFetchSeq) {
+            list.innerHTML = `<p class="cs-trade-empty">조회에 실패했습니다 — ${_escapeHtml(err.message || String(err))}<br>잠시 후 다시 조회해주세요</p>`;
+        }
     }
 }
 
@@ -2503,17 +2516,19 @@ async function _doDeleteRange() {
     } catch { _showAlert('삭제 중 오류가 발생했습니다.', 'danger'); }
 }
 
-async function _fetchTradeFills() {
+async function _fetchTradeFills(seq) {
     const params = new URLSearchParams({ start: _tradesStart, end: _tradesEnd, symbol: _tradesSym });
-    const data   = await _fetchJson(`${API.tradeFills}?${params}`);
+    const data   = await _fetchJson(`${API.tradeFills}?${params}`, null, FETCH_TIMEOUT.list);
+    if (seq !== _tradesFetchSeq) return;   // 더 최근 조회가 있음 — 이 응답은 버린다
     _fillsAll  = data.fills || [];
     _fillsPage = 1;
     _renderTradeFills();
 }
 
-async function _fetchTradePnl() {
+async function _fetchTradePnl(seq) {
     const params = new URLSearchParams({ start: _tradesStart, end: _tradesEnd, symbol: _tradesSym });
-    const data   = await _fetchJson(`${API.tradePnl}?${params}`);
+    const data   = await _fetchJson(`${API.tradePnl}?${params}`, null, FETCH_TIMEOUT.list);
+    if (seq !== _tradesFetchSeq) return;   // 더 최근 조회가 있음 — 이 응답은 버린다
     _pnlAll  = data.rounds || [];
     _pnlPage = 1;
     _renderTradePnl();

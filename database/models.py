@@ -29,6 +29,12 @@ def create_tables(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_orders_order_id
             ON orders (order_id);
 
+        -- 실현손익 매칭(order_repo._fetch_matched_rounds): 매도 1건마다 "같은 종목·차수의
+        -- 직전 매수 체결"을 찾는 하위 쿼리를 받쳐준다. 이 인덱스가 없으면 매도마다 해당
+        -- 종목 주문을 전부 훑어 전체기간 조회가 수 분씩 걸렸다(주문 4만 건 기준 137초).
+        CREATE INDEX IF NOT EXISTS idx_orders_round_match
+            ON orders (symbol, round_no, side, status, filled_at);
+
         -- ── 봇 실행 상태 ───────────────────────────────────────────────
         CREATE TABLE IF NOT EXISTS bot_state (
             symbol             TEXT    PRIMARY KEY,

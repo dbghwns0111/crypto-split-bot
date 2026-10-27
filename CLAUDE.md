@@ -738,6 +738,15 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
    `?v=<수정시각>` 버전 쿼리 + 30일 캐시(`web/app.py`), 웹 서버는 HTTP/1.1
    keep-alive(`main.py::_KeepAliveHandler`) — ZeroTier 경유 접속에서 요청마다
    TCP 연결을 새로 맺던 지연 제거.
+6. **실현손익 전체기간 조회가 끝나지 않음** — 매도별 매수 매칭 하위 쿼리
+   (`order_repo._fetch_matched_rounds`)를 받쳐줄 인덱스가 없어 O(N²)였다(주문 4만 건
+   137초). `idx_orders_round_match (symbol, round_no, side, status, filled_at)` 추가로
+   0.2초. 수수료율/멤버십 이력 조회는 호출당 날짜별 캐시(`rate_cache`). **건별 계산 자체는
+   2만 건에 0.03초라 병목이 아니다** — 일별 합계 사전집계 테이블로 바꿀 필요 없음
+   (요율 소급·주문 삭제 시 정합성 관리 부담만 생김). 남은 병목이던 전송량(수 MB)은
+   `web/app.py::_gzip()`이 JSON/HTML을 gzip 압축해 1/14로 줄인다. 그래도 느리면
+   다음 단계는 서버측 페이지네이션(요약은 서버 계산, 50건만 전송).
+   목록 조회 중/실패는 화면에 표시(`_fetchTradesActive`, 타임아웃 `FETCH_TIMEOUT.list` 60초).
 
 ### 알려진 이슈
 - `pytest tests/`를 실행하면 이전부터 있던 사전 실패가 **47~48개** 나온다
