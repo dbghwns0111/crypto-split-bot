@@ -124,6 +124,7 @@ crypto-split-bot/
 ├── requirements.txt
 ├── install_service.sh         # systemd 서비스 설치 (sudo, .venv 생성 포함)
 ├── uninstall_service.sh       # systemd 서비스 제거 (sudo)
+├── scripts/cs_aliases.sh      # 운영 단축 명령어 (~/.bash_aliases 에서 source, 목록: `cs`)
 ├── CLAUDE.md
 ├── main.py                    # 진입점
 ├── bot_manager.py             # 봇 생명주기 관리 (start/stop/reset/health)
@@ -711,14 +712,15 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 | 단계 | 언제 | 미니PC에서 할 일 | 전략 재가동 |
 |---|---|---|---|
 | **① 새로고침만** | 정적 파일만 변경: `web/static/**`(js/css/이미지/manifest) | 브라우저 새로고침 | **불필요** (봇 계속 가동) |
-| **② 서비스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `sudo systemctl restart cryptosplit` | **필요** — 재시작 시 전 종목 중지 상태로 올라옴(자동 시작 금지 원칙). 텔레그램 `/resumeall` 또는 웹 홈 [전체 가동]으로 DB 상태 그대로 이어서 시작 |
+| **② 서비스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `cs-restart` (= `sudo systemctl restart cryptosplit`) | **필요** — 재시작 시 전 종목 중지 상태로 올라옴(자동 시작 금지 원칙). 텔레그램 `/resumeall` 또는 웹 홈 [전체 가동]으로 DB 상태 그대로 이어서 시작 |
 | **③ 서비스 재설치** | `install_service.sh` 유닛 생성 로직 변경, 프로젝트 폴더 이동, Python 버전 변경(→ `.venv` 삭제 후 재생성) | `sudo ./install_service.sh` (재실행하면 유닛 덮어쓰고 재시작) | **필요** (②와 동일) |
 
 - `requirements.txt`가 바뀌면 ② 전에 `.venv/bin/pip install -r requirements.txt`도 안내할 것.
 - `python main.py`를 수동으로 따로 실행하는 것은 **선택지가 아니다** — 서비스 프로세스가 살아
   있으면 단일 인스턴스 잠금(`utils/single_instance.py`, `data/cryptosplit.lock`) 때문에 새
   실행이 즉시 종료되고 옛 코드가 계속 돈다.
-- 상태/로그: `systemctl status cryptosplit`, `journalctl -u cryptosplit -f`, `logs/*.log`.
+- 상태/로그: `cs-status`, `cs-log`, `cs-trade`, `cs-err` (`scripts/cs_aliases.sh`, 사용자에게 안내할 때도 이 단축 명령을 쓴다).
+- 테스트 로그는 `tests/conftest.py`가 `CRYPTOSPLIT_LOG_DIR`로 임시 폴더에 보낸다. 운영 `logs/`에 테스트의 가짜 오류가 섞이지 않게 하기 위함이다.
   `systemctl stop`은 SIGTERM → `graceful_shutdown`(봇 중지+미체결 취소)을 거친다(최대 60초).
 - 가능하면 ② 이상이 필요한 변경과 ①로 충분한 변경을 커밋 단위로 나눠, 프론트만 고친
   경우 전략 재가동 없이 반영할 수 있게 한다.

@@ -1,6 +1,7 @@
 """싱글턴 로거 — 콘솔 + 파일 로테이션."""
 
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -32,8 +33,10 @@ def get_logger(name: str = "cryptosplit") -> logging.Logger:
         ch.setFormatter(fmt)
         logger.addHandler(ch)
 
-        # 파일 핸들러
-        log_path = _ROOT / log_dir
+        # 파일 핸들러 — CRYPTOSPLIT_LOG_DIR 가 있으면 그쪽에 쓴다(테스트가 운영 로그를
+        # 오염시키지 않도록 tests/conftest.py 가 임시 폴더로 지정)
+        log_path = Path(os.environ["CRYPTOSPLIT_LOG_DIR"]) if os.environ.get("CRYPTOSPLIT_LOG_DIR") \
+            else _ROOT / log_dir
         log_path.mkdir(parents=True, exist_ok=True)
         fh = RotatingFileHandler(
             log_path / f"{name}.log",

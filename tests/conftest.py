@@ -6,6 +6,11 @@ import shutil
 
 import pytest
 
+# 테스트 로그는 운영 logs/ 가 아니라 임시 폴더로 — 반드시 앱 모듈 import 전에 설정
+# (그렇지 않으면 테스트의 가짜 오류가 logs/*.log 에 섞여 실제 장애 확인을 방해한다)
+import tempfile as _tempfile
+os.environ.setdefault("CRYPTOSPLIT_LOG_DIR", _tempfile.mkdtemp(prefix="cs_test_logs_"))
+
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _PROTECTED = {
     os.path.join(_ROOT, "config", "settings.yaml"),
