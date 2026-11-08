@@ -193,6 +193,7 @@ crypto-split-bot/
 │   ├── time_utils.py
 │   ├── time_sync.py           # OS 시계 동기화 (Linux: timedatectl 상태 확인 / Windows: w32tm)
 │   ├── ntp_clock.py           # NTP 기준 시각 유지 (API 타임스탬프를 OS 시계와 분리)
+│   ├── healthcheck.py         # 외부 생존 감시 ping (healthchecks.io)
 │   └── math_utils.py
 ├── tests/
 │   ├── __init__.py
@@ -273,6 +274,7 @@ system:
   db_backup_interval_hours: 6
   db_backup_keep: 14
   watchdog_interval_min: 3
+  healthcheck_interval_min: 1   # 외부 생존 감시 ping 주기(분), .env HEALTHCHECK_URL 있을 때만
 ```
 
 ## DB 테이블
@@ -345,6 +347,21 @@ system:
 - 정각 가동 현황 리포트 (running 봇만 표시, 기본 매시간(0시 제외) — 설정 탭에서
   간격(시간) 조정 및 사용 여부(토글) 설정 가능)
 - 일일 결산 리포트 (00:00, 전날 기준)
+
+## 외부 생존 감시 (healthchecks.io) — 2026-11-08
+홈서버라 정전·인터넷 장애·프로세스 사망이 나면 봇이 스스로 알릴 수 없다. 그래서
+반대로 **"살아 있음" 신호를 외부로 보내고, 신호가 끊기면 외부 서비스가 알리는**
+dead-man's switch 방식을 쓴다.
+- `.env`의 `HEALTHCHECK_URL`(예: `https://hc-ping.com/<uuid>`)이 있을 때만 동작한다.
+  `config/loader.py`가 이 값을 `cfg["system"]["healthcheck_url"]`로 주입한다.
+- `notification/scheduler.py::_job_healthcheck`가 `healthcheck_interval_min`(기본 1분)마다
+  `utils/healthcheck.py::ping()`을 호출한다. 본문에는 가동/중지 종목을 담는다.
+  - 가동 중이어야 할 봇의 스레드가 죽어 있으면 `/fail`로 보내 즉시 알림을 받는다.
+  - 매매를 꺼둔 상태(전 종목 중지)는 정상으로 본다.
+- 프로세스가 시작될 때 `/start`를 보낸다. 정상 종료 때는 아무것도 보내지 않는다 — 재시작이
+  grace 안에 끝나면 알림이 나가지 않게 하기 위함이다.
+- 알림 채널(텔레그램 등)은 healthchecks.io 쪽 Integrations에서 설정한다. 봇의 텔레그램
+  코드와는 무관하다(서버가 죽어도 알림이 가야 하므로).
 
 ## 텔레그램 메시지 포맷 (2026-09-19 개편)
 

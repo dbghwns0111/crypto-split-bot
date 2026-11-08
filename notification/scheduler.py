@@ -5,6 +5,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from database.pnl_repo import get_daily_summary
 from portfolio.balance import take_snapshot
+from utils import healthcheck
 from utils.logger import get_logger
 from utils.time_utils import now_kst, today_kst_str
 
@@ -28,6 +29,9 @@ class NotificationScheduler:
         self._bot_manager = bot_manager
         self._exchange    = exchange
         self._cfg         = cfg
+        # 외부 생존 감시 ping URL (.env HEALTHCHECK_URL → config/loader.py가 주입)
+        self._hc_url      = (cfg.get("system", {}).get("healthcheck_url") or "").strip()
+        self._hc_ok       = True   # 직전 ping 성공 여부 — 실패 로그 반복 방지
         # coalesce=True: 밀린 실행을 1회로 합침, max_instances=1: 동시 중복 실행 차단
         # (NTP 시계 보정 등으로 동일 잡이 중복 발사되어 현황이 두 번 오는 것을 방지)
         self._scheduler   = BackgroundScheduler(
@@ -44,6 +48,9 @@ class NotificationScheduler:
             self._scheduler.start()
             # 오늘 스냅샷이 없을 수 있으므로(신규 도입/재시작) 23:59까지 기다리지 않고 1회 즉시 기록
             self._job_asset_snapshot()
+            if self._hc_url:
+                healthcheck.ping(self._hc_url, "/start", "CryptoSplit 프로세스 시작")
+                _log.info("외부 생존 감시(헬스체크) 활성")
             _log.info("알림 스케줄러 시작 (매 정각 현황 + 매일 00시 결산)")
 
     def stop(self) -> None:
@@ -144,6 +151,16 @@ class NotificationScheduler:
             misfire_grace_time=60,
         )
 
+        if self._hc_url:
+            hc_interval = max(1, int(self._cfg.get("system", {}).get("healthcheck_interval_min", 1)))
+            self._scheduler.add_job(
+                self._job_healthcheck,
+                CronTrigger(minute=f"*/{hc_interval}"),
+                id="healthcheck",
+                replace_existing=True,
+                misfire_grace_time=30,
+            )
+
         self._scheduler.add_job(
             self._job_asset_snapshot,
             CronTrigger(hour=23, minute=59),
@@ -224,6 +241,28 @@ class NotificationScheduler:
                 self._notifier.send_watchdog_alert(r["symbol"], r["recovered"])
         except Exception as exc:
             _log.error("워치독 점검 실패: %s", exc)
+
+    def _job_healthcheck(self) -> None:
+        """외부 생존 감시 ping — 신호가 끊기면 healthchecks.io가 알린다.
+
+        가동 중이어야 할 봇의 스레드가 죽어 있으면(워치독 복구 실패 등) /fail 로
+        보내 즉시 알림을 받는다. 매매를 중지해 둔 상태는 정상으로 본다.
+        """
+        try:
+            bots = self._bot_manager.bots
+            running = [s for s, b in bots.items() if b.is_running and b.is_thread_alive]
+            dead    = [s for s, b in bots.items() if b.is_running and not b.is_thread_alive]
+            stopped = [s for s, b in bots.items() if not b.is_running]
+            body = (f"가동: {', '.join(running) or '-'}\n"
+                    f"중지: {', '.join(stopped) or '-'}")
+            if dead:
+                body = f"스레드 사망: {', '.join(dead)}\n" + body
+            ok = healthcheck.ping(self._hc_url, "/fail" if dead else "", body)
+            if ok != self._hc_ok:
+                _log.info("헬스체크 ping %s", "복구" if ok else "실패 시작")
+            self._hc_ok = ok
+        except Exception as exc:
+            _log.error("헬스체크 잡 실패: %s", exc)
 
     def _job_daily_report(self) -> None:
         """매일 00시: 일일 결산 리포트 전송 (전날 데이터 집계)."""
