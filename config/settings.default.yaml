@@ -73,3 +73,6 @@ system:
   db_backup_keep: 14            # 보관할 백업 파일 개수 (초과 시 오래된 것부터 삭제)
   watchdog_interval_min: 3      # 봇 스레드 헬스 점검 주기 (분)
   healthcheck_interval_min: 1   # 외부 생존 감시 ping 주기 (분) — .env HEALTHCHECK_URL 설정 시에만 동작
+  offsite_backup_enabled: true  # 매일 DB 압축본을 텔레그램 채팅으로 전송(외부 보관)
+  offsite_backup_hour: 4        # 전송 시각 (KST)
+  offsite_backup_minute: 30

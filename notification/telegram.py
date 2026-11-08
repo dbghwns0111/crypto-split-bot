@@ -5,6 +5,7 @@ send() 는 즉시 리턴 (큐에 적재) — 트레이딩 루프를 절대 블�
 """
 
 import html
+import os
 import queue
 import re
 import threading
@@ -42,6 +43,8 @@ from utils.logger import get_logger
 _log = get_logger("notification.telegram")
 
 _API_URL   = "https://api.telegram.org/bot{token}/sendMessage"
+_DOC_URL   = "https://api.telegram.org/bot{token}/sendDocument"
+_DOC_MAX_BYTES = 50 * 1024 * 1024  # Bot API 파일 업로드 한도
 _TIMEOUT   = 10      # HTTP 요청 타임아웃 (초)
 _RATE_GAP  = 1.0     # 전송 최소 간격 (초)
 _MAX_RETRY = 3
@@ -95,6 +98,49 @@ class TelegramNotifier:
         except queue.Full:
             _log.warning("텔레그램 큐 가득 참 — 메시지 폐기 (%.40s...)", text.replace("\n", " "))
             return False
+
+    def send_document(self, path: str, caption: str = "", silent: bool = True) -> bool:
+        """파일을 텔레그램 채팅으로 업로드한다 (동기 — 호출 스레드에서 바로 전송).
+
+        텍스트 큐(send)와 달리 결과를 호출자가 알아야 하는 용도(외부 백업)라
+        동기로 보낸다. silent=True 면 알림음 없이 전송한다. caption 은 평문.
+        """
+        if not self._enabled:
+            return False
+        try:
+            size = os.path.getsize(path)
+        except OSError as exc:
+            _log.error("텔레그램 파일 전송 실패 — 파일 없음: %s (%s)", path, exc)
+            return False
+        if size > _DOC_MAX_BYTES:
+            _log.error("텔레그램 파일 전송 불가 — 50MB 초과 (%d bytes): %s", size, path)
+            return False
+
+        url  = _DOC_URL.format(token=self._token)
+        data = {"chat_id": self._chat_id, "caption": caption[:1000],
+                "disable_notification": "true" if silent else "false"}
+        for attempt in range(_MAX_RETRY):
+            try:
+                with open(path, "rb") as fh:
+                    resp = requests.post(
+                        url, data=data,
+                        files={"document": (os.path.basename(path), fh)},
+                        timeout=(10, 120),
+                    )
+                if resp.status_code == 200:
+                    return True
+                if resp.status_code == 429:
+                    retry_after = resp.json().get("parameters", {}).get("retry_after", 5)
+                    time.sleep(retry_after)
+                    continue
+                _log.warning("텔레그램 파일 전송 실패 (HTTP %d, 시도 %d/%d): %.200s",
+                             resp.status_code, attempt + 1, _MAX_RETRY, resp.text)
+            except requests.RequestException as exc:
+                _log.error("텔레그램 파일 전송 오류 (시도 %d/%d): %s",
+                           attempt + 1, _MAX_RETRY, exc)
+            if attempt < _MAX_RETRY - 1:
+                time.sleep(2 ** attempt)
+        return False
 
     # ── 편의 메서드 ───────────────────────────────────────────────────────────
 

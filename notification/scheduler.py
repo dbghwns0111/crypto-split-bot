@@ -151,6 +151,17 @@ class NotificationScheduler:
             misfire_grace_time=60,
         )
 
+        sys_cfg = self._cfg.get("system", {})
+        if sys_cfg.get("offsite_backup_enabled", True):
+            self._scheduler.add_job(
+                self._job_offsite_backup,
+                CronTrigger(hour=int(sys_cfg.get("offsite_backup_hour", 4)),
+                            minute=int(sys_cfg.get("offsite_backup_minute", 30))),
+                id="offsite_backup",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+
         if self._hc_url:
             hc_interval = max(1, int(self._cfg.get("system", {}).get("healthcheck_interval_min", 1)))
             self._scheduler.add_job(
@@ -241,6 +252,46 @@ class NotificationScheduler:
                 self._notifier.send_watchdog_alert(r["symbol"], r["recovered"])
         except Exception as exc:
             _log.error("워치독 점검 실패: %s", exc)
+
+    def _job_offsite_backup(self) -> bool:
+        """매일 1회 DB 스냅샷을 gzip 압축해 텔레그램 채팅으로 보낸다 (외부 보관).
+
+        로컬 백업(data/backups)은 같은 SSD에 있어 디스크 고장·도난 시 원본과 함께
+        사라진다. 텔레그램 채팅에 파일로 올려두면 서버 밖에 날짜별 사본이 남는다.
+        실패 시에만 경고 알림, 성공 파일은 무음 전송.
+        """
+        import gzip
+        import os
+        import shutil
+        import tempfile
+
+        from database.connection import backup_database
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="cs_offsite_") as tmp:
+                snap = backup_database(backup_dir=tmp, keep=1)
+                if not snap:
+                    raise RuntimeError("DB 스냅샷 생성 실패")
+                stamp = now_kst().strftime("%Y%m%d_%H%M")
+                gz_path = os.path.join(tmp, f"cryptosplit_{stamp}.db.gz")
+                with open(snap, "rb") as src, gzip.open(gz_path, "wb", compresslevel=9) as dst:
+                    shutil.copyfileobj(src, dst)
+                raw_mb = os.path.getsize(snap) / 1_048_576
+                gz_mb  = os.path.getsize(gz_path) / 1_048_576
+                caption = (f"CryptoSplit DB 백업 {now_kst().strftime('%Y-%m-%d %H:%M')}\n"
+                           f"{raw_mb:.1f}MB → 압축 {gz_mb:.1f}MB\n"
+                           f"복구: gunzip 후 data/cryptosplit.db 로 교체")
+                if not self._notifier.send_document(gz_path, caption, silent=True):
+                    raise RuntimeError("텔레그램 업로드 실패")
+            _log.info("외부 백업 전송 완료 (%.1fMB → %.1fMB)", raw_mb, gz_mb)
+            return True
+        except Exception as exc:
+            _log.error("외부 백업 실패: %s", exc)
+            try:
+                self._notifier.send_db_backup_alert(False, f"외부(텔레그램) DB 백업 실패: {exc}")
+            except Exception:
+                pass
+            return False
 
     def _job_healthcheck(self) -> None:
         """외부 생존 감시 ping — 신호가 끊기면 healthchecks.io가 알린다.

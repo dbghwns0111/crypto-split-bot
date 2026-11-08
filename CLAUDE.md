@@ -275,6 +275,9 @@ system:
   db_backup_keep: 14
   watchdog_interval_min: 3
   healthcheck_interval_min: 1   # 외부 생존 감시 ping 주기(분), .env HEALTHCHECK_URL 있을 때만
+  offsite_backup_enabled: true  # 매일 DB 압축본을 텔레그램 채팅으로 전송(외부 보관)
+  offsite_backup_hour: 4
+  offsite_backup_minute: 30
 ```
 
 ## DB 테이블
@@ -340,7 +343,7 @@ system:
   항목명만 표시하고 값은 비공개)
 - API 오류
 - 봇 워치독 자동 복구 / 복구 실패 (3분마다 점검)
-- DB 백업 실패 경고 (성공은 무알림)
+- DB 백업 실패 경고 (성공은 무알림) — 매일 04:30 외부 백업 파일(.db.gz)은 무음으로 전송
 - 시간 동기화 결과 (주기 동기화는 실패 시에만 발송)
 - 시계 오차 자동 보정 (OS 시계 오차 5초 초과 시, 최대 1시간에 1회 — "시계 오차 대응" 참고)
 
@@ -362,6 +365,16 @@ dead-man's switch 방식을 쓴다.
   grace 안에 끝나면 알림이 나가지 않게 하기 위함이다.
 - 알림 채널(텔레그램 등)은 healthchecks.io 쪽 Integrations에서 설정한다. 봇의 텔레그램
   코드와는 무관하다(서버가 죽어도 알림이 가야 하므로).
+
+## 외부 DB 백업 (텔레그램) — 2026-11-08
+`data/backups/`(6시간마다, 14개)는 같은 SSD에 있어 디스크 고장·도난 시 원본과 함께 사라진다.
+그래서 `notification/scheduler.py::_job_offsite_backup`이 **매일 04:30** DB 스냅샷을 만들어
+gzip 압축한 뒤(8MB → 약 1.5MB) `TelegramNotifier.send_document()`로 봇 채팅에 **무음 전송**한다.
+- 스냅샷은 `backup_database()`(WAL-safe)로 임시 폴더에 만든다. 로컬 백업 개수에는 영향이 없다.
+- 실패할 때만 `send_db_backup_alert` 경고를 보낸다.
+- Bot API 업로드 한도는 50MB다. 압축본이 이를 넘으면 실패 경고가 나가므로, 그때는 rclone(구글드라이브) 등으로 전환할 것.
+- 복구: 채팅에서 파일 다운로드 → `gunzip cryptosplit_*.db.gz` → 서비스 중지 → `data/` 의 `cryptosplit.db*`
+  (wal/shm 포함)를 치우고 복구본을 `data/cryptosplit.db`로 둔 뒤 서비스를 시작한다.
 
 ## 텔레그램 메시지 포맷 (2026-09-19 개편)
 
