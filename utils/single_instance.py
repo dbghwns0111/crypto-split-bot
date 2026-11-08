@@ -4,7 +4,7 @@
 동시에 long-polling 하고, 정각 현황도 중복/모순되게 발송된다(가동·중지 동시 표시).
 이를 막기 위해 단일 인스턴스를 보장한다.
 - Windows: 명명된 뮤텍스(named mutex)
-- POSIX:   파일 락(fcntl.flock)
+- POSIX:   파일 락(fcntl.flock, data/cryptosplit.lock)
 """
 
 import os
@@ -62,7 +62,10 @@ def _acquire_posix(name: str) -> bool:
     global _lock_handle
     import fcntl
 
-    base = os.environ.get("TMPDIR") or "/tmp"
+    # /tmp 대신 프로젝트 data/ 에 둔다 — systemd PrivateTmp·tmp 정리와 무관하게
+    # 같은 프로젝트 폴더에서 뜬 프로세스끼리 항상 같은 락 파일을 보게 하기 위함
+    base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    os.makedirs(base, exist_ok=True)
     path = os.path.join(base, f"{name}.lock")
     fh = open(path, "a+")
     try:

@@ -10,12 +10,12 @@
 ```
 main.py 실행
   → DB 초기화 + 무결성 검사 + 시작 백업 1회
-  → 시계 동기화 1회 (Windows NTP)
+  → 시계 동기화 상태 확인 1회 (Linux timedatectl / Windows w32tm)
   → BotManager / Notifier / Scheduler / Flask / CmdHandler 초기화
   → Flask 웹서버 시작 (포트 5000), 봇은 중지 상태로 대기
   → APScheduler 자동 시작 (정각 현황 / 00시 결산 / 6h DB백업 / 3분 워치독)
 
-사용자가 브라우저에서 접속 (ZeroTier VPN 경유, 아래 "웹 대시보드" 참고)
+사용자가 브라우저에서 접속 (Tailscale VPN 경유, 아래 "웹 대시보드" 참고)
   → 전략 탭에서 파라미터 확인 및 저장
   → 홈에서 [시작] 버튼 클릭 → 확인 팝업 → 봇 Thread 시작, 매매 가동
 
@@ -109,8 +109,11 @@ main.py 실행
 - DB: SQLite (WAL 모드, 자동 백업)
 - 알림: 텔레그램 Bot API (큐 기반 비동기, rate-limit 처리)
 - 스케줄러: APScheduler (BackgroundScheduler)
-- 실행환경: Windows Server 2012 R2 — "몽클라우드"(국내 클라우드PC 임대 서비스)에서 월 비용을 지불하고 임대한 클라우드PC 1대에서 24시간 상시 구동
-- 개발환경: 개인 PC → GitHub 커밋 → 클라우드 PC pull → 실행
+- 실행환경: **집 홈서버 미니PC (Ubuntu Linux, 호스트명 `home-server`, Python 3.14 `.venv`)**
+  에서 systemd 서비스(`cryptosplit.service`)로 24시간 상시 구동 (2026-11-08 이전).
+  이전에는 Windows Server 2012 R2 클라우드PC("몽클라우드" 임대)에서 돌았다 —
+  아래 문서 중 "클라우드PC"/Windows 관련 서술은 그 시절 배경 기록이다.
+- 개발환경: 미니PC에서 직접 수정 → GitHub 커밋/push (다른 PC에서 수정했다면 미니PC에서 pull)
 
 ## 폴더 구조
 ```
@@ -119,6 +122,8 @@ crypto-split-bot/
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
+├── install_service.sh         # systemd 서비스 설치 (sudo, .venv 생성 포함)
+├── uninstall_service.sh       # systemd 서비스 제거 (sudo)
 ├── CLAUDE.md
 ├── main.py                    # 진입점
 ├── bot_manager.py             # 봇 생명주기 관리 (start/stop/reset/health)
@@ -186,7 +191,7 @@ crypto-split-bot/
 │   ├── __init__.py
 │   ├── logger.py
 │   ├── time_utils.py
-│   ├── time_sync.py           # Windows NTP 시계 동기화 (OS 시계 자체를 교정)
+│   ├── time_sync.py           # OS 시계 동기화 (Linux: timedatectl 상태 확인 / Windows: w32tm)
 │   ├── ntp_clock.py           # NTP 기준 시각 유지 (API 타임스탬프를 OS 시계와 분리)
 │   └── math_utils.py
 ├── tests/
@@ -399,29 +404,25 @@ system:
 ```
 
 ## 웹 대시보드
-접속: `http://<클라우드PC의 ZeroTier IP>:5000` (예: `http://10.73.56.28:5000`)
+접속: `http://home-server:5000` (Tailscale MagicDNS) 또는 `http://<미니PC Tailscale IP 100.x.y.z>:5000`
 
-> **외부 접속 방식 (2026-07-10 확정)**: 몽클라우드가 고객 VM에 인바운드 포트 개방 기능을 제공하지
-> 않아(저가 클라우드PC 임대 서비스, 커스텀 방화벽/보안그룹 설정 불가), 클라우드PC의 공인 IP로는
-> 외부에서 절대 접속할 수 없다. 대신 **ZeroTier**(무료 P2P VPN 메시)로 클라우드PC·로컬PC·폰을
-> 사설 가상망(`10.73.56.0/24`)으로 묶어서 그 안에서만 접속하는 구조로 해결함.
-> - ZeroTier 네트워크: `cryptosplit-net` (Network ID는 ZeroTier Central 콘솔에서 확인)
-> - 클라우드PC(Windows Server 2012 R2)는 **ZeroTier 1.6.6**(구버전)만 설치 가능 — 2023년 Go
->   런타임이 Windows Server 2012/2012 R2 지원을 끊으면서 Tailscale·Cloudflare Tunnel·최신
->   ZeroTier가 전부 이 OS에서 동작 안 함(공통 원인). 1.6.6은 더 이상 패치되지 않는 구버전이므로,
->   Windows 방화벽 인바운드 규칙(TCP 5000)의 원격 IP 범위를 `10.73.56.0/24`로 제한해 ZeroTier
->   가상망 밖 트래픽은 차단해둠 — 공인 인터넷에는 노출되지 않음.
-> - 새 기기(추가 폰/PC)에서 접속하려면: ZeroTier 앱 설치 → 같은 Network ID로 Join → ZeroTier
->   Central(my.zerotier.com)에서 Authorize 필요.
-> - 텔레그램 명령어(`telegram_handler.py`, long-polling)는 이 문제와 무관하게 항상 정상 동작 —
->   봇이 텔레그램 서버로 아웃바운드 연결만 하기 때문.
+> **외부 접속 방식 (2026-11-08, 홈서버 이전)**: **Tailscale**(WireGuard 기반 메시 VPN)로
+> 미니PC·폰·PC를 묶어 그 안에서만 접속한다. 공유기 포트포워딩은 하지 않는다 — 대시보드가
+> 거래소 API 키로 매매하는 봇을 제어하므로 공인 인터넷에 노출하지 않는다(DuckDNS +
+> 포트포워딩 방식은 이 이유로 채택 안 함). 자세한 구성은 `docs/REMOTE_ACCESS.md`.
+> - IP 화이트리스트(settings.yaml `web.auth.ip_whitelist`): `100.64.0.0/10`(Tailscale) + `127.0.0.1`
+> - 방화벽(ufw): TCP 5000은 `tailscale0` 인터페이스에서만 허용
+> - 새 기기: Tailscale 앱 설치 → 같은 계정으로 로그인하면 끝
+> - 텔레그램 명령어(`telegram_handler.py`, long-polling)는 아웃바운드 연결만 쓰므로 VPN과 무관하게 동작
+> - 과거(클라우드PC 시절)에는 몽클라우드가 인바운드 포트를 못 열고 Windows Server 2012 R2에서
+>   Tailscale이 안 돌아 ZeroTier 1.6.6(`10.73.56.0/24`)을 썼다.
 
 하단 네비 4탭 구조 — 각 탭이 하나의 작업(job)에 대응하도록 재설계됨
 (2026-07-09 IA 재설계). 서브탭 없는 탭은 별도 표기 없음.
 
 > **탭별 주소 (2026-10-27)**: `/home`, `/strategy`, `/trades`(요약), `/trades/fills|pnl|assets`,
 > `/settings`. 화면은 여전히 **한 페이지(SPA)**이고 탭 전환 시 `history.pushState`로
-> 주소만 바꾼다(재로딩 없음 — ZeroTier 경유라 페이지 이동식(MPA)은 느려서 채택 안 함).
+> 주소만 바꾼다(재로딩 없음 — VPN 경유라 페이지 이동식(MPA)은 느려서 채택 안 함).
 > 서버(`web/routes/dashboard.py`)는 이 경로들에 같은 `dashboard.html`을 주고,
 > `dashboard.js`의 `_parseRoute()`가 주소를 읽어 탭을 연다. 뒤로가기는 `popstate`
 > → `_applyRoute()`. `/`로 들어오면 예전처럼 sessionStorage의 마지막 탭을 복원한다
@@ -597,7 +598,7 @@ main.py
   → db_configure() + create_tables() — DB 초기화/마이그레이션
   → check_integrity() — DB 무결성 검사 (실패 시 텔레그램 경고)
   → backup_database() — 시작 시 백업 1회
-  → sync_windows_time() — OS 시계 NTP 동기화 1회
+  → sync_os_time() — OS 시계 NTP 동기화(상태 확인) 1회
   → ntp_clock.start(cfg) — NTP 기준 시각 보정 시작 + 빗썸 JWT 타임스탬프 패치
   → build_components()
       BithumbClient, TelegramNotifier, BotManager
@@ -611,7 +612,7 @@ main.py
 ## 시계 오차 대응 (JWT 만료 방지) — 2026-09-18
 
 빗썸 API는 JWT payload의 `timestamp`(ms)를 서버 시각과 대조해 허용 오차를 벗어나면
-`expired_jwt` 401을 반환한다. 클라우드PC(Windows Server 2012 R2, 몽클라우드)의 시계
+`expired_jwt` 401을 반환한다. (이하 사고 기록은 이전 환경 기준) 클라우드PC(Windows Server 2012 R2, 몽클라우드)의 시계
 드리프트가 심해서 이 오류가 반복됐고, **2026-09-18 새벽에는 3시간 동안 15회 발생하며
 그 시간대 매매가 전혀 이뤄지지 않는 사고**가 있었다.
 
@@ -627,13 +628,15 @@ main.py
      속성은 원본 time 모듈로 위임한다.
    - 기본 60초마다 재측정(`ntp_refresh_interval_sec`), `expired_jwt` 감지 시에도
      즉시 재측정한다(UDP 1회라 가볍고 관리자 권한 불필요).
-2. **`utils/time_sync.py` — OS 시계 자체 교정 (보조)**
-   - DB 기록 시각·스케줄러 정확도를 위해 여전히 필요하지만, 관리자 권한과 정상
-     동작하는 W32Time 서비스가 필요하고 서브프로세스까지 띄우므로 무겁다.
+2. **`utils/time_sync.py::sync_os_time()` — OS 시계 (보조)**
+   - **Linux(현재)**: OS가 systemd-timesyncd로 상시 동기화하므로 `timedatectl show -p
+     NTPSynchronized`로 **상태만 확인**한다(설정 변경·root 불필요). `no`면 실패 알림.
+   - Windows: w32tm 재동기화 → PowerShell `Set-Date`. 관리자 권한과 정상 동작하는
+     W32Time 서비스가 필요하고 서브프로세스까지 띄우므로 무겁다.
      `exchange/retry.py`는 이걸 **30분에 한 번만**(`_OS_SYNC_COOLDOWN`) 보조로 실행한다.
 
 ### 하지 말 것
-- **`time_sync.py`에서 W32Time 서비스 설정을 바꾸지 말 것.** 과거
+- **`time_sync.py`에서 OS 시간 서비스 설정을 바꾸지 말 것**(Linux의 timesyncd/chrony 포함). Windows 시절 사례: 과거
   `_configure_w32tm()`이 `sc sidtype`/`sc config`로 서비스를 재설정했는데, 이게 반복
   실행되면서 서비스 SID 유형이 깨져 **OS 재부팅으로도 복구되지 않는 상태**(시스템
   오류 1290 → 이후 `w32tm` 전 명령 액세스 거부)가 됐다. 복구에 `sc sidtype w32time
@@ -665,25 +668,28 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 - 모든 예외는 try/except + 로그 기록
 - 주문 실행 전 반드시 잔고 확인
 - BTC/ETH/XRP/USDT 봇은 완전히 독립적으로 동작
-- Windows 호환성 유지 (클라우드 PC 환경)
+- Linux(Ubuntu) 운영 환경 기준. OS 의존 코드는 `sys.platform` 분기로 격리(time_sync, single_instance)
 - 봇 재시작 시 DB에서 이전 상태(기준가/차수) 자동 복구
-- 코드 커밋 후 반드시 git push까지 완료 (클라우드 PC에서 pull로 반영)
+- 코드 커밋 후 반드시 git push까지 완료
 
-### ★ 코드 변경 후 "클라우드PC 반영 방법" 반드시 안내
+### ★ 코드 변경 후 "홈서버 반영 방법" 반드시 안내
 코드를 수정했으면 작업 마무리 답변 끝에 **아래 3단계 중 무엇이 필요한지** 한 줄로
 명확히 알려줄 것(근거가 된 변경 파일 종류도 함께). 여러 개에 걸치면 가장 높은 단계 기준.
 사용자는 이 안내를 보고 전략 재가동 수고를 감수할지 판단한다.
+(미니PC에서 직접 수정했다면 `git pull`은 생략. 다른 PC에서 수정했다면 먼저 미니PC에서 `git pull`)
 
-| 단계 | 언제 | 클라우드PC에서 할 일 | 전략 재가동 |
+| 단계 | 언제 | 미니PC에서 할 일 | 전략 재가동 |
 |---|---|---|---|
-| **① pull만** | 정적 파일만 변경: `web/static/**`(js/css/이미지/manifest) | `git pull` → 브라우저 새로고침 | **불필요** (봇 계속 가동) |
-| **② 프로세스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `git pull` → 관리자 PowerShell에서 `Stop-Process -Name pythonw -Force` → `schtasks /run /tn "CryptoSplit"` | **필요** — 재시작 시 전 종목 중지 상태로 올라옴(자동 시작 금지 원칙). 텔레그램 `/resumeall` 또는 웹 홈 [전체 가동]으로 DB 상태 그대로 이어서 시작 |
-| **③ 서비스 재설치** | `install_service.ps1`/`run_service.bat` 생성 로직 변경, 프로젝트 폴더 이동, Python 재설치·경로 변경 | `uninstall_service.bat` → `install_service.bat` (둘 다 관리자 실행) | **필요** (②와 동일) |
+| **① 새로고침만** | 정적 파일만 변경: `web/static/**`(js/css/이미지/manifest) | 브라우저 새로고침 | **불필요** (봇 계속 가동) |
+| **② 서비스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `sudo systemctl restart cryptosplit` | **필요** — 재시작 시 전 종목 중지 상태로 올라옴(자동 시작 금지 원칙). 텔레그램 `/resumeall` 또는 웹 홈 [전체 가동]으로 DB 상태 그대로 이어서 시작 |
+| **③ 서비스 재설치** | `install_service.sh` 유닛 생성 로직 변경, 프로젝트 폴더 이동, Python 버전 변경(→ `.venv` 삭제 후 재생성) | `sudo ./install_service.sh` (재실행하면 유닛 덮어쓰고 재시작) | **필요** (②와 동일) |
 
-- `requirements.txt`가 바뀌면 ②/③ 전에 `pip install -r requirements.txt`도 안내할 것.
-- "git pull 후 `main.py`만 실행"은 **선택지가 아니다** — 서비스 프로세스가 살아 있으면
-  단일 인스턴스 잠금(`utils/single_instance.py`) 때문에 새 실행이 즉시 종료되고 옛 코드가 계속 돈다.
-- `schtasks /end`만으로는 자식 python 프로세스가 남을 수 있으므로 `Stop-Process`로 끈다.
+- `requirements.txt`가 바뀌면 ② 전에 `.venv/bin/pip install -r requirements.txt`도 안내할 것.
+- `python main.py`를 수동으로 따로 실행하는 것은 **선택지가 아니다** — 서비스 프로세스가 살아
+  있으면 단일 인스턴스 잠금(`utils/single_instance.py`, `data/cryptosplit.lock`) 때문에 새
+  실행이 즉시 종료되고 옛 코드가 계속 돈다.
+- 상태/로그: `systemctl status cryptosplit`, `journalctl -u cryptosplit -f`, `logs/*.log`.
+  `systemctl stop`은 SIGTERM → `graceful_shutdown`(봇 중지+미체결 취소)을 거친다(최대 60초).
 - 가능하면 ② 이상이 필요한 변경과 ①로 충분한 변경을 커밋 단위로 나눠, 프론트만 고친
   경우 전략 재가동 없이 반영할 수 있게 한다.
 
@@ -736,7 +742,7 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 5. **Bootstrap을 외부 CDN에서 로드** — `<head>`의 CSS가 렌더링을 막아 CDN이 느리면
    흰 화면에서 멈췄다 → `web/static/vendor/`에 로컬 번들(v5.3.3). 정적 파일은
    `?v=<수정시각>` 버전 쿼리 + 30일 캐시(`web/app.py`), 웹 서버는 HTTP/1.1
-   keep-alive(`main.py::_KeepAliveHandler`) — ZeroTier 경유 접속에서 요청마다
+   keep-alive(`main.py::_KeepAliveHandler`) — VPN 경유 접속에서 요청마다
    TCP 연결을 새로 맺던 지연 제거.
 6. **실현손익 전체기간 조회가 끝나지 않음** — 매도별 매수 매칭 하위 쿼리
    (`order_repo._fetch_matched_rounds`)를 받쳐줄 인덱스가 없어 O(N²)였다(주문 4만 건
@@ -749,7 +755,7 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
    목록 조회 중/실패는 화면에 표시(`_fetchTradesActive`, 타임아웃 `FETCH_TIMEOUT.list` 60초).
 
 ### 알려진 이슈
-- `pytest tests/`를 실행하면 이전부터 있던 사전 실패가 **47~48개** 나온다
+- `pytest tests/`를 실행하면 이전부터 있던 사전 실패가 나온다 — Windows 환경에서 **47~48개**, 미니PC(Ubuntu, Python 3.14 venv)에서 **45개**(2026-11-08 기준)
   (test_stage1/2/3/5/8/9/11.py, 코드 드리프트로 인한 낡은 assertion 추정).
   `test_stage5.py`는 실행마다 5개 또는 6개로 오가는 flaky 상태 — 새 실패가 이
   범위 안이면 회귀가 아니라 기존 이슈일 가능성이 큼.

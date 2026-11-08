@@ -26,7 +26,7 @@ from notification.telegram import TelegramNotifier
 from notification.telegram_handler import TelegramCommandHandler
 from utils.logger import get_logger
 from utils.single_instance import acquire_single_instance_lock
-from utils.time_sync import sync_windows_time
+from utils.time_sync import sync_os_time
 from web.app import create_app
 
 _log = get_logger("main")
@@ -152,7 +152,7 @@ def main() -> None:
     backup_database(keep=backup_keep)
 
     # 시작 시 시계 동기화 1회 실행 (JWT 만료 예방)
-    sync_windows_time()
+    sync_os_time()
 
     # NTP 기준 시각 보정 시작 — OS 시계가 틀어져도 빗썸 JWT 타임스탬프는 정확히 유지
     from utils import ntp_clock

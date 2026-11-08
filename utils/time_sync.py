@@ -1,8 +1,18 @@
-"""Windows 시스템 시계 동기화 유틸리티."""
+"""OS 시스템 시계 동기화 유틸리티 (Windows / Linux).
+
+- Windows: w32tm 재동기화 → 실패 시 PowerShell Set-Date
+- Linux:   systemd-timesyncd(또는 chrony)가 이미 시계를 맞추고 있으므로
+           `timedatectl`로 동기화 상태만 확인한다. 시스템 설정은 절대 바꾸지
+           않는다(Windows W32Time 서비스 재설정 사고와 같은 원칙).
+
+빗썸 API 타임스탬프는 utils/ntp_clock 이 OS 시계와 무관하게 따로 보정하므로,
+이 모듈의 결과는 DB 기록 시각·스케줄러 정확도에만 영향을 준다.
+"""
 
 import socket
 import struct
 import subprocess
+import sys
 from datetime import datetime, timezone
 
 from utils.logger import get_logger
@@ -55,7 +65,7 @@ def _sync_via_powershell() -> bool:
     return False
 
 
-def sync_windows_time() -> bool:
+def _sync_windows() -> bool:
     """Windows 시계를 NTP 서버와 동기화한다.
 
     1단계: w32tm /resync /force 시도 (이미 정상 동작 중인 W32Time 서비스에게
@@ -98,3 +108,42 @@ def sync_windows_time() -> bool:
 
     _log.error("모든 시간 동기화 방법 실패")
     return False
+
+
+def _check_linux() -> bool:
+    """Linux 시계가 NTP로 동기화된 상태인지 확인한다 (설정 변경 없음)."""
+    try:
+        r = subprocess.run(
+            ["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except FileNotFoundError:
+        _log.error("timedatectl 없음 — 시계 동기화 상태 확인 불가")
+        return False
+    except subprocess.TimeoutExpired:
+        _log.error("timedatectl 타임아웃 — 시계 동기화 상태 확인 불가")
+        return False
+    except Exception as exc:
+        _log.error("timedatectl 실행 오류: %s", exc)
+        return False
+
+    value = (r.stdout or "").strip().lower()
+    if r.returncode == 0 and value == "yes":
+        _log.info("시스템 시계 NTP 동기화 상태 정상 (timedatectl)")
+        return True
+    _log.error(
+        "시스템 시계가 NTP 동기화 상태가 아님 (NTPSynchronized=%s) — "
+        "`timedatectl timesync-status` 확인 필요", value or r.stderr.strip()
+    )
+    return False
+
+
+def sync_os_time() -> bool:
+    """OS 시계를 NTP와 동기화(Windows)하거나 동기화 상태를 확인(Linux)한다.
+
+    Returns:
+        True — 동기화됨, False — 실패/미동기화
+    """
+    if sys.platform == "win32":
+        return _sync_windows()
+    return _check_linux()

@@ -79,7 +79,7 @@ class NotificationScheduler:
         _log.info("정각 현황 알림 %s", "사용" if enabled else "중지")
 
     def reschedule_time_sync(self, interval_hours: int) -> None:
-        """Windows 시계 동기화 간격을 재설정한다 (봇 재시작 불필요)."""
+        """OS 시계 동기화 간격을 재설정한다 (봇 재시작 불필요)."""
         interval_hours = max(1, min(23, int(interval_hours)))
         self._scheduler.reschedule_job(
             "time_sync", trigger=CronTrigger(hour=f"*/{interval_hours}")
@@ -165,15 +165,15 @@ class NotificationScheduler:
             _log.error("정각 현황 전송 실패: %s", exc)
 
     def _job_time_sync(self) -> None:
-        """주기적 Windows 시간 동기화 — 실패했을 때만 텔레그램으로 알림.
+        """주기적 OS 시간 동기화 — 실패했을 때만 텔레그램으로 알림.
 
         성공 알림까지 매번 보내면 알림이 쌓여 정작 중요한 경고가 묻힌다.
         API 타임스탬프는 utils/ntp_clock 이 OS 시계와 무관하게 따로 보정하므로,
         이 잡의 성공 여부는 DB 기록 시각 정확도에만 영향을 준다.
         """
         try:
-            from utils.time_sync import sync_windows_time
-            ok = sync_windows_time()
+            from utils.time_sync import sync_os_time
+            ok = sync_os_time()
             if not ok:
                 self._notifier.send_time_sync_alert(False)
         except Exception as exc:

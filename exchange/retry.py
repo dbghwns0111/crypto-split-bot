@@ -17,8 +17,8 @@ _JWT_EXPIRED_HINT = "expired_jwt"
 # main.py 에서 set_notifier_fn() 으로 등록한다.
 _notifier_fn: Callable[[bool], None] | None = None
 
-# OS 시계 동기화(w32tm/PowerShell)는 관리자 권한과 정상 동작하는 W32Time 서비스가
-# 필요하고 서브프로세스까지 띄우는 무거운 작업이라, JWT 만료가 잦은 환경에서 매번
+# OS 시계 동기화(utils/time_sync — Windows: w32tm/PowerShell, Linux: timedatectl)는
+# 서브프로세스까지 띄우는 무거운 작업이라, JWT 만료가 잦은 환경에서 매번
 # 실행하면 부담이 크다. 1차 복구는 NTP 기준 시각 재측정(utils/ntp_clock, UDP 1회)으로
 # 처리하고 — 이것만으로 API 타임스탬프는 정확해진다 — OS 시계 자체 동기화는 DB 기록
 # 시각/스케줄러 정확도를 위해 아래 쿨다운 간격으로만 보조 수행한다.
@@ -54,8 +54,8 @@ def _recover_clock_skew() -> bool:
     if not due:
         return ntp_ok
 
-    from utils.time_sync import sync_windows_time
-    os_ok = sync_windows_time()
+    from utils.time_sync import sync_os_time
+    os_ok = sync_os_time()
     _log.info("OS 시계 동기화 %s", "성공" if os_ok else "실패")
 
     # 성공 알림은 보내지 않는다 — 예전에 이 알림이 밤새 수십 건씩 쏟아져

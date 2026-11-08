@@ -20,6 +20,7 @@
 """
 
 import html
+import sys
 import unicodedata
 
 # ── 색 이모지 (웹 style.css 와 1:1 대응) ──────────────────────────────────────
@@ -340,11 +341,15 @@ def build_api_error(symbol: str, error: str) -> str:
 def build_time_sync_alert(success: bool, reason: str = "") -> str:
     """시간 동기화 결과 알림 (주기 동기화는 실패 시에만 발송된다)."""
     if success:
-        return card("✅ Windows 시간 동기화 완료",
+        return card("✅ 시스템 시간 동기화 완료",
                     foot=reason or "주기적 시간 동기화가 완료되었습니다.")
     detail = reason or "시간 동기화에 실패했습니다."
-    return card("❌ Windows 시간 동기화 실패",
-                foot=f"{detail}\n관리자 권한으로 실행: w32tm /resync /force")
+    if sys.platform == "win32":
+        hint = "관리자 권한으로 실행: w32tm /resync /force"
+    else:
+        hint = ("확인: timedatectl timesync-status\n"
+                "복구: sudo systemctl restart systemd-timesyncd")
+    return card("❌ 시스템 시간 동기화 실패", foot=f"{detail}\n{hint}")
 
 
 def build_db_backup_alert(success: bool, detail: str = "") -> str:
