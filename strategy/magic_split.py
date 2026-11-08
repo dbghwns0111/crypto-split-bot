@@ -24,6 +24,7 @@ from database.state_repo import (
     set_start_price,
     upsert_state,
 )
+from order.canceller import cancel_confirmed
 from portfolio.balance import check_buy_feasible, check_sell_feasible
 from strategy.circuit_breaker import CircuitBreaker
 from strategy.trigger import (
@@ -126,9 +127,11 @@ class MagicSplit:
         """루프를 중지한다. 미체결 주문 취소는 호출자(BotManager)가 담당한다."""
         self._running = False
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=5)
+            # 진행 중인 틱(취소 확정 대기 등)이 끝나야 이후 cancel_all 이 그 틱에서
+            # 낸 주문까지 잡는다 — 너무 짧으면 중지 후 주문이 남는다.
+            self._thread.join(timeout=30)
             if self._thread.is_alive():
-                _log.warning("봇 중지 타임아웃 — 스레드가 5초 후에도 실행 중: %s", self._symbol)
+                _log.warning("봇 중지 타임아웃 — 스레드가 30초 후에도 실행 중: %s", self._symbol)
                 if self._notifier:
                     self._notifier.send(f"⚠️ {self._symbol} 봇 중지 타임아웃\n스레드가 종료되지 않았습니다. 수동 확인이 필요합니다.")
         upsert_state(self._symbol, reference_price=self._reference_price,
@@ -585,18 +588,35 @@ class MagicSplit:
                 self._check_one_fill(oid, side)
                 continue
 
-            # 잔량 취소
+            # 잔량 취소 — 거래소에서 취소가 "확정"된 뒤에만 다음 주문으로 넘어간다.
+            # (취소 요청 실패를 무시하고 진행하면 옛 주문이 살아남아 미체결이 여러 개
+            #  쌓이고, 나중에 체결돼도 기록되지 않는다 — order/canceller.py 참고)
             _log.info("주문 타임아웃 취소: %s (%s, 체결 %s/%s)", oid, side, filled, ordered)
-            try:
-                self._exchange.cancel_order(oid)
-                update_order(oid, "cancelled")
-            except Exception as exc:
-                _log.error("타임아웃 취소 실패: %s", exc)
+            final = cancel_confirmed(self._exchange, oid)
 
-            # (b) 부분 체결: 체결분을 실제 체결로 정산
-            if info and filled > 0:
+            if final is None:
+                # 미확정: 주문을 계속 추적하고 30초 뒤 다시 시도. 새 주문은 내지 않는다.
+                pending["placed_at"] = now - self._order_timeout + 30
+                if not pending.get("cancel_warned"):
+                    pending["cancel_warned"] = True
+                    if self._notifier:
+                        self._notifier.send_api_error(
+                            self._symbol,
+                            f"미체결 {side} 주문 취소가 확인되지 않아 30초마다 재시도합니다: {oid}",
+                        )
+                continue
+
+            if final["status"] == "filled":
+                # 취소 직전에 완전 체결 — 정상 체결로 처리
+                self._check_one_fill(oid, side)
+                continue
+
+            update_order(oid, "cancelled")
+            # (b) 부분 체결: 취소 확정 후의 최종 체결 수량으로 정산
+            final_filled = float(final.get("filled_quantity", 0) or 0)
+            if final_filled > 0:
                 try:
-                    self._settle_partial(side, info, filled, pending)
+                    self._settle_partial(side, final, final_filled, pending)
                 except Exception as exc:
                     _log.error("부분 체결 정산 실패 (%s): %s", self._symbol, exc)
 
@@ -709,6 +729,31 @@ class MagicSplit:
                 info   = self._exchange.get_order_status(oid)
                 status = info["status"]
 
+                if status == "open":
+                    # 아직 미체결 → 취소하고 "확정"될 때까지 확인 (루프 재시작 후 조건
+                    # 만족 시 새로 주문). 취소 대기 중 체결될 수 있으므로 최종 상태로 판단.
+                    final = cancel_confirmed(self._exchange, oid)
+                    if final is None:
+                        _log.error("미체결 %s 주문 취소 미확정 — DB open 유지: %s", side, oid)
+                        if self._notifier:
+                            self._notifier.send_api_error(
+                                self._symbol,
+                                f"재시작 중 미체결 {side} 주문 취소가 확인되지 않았습니다. "
+                                f"빗썸 앱에서 직접 확인하세요: {oid}",
+                            )
+                        continue
+                    info, status = final, final["status"]
+
+                # 취소됐지만 그 전에 일부 체결된 경우 — 체결분만큼 실제 체결로 처리
+                partial_qty = float(info.get("filled_quantity") or 0)
+                if status == "cancelled" and partial_qty > 0:
+                    update_order_fill(oid,
+                                      filled_price=float(info.get("filled_price") or order["price"]),
+                                      filled_qty=partial_qty)
+                    _log.warning("부분 체결 후 취소된 주문 복구: %s %s 체결수량=%s",
+                                 side, oid, partial_qty)
+                    status = "filled"
+
                 if status == "filled":
                     filled_price = float(info.get("filled_price") or order["price"])
                     filled_qty   = float(info.get("filled_quantity") or order["quantity"])
@@ -739,15 +784,9 @@ class MagicSplit:
                                   self._symbol, filled_price, self._current_round, self._reference_price)
                     changed = True
 
-                elif status == "open":
-                    # 아직 미체결 → 취소 (루프 재시작 후 조건 만족 시 새로 주문)
-                    self._exchange.cancel_order(oid)
+                else:  # cancelled (체결 없음)
                     update_order(oid, "cancelled")
-                    _log.info("미체결 %s 주문 취소: %s", side, oid)
-
-                else:  # cancelled
-                    update_order(oid, "cancelled")
-                    _log.info("이미 취소된 주문 DB 반영: %s", oid)
+                    _log.info("미체결 %s 주문 취소 확정: %s", side, oid)
 
             except Exception as exc:
                 _log.error("주문 복구 실패 (%s): %s", oid, exc)

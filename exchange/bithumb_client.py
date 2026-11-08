@@ -226,9 +226,12 @@ class BithumbClient(ExchangeBase):
         """주문을 취소한다. 성공 시 True."""
         try:
             raw = self._private.cancel_order(order_id)
-            cancelled = raw.get("state") == "cancel"
-            _log.info("주문 취소: %s → %s", order_id, "성공" if cancelled else "실패")
-            return cancelled
+            state = raw.get("state")
+            # 빗썸 취소는 비동기 — 응답 state 가 아직 'wait'여도 실패가 아니라 "접수"다.
+            # 최종 결과는 order.canceller.cancel_confirmed() 가 주문 조회로 확인한다.
+            _log.info("주문 취소 요청: %s → %s", order_id,
+                      "완료" if state == "cancel" else f"접수(state={state})")
+            return state in ("cancel", "wait")
         except Exception as exc:
             _log.warning("주문 취소 실패 (order_id=%s): %s", order_id, exc)
             return False

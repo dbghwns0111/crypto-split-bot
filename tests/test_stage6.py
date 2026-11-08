@@ -230,8 +230,34 @@ def _make_old_order(symbol, oid, side, minutes_ago=10):
     conn.commit()
 
 
+def _stateful_cancel(ex, fail=False, fill_ids=()):
+    """거래소 주문 상태를 흉내낸다: cancel_order 성공 시 해당 주문이 cancelled 가 된다.
+
+    fail=True 면 취소 요청이 항상 예외(타임아웃 등) → 주문은 계속 open.
+    fill_ids 의 주문은 취소 요청 시점에 이미 체결된 것으로 처리.
+    """
+    state = {}
+
+    def cancel(oid):
+        if fail:
+            raise RuntimeError("API 오류")
+        state[oid] = "filled" if oid in fill_ids else "cancelled"
+        return True
+
+    def status(oid):
+        st = state.get(oid, "open")
+        return {"order_id": oid, "status": st, "price": 2_985_000.0, "quantity": 0.0167,
+                "filled_price": 2_985_000.0 if st == "filled" else None,
+                "filled_quantity": 0.0167 if st == "filled" else 0}
+
+    ex.cancel_order.side_effect = cancel
+    ex.get_order_status.side_effect = status
+    return state
+
+
 def test_cancel_timed_out_cancels_old_orders(mock_exchange):
     from order.canceller import cancel_timed_out
+    _stateful_cancel(mock_exchange)
     _make_old_order("ETH", "old-1", "buy", minutes_ago=10)
     cancelled = cancel_timed_out("ETH", mock_exchange, timeout_seconds=300)
     assert "old-1" in cancelled
@@ -247,17 +273,19 @@ def test_cancel_timed_out_skips_recent_orders(mock_exchange):
     assert get_order("new-1")["status"] == "open"
 
 
-def test_cancel_timed_out_api_failure_still_updates_db(mock_exchange):
+def test_cancel_timed_out_api_failure_keeps_open(mock_exchange):
+    """취소 요청이 실패하면 주문은 거래소에 살아 있으므로 DB를 cancelled로 바꾸면 안 된다."""
     from order.canceller import cancel_timed_out
+    _stateful_cancel(mock_exchange, fail=True)
     _make_old_order("ETH", "err-1", "buy", minutes_ago=10)
-    mock_exchange.cancel_order.side_effect = RuntimeError("API 오류")
     cancelled = cancel_timed_out("ETH", mock_exchange, timeout_seconds=300)
-    assert "err-1" in cancelled
-    assert get_order("err-1")["status"] == "cancelled"
+    assert "err-1" not in cancelled
+    assert get_order("err-1")["status"] == "open"
 
 
 def test_cancel_all_cancels_all_open(mock_exchange):
     from order.canceller import cancel_all
+    _stateful_cancel(mock_exchange)
     save_order("ETH", "a1", "buy",  2_985_000, 0.01, 29850.0, 1)
     save_order("ETH", "a2", "buy",  2_975_000, 0.01, 29750.0, 2)
     save_order("ETH", "a3", "sell", 3_017_400, 0.01, 30174.0, 1)
@@ -274,13 +302,24 @@ def test_cancel_all_empty(mock_exchange):
     mock_exchange.cancel_order.assert_not_called()
 
 
-def test_cancel_all_api_failure_fallback(mock_exchange):
+def test_cancel_all_api_failure_keeps_open(mock_exchange):
+    """취소 미확정 주문은 DB open 유지 → 다음 시작 시 _reconcile_open_orders 가 재처리."""
     from order.canceller import cancel_all
+    _stateful_cancel(mock_exchange, fail=True)
     save_order("ETH", "fa1", "buy", 2_985_000, 0.01, 29850.0, 1)
-    mock_exchange.cancel_order.side_effect = RuntimeError("API 실패")
     cancelled = cancel_all("ETH", mock_exchange)
-    assert "fa1" in cancelled
-    assert get_order("fa1")["status"] == "cancelled"
+    assert "fa1" not in cancelled
+    assert get_order("fa1")["status"] == "open"
+
+
+def test_cancel_all_filled_before_cancel_keeps_open(mock_exchange):
+    """취소 직전에 체결된 주문은 cancelled로 기록하면 체결이 유실된다 → open 유지."""
+    from order.canceller import cancel_all
+    _stateful_cancel(mock_exchange, fill_ids={"fl1"})
+    save_order("ETH", "fl1", "buy", 2_985_000, 0.01, 29850.0, 1)
+    cancelled = cancel_all("ETH", mock_exchange)
+    assert cancelled == []
+    assert get_order("fl1")["status"] == "open"
 
 
 def test_cancel_all_symbol_isolation(mock_exchange):
