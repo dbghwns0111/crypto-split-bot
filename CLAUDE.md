@@ -133,6 +133,7 @@ crypto-split-bot/
 ├── uninstall_service.sh       # systemd 서비스 제거 (sudo)
 ├── scripts/docker_host_setup.sh  # Docker 호스트 1회 설정 (live-restore, needrestart 제외)
 ├── scripts/cs_aliases.sh      # 운영 단축 명령어 (~/.bash_aliases 에서 source, 목록: `cs`)
+├── scripts/bot_status.py      # 터미널 자동매매 현황 (cs-status)
 ├── CLAUDE.md
 ├── main.py                    # 진입점
 ├── bot_manager.py             # 봇 생명주기 관리 (start/stop/reset/health)
@@ -770,7 +771,8 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 - `python main.py`를 수동으로 따로 실행하는 것은 **선택지가 아니다** — 컨테이너(또는 서비스) 프로세스가 살아
   있으면 단일 인스턴스 잠금(`utils/single_instance.py`, `data/cryptosplit.lock`) 때문에 새
   실행이 즉시 종료되고 옛 코드가 계속 돈다.
-- 상태/로그: `cs-status`, `cs-log`, `cs-trade`, `cs-err` (`scripts/cs_aliases.sh`, 사용자에게 안내할 때도 이 단축 명령을 쓴다).
+- 상태/로그: `cs-status`(자동매매 현황 — `scripts/bot_status.py`, DB 읽기 전용 + 빗썸 공개 시세), `cs-svc`(컨테이너/서비스 상태),
+  `cs-log`, `cs-trade`, `cs-err` (`scripts/cs_aliases.sh`, 사용자에게 안내할 때도 이 단축 명령을 쓴다).
 - 테스트 로그는 `tests/conftest.py`가 `CRYPTOSPLIT_LOG_DIR`로 임시 폴더에 보낸다. 운영 `logs/`에 테스트의 가짜 오류가 섞이지 않게 하기 위함이다.
   `cs-stop`(docker stop)은 SIGTERM → `graceful_shutdown`(봇 중지+미체결 취소)을 거친다(최대 60초).
 - 가능하면 ② 이상이 필요한 변경과 ①로 충분한 변경을 커밋 단위로 나눠, 프론트만 고친

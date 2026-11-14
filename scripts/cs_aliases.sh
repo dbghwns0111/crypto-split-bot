@@ -45,8 +45,23 @@ cs-start() {     # cs-start [-n]
 cs-stop() {   # 봇 중지 + 미체결 취소 후 종료(최대 60초)
     if [ "$(_cs_mode)" = systemd ]; then sudo systemctl stop "$CS_SVC"; else _cs_dc stop; fi
 }
-cs-status() {
+cs-svc() {    # 서비스/컨테이너 상태 (상세)
     if [ "$(_cs_mode)" = systemd ]; then systemctl --no-pager status "$CS_SVC"; else _cs_dc ps; fi
+}
+cs-status() { # 자동매매 현황 (종목별 가동·차수·트리거·오늘 손익) + 서비스 상태 한 줄
+    local svc
+    if [ "$(_cs_mode)" = systemd ]; then
+        svc="systemd: $(systemctl is-active "$CS_SVC" 2>/dev/null)"
+    else
+        svc="docker: $(docker inspect -f '{{.State.Status}}{{if .State.Health}} ({{.State.Health.Status}}){{end}}' "$CS_SVC" 2>/dev/null || echo '없음')"
+    fi
+    # 컨테이너가 떠 있으면 그 안의 파이썬(의존성 포함)으로, 아니면 호스트 .venv 로 실행
+    if docker exec "$CS_SVC" true >/dev/null 2>&1; then
+        docker exec "$CS_SVC" python scripts/bot_status.py
+    else
+        "$CS_DIR/.venv/bin/python" "$CS_DIR/scripts/bot_status.py"
+    fi
+    echo "서비스 상태 — $svc   (상세: cs-svc)"
 }
 cs-rebuild() {   # cs-rebuild [-n]  — Docker 전용: requirements.txt 변경 시 이미지 재빌드 후 재기동
     _cs_resume_opt "$@" || return 1
@@ -79,7 +94,8 @@ CryptoSplit 단축 명령어 (현재 실행 방식: $(_cs_mode))
   cs-restart -n   재시작하되 자동 재가동 안 함 (cs-start, cs-rebuild 도 -n 지원)
   cs-start    시작
   cs-stop     중지 (봇 중지 + 미체결 취소)
-  cs-status   상태
+  cs-status   자동매매 현황 (종목별 가동·차수·다음 매수/매도·오늘 손익)
+  cs-svc      서비스(컨테이너) 상태 상세
   cs-rebuild  이미지 재빌드 후 재기동 (requirements.txt 변경 시, Docker)
   cs-log      전체 로그 실시간 (Ctrl+C 종료)
   cs-trade    매매 로그 실시간
