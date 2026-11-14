@@ -118,11 +118,11 @@ class TestBuildComponents:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestGracefulShutdown:
-    def test_calls_stop_all(self):
+    def test_calls_shutdown_all(self):
         import main as m
         bm, sched = MagicMock(), MagicMock()
         m.graceful_shutdown(bm, sched)
-        bm.stop_all.assert_called_once()
+        bm.shutdown_all.assert_called_once()
 
     def test_calls_sched_stop(self):
         import main as m
@@ -130,19 +130,19 @@ class TestGracefulShutdown:
         m.graceful_shutdown(bm, sched)
         sched.stop.assert_called_once()
 
-    def test_stop_all_before_sched_stop(self):
+    def test_shutdown_all_before_sched_stop(self):
         import main as m
         order = []
         bm, sched = MagicMock(), MagicMock()
-        bm.stop_all.side_effect   = lambda: order.append("stop_all")
+        bm.shutdown_all.side_effect   = lambda: order.append("shutdown_all")
         sched.stop.side_effect    = lambda: order.append("sched_stop")
         m.graceful_shutdown(bm, sched)
-        assert order == ["stop_all", "sched_stop"]
+        assert order == ["shutdown_all", "sched_stop"]
 
-    def test_does_not_raise_if_stop_all_fails(self):
+    def test_does_not_raise_if_shutdown_all_fails(self):
         import main as m
         bm, sched = MagicMock(), MagicMock()
-        bm.stop_all.side_effect = RuntimeError("crash")
+        bm.shutdown_all.side_effect = RuntimeError("crash")
         m.graceful_shutdown(bm, sched)   # 예외 없이 통과
 
     def test_does_not_raise_if_sched_stop_fails(self):

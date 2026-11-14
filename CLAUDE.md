@@ -12,7 +12,9 @@ main.py 실행
   → DB 초기화 + 무결성 검사 + 시작 백업 1회
   → 시계 동기화 상태 확인 1회 (Linux timedatectl / Windows w32tm)
   → BotManager / Notifier / Scheduler / Flask / CmdHandler 초기화
-  → Flask 웹서버 시작 (포트 5000), 봇은 중지 상태로 대기
+  → Flask 웹서버 시작 (포트 5000), 봇은 중지 상태로 올라옴
+  → 자동 재가동 판단 (auto_resume.py): 사용자가 켜두었던 종목만, 조건 충족 시 이전 상태로 재가동
+    (cs-restart -n 이면 1회 건너뜀 / 6시간 넘게 꺼졌거나 재기동 반복·인터넷 미복구면 보류 알림)
   → APScheduler 자동 시작 (정각 현황 / 00시 결산 / 6h DB백업 / 3분 워치독)
 
 사용자가 브라우저에서 접속 (Tailscale VPN 경유, 아래 "웹 대시보드" 참고)
@@ -286,6 +288,8 @@ system:
   offsite_backup_hour: 4
   offsite_backup_minute: 30
   orphan_check_interval_min: 10 # 빗썸에 남은 봇 주문 점검 주기(분)
+  auto_resume_enabled: true     # 서버 재기동 시 사용자가 켜둔 종목 자동 재가동
+  auto_resume_max_down_hours: 6 # 이보다 오래 꺼져 있었으면 재가동 대신 알림만
 ```
 
 ## DB 테이블
@@ -298,6 +302,9 @@ system:
 ### bot_state
 - symbol (PK), reference_price, start_price, current_round
 - is_running, circuit_breaker_on, cb_until, updated_at
+- desired_running — 사용자가 켜둔 상태(자동 재가동 대상). 사용자의 시작에서 1, 중지·초기화에서 0이 된다.
+  프로세스 종료(`BotManager.shutdown_all`)로는 바뀌지 않는다. is_running은 종료 때 0이 되므로
+  재기동 후에는 "사용자가 껐는지, 서버가 꺼졌는지"를 이 값으로만 구분한다.
 
 ### daily_pnl
 - id, date, symbol(UNIQUE per date)
@@ -340,6 +347,7 @@ system:
 
 ## 텔레그램 알림 항목
 - 봇 시작 / 재시작 / 중지
+- 서버 재기동 후 자동 재가동 결과 / 자동 재가동 보류(사유 포함)
 - 매수 체결 / 매도 체결 (차수/수익 포함)
 - 최대 차수 도달 (매수 중단)
 - 매도 코인 부족 — 매도 보류 (수동 매도 주문이 코인을 묶은 경우 등, 상황 지속 중 1회)
@@ -360,6 +368,18 @@ system:
 - 정각 가동 현황 리포트 (running 봇만 표시, 기본 매시간(0시 제외) — 설정 탭에서
   간격(시간) 조정 및 사용 여부(토글) 설정 가능)
 - 일일 결산 리포트 (00:00, 전날 기준)
+
+## 서버 재기동 후 자동 재가동 — 2026-11-15 (`auto_resume.py`)
+정전·인터넷 장애·크래시·자동 업데이트·`cs-restart`로 프로세스가 다시 뜨면, **사용자가 켜두었던 종목**
+(`bot_state.desired_running=1`)만 `fresh=False`(= `/resumeall`과 같은 동작)로 다시 가동한다.
+- 판단 재료는 main.py가 스케줄러 시작 **전에** 읽는다. `data/.last_alive`(1분 잡 + 정상 종료 직전 갱신)로
+  중단 시간을 구하고, `data/.no_auto_resume`(`cs-restart -n`이 만듦)은 1회 소비한다.
+- 보류(재가동하지 않고 텔레그램 알림만): `-n` 옵션 / 중단 시간을 모름 / `auto_resume_max_down_hours`(기본 6) 초과 /
+  30분 안에 3회 이상 재기동(크래시 반복 의심, `data/.auto_resume_history`) / 빗썸 시세 조회가 10분간 실패.
+- 인터넷 대기 중에도 웹·텔레그램이 바로 뜨도록 별도 스레드(`start_in_background`)에서 실행한다.
+- 꺼져 있던 동안 가격이 내려갔으면 실제 캐치업 매수가 나간다(`/resumeall`과 같음).
+- `cs-restart [-n]`, `cs-start [-n]`, `cs-rebuild [-n]`: `-n`(`--no-resume`)이면 이번 기동만 재가동하지 않는다.
+- 테스트는 `tests/conftest.py`가 이 표식 파일들을 임시 폴더로 돌린다(실제 `data/`를 건드리면 중단 시간 판단이 틀어진다).
 
 ## Docker 실행 구조 — 2026-11-15
 - **이미지 = 실행 환경만**(python:3.14-slim + tzdata + requirements). 코드는 이미지에 굽지 않는다.
@@ -722,7 +742,8 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 > 웹/알림/DB/스케줄러 레이어 개선을 우선적으로 진행할 것.
 
 ### 기본 원칙
-- main.py 실행 시 봇이 자동으로 시작되면 안 됨 — 반드시 웹 또는 텔레그램으로 수동 시작
+- 처음 켜는 것은 반드시 웹 또는 텔레그램으로 사람이 한다. 서버 재기동 시에는 **사용자가 켜두었던 종목만**
+  조건부로 자동 재가동된다(`auto_resume.py`, 위 "서버 재기동 후 자동 재가동" 참고). 사용자가 끈 종목은 절대 켜지 않는다
 - 시작/중지 버튼은 반드시 확인 팝업(confirm modal) 후 실행
 - 각 파일은 단일 책임 원칙 준수
 - API 키는 .env에서만 로드, 코드 하드코딩 금지
@@ -742,8 +763,8 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 | 단계 | 언제 | 미니PC에서 할 일 | 전략 재가동 |
 |---|---|---|---|
 | **① 새로고침만** | 정적 파일만 변경: `web/static/**`(js/css/이미지/manifest) | 브라우저 새로고침 | **불필요** (봇 계속 가동) |
-| **② 서비스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `cs-restart` (= `docker compose restart`) | **필요** — 재시작 시 전 종목 중지 상태로 올라옴(자동 시작 금지 원칙). 텔레그램 `/resumeall` 또는 웹 홈 [전체 가동]으로 DB 상태 그대로 이어서 시작 |
-| **③ 이미지 재빌드** | `requirements.txt`, `Dockerfile`, `docker-compose.yml` 변경, Python 버전 변경 | `cs-rebuild` (= `docker compose up -d --build`) | **필요** (②와 동일) |
+| **② 서비스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `cs-restart` (= `docker compose restart`) | **자동** — 켜두었던 종목은 재기동 후 자동 재가동(텔레그램으로 결과 알림). 재가동을 원치 않으면 `cs-restart -n` |
+| **③ 이미지 재빌드** | `requirements.txt`, `Dockerfile`, `docker-compose.yml` 변경, Python 버전 변경 | `cs-rebuild` (= `docker compose up -d --build`) | **자동** (②와 동일, `-n` 지원) |
 
 - `requirements.txt`가 바뀌면 ③ `cs-rebuild`로 안내할 것. 호스트 `.venv`는 테스트 실행용으로만 쓴다(운영은 컨테이너).
 - `python main.py`를 수동으로 따로 실행하는 것은 **선택지가 아니다** — 컨테이너(또는 서비스) 프로세스가 살아
@@ -842,11 +863,13 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
   2만여 건은 실패가 아니었다. 지금은 "접수(state=wait)"로 기록된다.
 
 ### 자동 보안 업데이트가 서비스를 재시작하지 못하게 (2026-11-14)
+(2026-11-15 이후로는 재시작돼도 `auto_resume.py`가 켜두었던 종목을 다시 가동하지만, 불필요한 재시작과
+캐치업 매수를 피하려고 이 설정은 유지한다.)
 Ubuntu의 unattended-upgrades가 libc를 갱신한 뒤 needrestart가 `cryptosplit.service`를 자동으로
 재시작했다. 자동 시작 금지 원칙 때문에 전 종목이 중지 상태로 올라왔고, 06:15~06:55 동안 매매가 멈췄다.
 `install_service.sh`가 `/etc/needrestart/conf.d/cryptosplit.conf`(`override_rc ... = 0`)로 이 서비스를
 자동 재시작 대상에서 뺀다. 갱신된 라이브러리는 다음 수동 `cs-restart` 때 반영된다.
-봇 자동 재가동으로 해결하지 말 것 — 자동 시작 금지 원칙과 충돌한다.
+
 
 ### 알려진 이슈
 - `pytest tests/`를 실행하면 이전부터 있던 사전 실패가 나온다 — Windows 환경에서 **47~48개**, 미니PC(Ubuntu, Python 3.14 venv)에서 **45개**(2026-11-08 기준)

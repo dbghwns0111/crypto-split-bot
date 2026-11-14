@@ -162,6 +162,16 @@ class NotificationScheduler:
                 misfire_grace_time=3600,
             )
 
+        # 마지막 생존 시각 — 재기동 시 "얼마나 꺼져 있었나"로 자동 재가동 여부 판단(auto_resume.py)
+        from auto_resume import touch_heartbeat
+        self._scheduler.add_job(
+            touch_heartbeat,
+            CronTrigger(minute="*"),
+            id="heartbeat",
+            replace_existing=True,
+            misfire_grace_time=30,
+        )
+
         self._scheduler.add_job(
             self._job_orphan_orders,
             CronTrigger(minute=f"*/{max(1, int(sys_cfg.get('orphan_check_interval_min', 10)))}"),

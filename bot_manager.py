@@ -6,6 +6,7 @@ main.py 실행 시 초기화(봇은 중지 상태).
 
 import threading
 
+from database.state_repo import set_desired_running
 from order.canceller import cancel_all
 from strategy.magic_split import MagicSplit
 from utils.logger import get_logger
@@ -61,6 +62,7 @@ class BotManager:
                     cancel_all(symbol, self._exchange)
                     bot.reset_state()
                 bot.start(virtual_catchup=virtual_catchup)
+                self._set_desired(symbol, True)   # 사용자가 켜둔 종목 → 자동 재가동 대상
                 _log.info("봇 시작: %s (fresh=%s)", symbol, fresh)
                 if self._notifier:
                     pair         = self._cfg["pairs"][symbol]
@@ -92,8 +94,11 @@ class BotManager:
                 _log.error("봇 시작 실패 (%s): %s", symbol, exc)
                 return False, f"시작 실패: {exc}"
 
-    def stop(self, symbol: str) -> tuple[bool, str]:
+    def stop(self, symbol: str, user: bool = True) -> tuple[bool, str]:
         """symbol 봇을 중지하고 미체결 주문을 전량 취소한다.
+
+        user=True(기본): 사용자가 끈 것 → 자동 재가동 대상에서 뺀다.
+        user=False: 프로세스 종료(서버 재시작·정전 대비) — 켜둔 상태를 유지해 다음 기동 때 재가동.
 
         Returns:
             (success: bool, message: str)
@@ -108,6 +113,8 @@ class BotManager:
                 current_round   = bot.current_round
                 reference_price = bot.reference_price
                 bot.stop()
+                if user:
+                    self._set_desired(symbol, False)
                 cancelled = cancel_all(symbol, self._exchange)
                 msg = f"{symbol} 봇 중지 완료"
                 if cancelled:
@@ -136,6 +143,7 @@ class BotManager:
             try:
                 cancel_all(symbol, self._exchange)
                 bot.reset_state()
+                self._set_desired(symbol, False)
                 _log.info("전략 초기화: %s", symbol)
                 return True, f"{symbol} 전략이 초기화되었습니다."
             except Exception as exc:
@@ -173,6 +181,25 @@ class BotManager:
         if stopped:
             _log.info("전체 봇 중지 완료: %s", stopped)
         return stopped
+
+    def shutdown_all(self) -> list[str]:
+        """프로세스 종료용: 실행 중인 봇을 전부(전체제어 OFF 포함) 중지하고 미체결을 취소한다.
+
+        stop_all 과 달리 "사용자가 켜둔 상태"를 지우지 않는다 — 서버가 다시 뜨면 자동 재가동된다.
+        """
+        stopped = []
+        for symbol in list(self._bots.keys()):
+            if self._bots[symbol].is_running:
+                ok, _ = self.stop(symbol, user=False)
+                if ok:
+                    stopped.append(symbol)
+        return stopped
+
+    def _set_desired(self, symbol: str, desired: bool) -> None:
+        try:
+            set_desired_running(symbol, desired)
+        except Exception as exc:
+            _log.error("자동 재가동 상태 기록 실패 (%s): %s", symbol, exc)
 
     def start_all(self, fresh: bool = False) -> tuple[list[str], list[str], list[str]]:
         """전체 제어가 ON(bulk_enabled)인 봇을 모두 재시작한다.

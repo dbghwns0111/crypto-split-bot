@@ -66,3 +66,19 @@ def _protect_real_config(monkeypatch, tmp_path):
         monkeypatch.setattr(dotenv.main, "set_key", safe_set_key)
     except ImportError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _isolate_auto_resume_files(monkeypatch, tmp_path):
+    """자동 재가동 표식(data/.last_alive 등)을 테스트가 건드리지 못하게 임시 폴더로 돌린다.
+
+    graceful_shutdown 이 touch_heartbeat() 를 부르므로, 서버가 꺼져 있을 때 테스트를 돌리면
+    "방금까지 살아 있었다"로 기록돼 실제 중단 시간 판단이 틀어진다.
+    """
+    import auto_resume
+    d = tmp_path / "ar"
+    d.mkdir()
+    monkeypatch.setattr(auto_resume, "_DATA_DIR", d)
+    monkeypatch.setattr(auto_resume, "HEARTBEAT", d / ".last_alive")
+    monkeypatch.setattr(auto_resume, "SKIP_MARKER", d / ".no_auto_resume")
+    monkeypatch.setattr(auto_resume, "HISTORY", d / ".auto_resume_history")

@@ -1,8 +1,8 @@
 # 운영: ~/crypto-split-bot 에서  docker compose up -d --build
 # 단축 명령: cs-up / cs-restart / cs-stop / cs-log / cs-rebuild  (scripts/cs_aliases.sh)
 #
-# 컨테이너가 떠도 자동매매는 "중지" 상태로 대기한다(자동 시작 금지 원칙).
-# 매매 가동은 웹 홈 [전체 가동] 또는 텔레그램 /resumeall.
+# 컨테이너가 뜨면 사용자가 켜두었던 종목만 자동 재가동된다(auto_resume.py, 결과는 텔레그램 알림).
+# 이번 기동에 재가동을 원치 않으면 cs-restart -n / cs-rebuild -n.
 name: cryptosplit
 
 services:

@@ -7,8 +7,7 @@
 # 2) /etc/systemd/system/cryptosplit.service 생성
 # 3) 부팅 시 자동 시작 + 비정상 종료 시 60초 후 재시작 등록, 즉시 시작
 #
-# 서비스가 시작돼도 자동매매는 "중지" 상태로 대기한다(자동 시작 금지 원칙).
-# 매매 가동은 웹 홈 [전체 가동] 또는 텔레그램 /resumeall.
+# 서비스가 시작되면 사용자가 켜두었던 종목만 자동 재가동된다(auto_resume.py).
 set -euo pipefail
 
 SERVICE=cryptosplit
@@ -110,5 +109,5 @@ echo "  - 상태:   systemctl status $SERVICE"
 echo "  - 재시작: sudo systemctl restart $SERVICE"
 echo "  - 로그:   journalctl -u $SERVICE -f  /  $PROJECT_DIR/logs/"
 echo "  - 대시보드: http://127.0.0.1:5000"
-echo "  ※ 자동매매는 중지 상태 — 웹 [전체 가동] 또는 텔레그램 /resumeall"
+echo "  ※ 켜두었던 종목은 자동 재가동 (텔레그램으로 결과 알림)"
 echo "===================================="

@@ -77,3 +77,5 @@ system:
   offsite_backup_hour: 4        # 전송 시각 (KST)
   offsite_backup_minute: 30
   orphan_check_interval_min: 10 # 빗썸에 남은 봇 주문 점검 주기 (분, 수동 주문은 건드리지 않음)
+  auto_resume_enabled: true     # 서버 재기동 시 사용자가 켜둔 종목 자동 재가동 (cs-restart -n 이면 1회 건너뜀)
+  auto_resume_max_down_hours: 6 # 이보다 오래 꺼져 있었으면 재가동하지 않고 알림만

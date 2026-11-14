@@ -28,6 +28,8 @@ from notification.message_builder import (
     build_db_backup_alert,
     build_hourly_status,
     build_low_balance_alert,
+    build_auto_resume,
+    build_auto_resume_held,
     build_orphan_order_alert,
     build_sell_blocked_alert,
     build_max_round,
@@ -248,6 +250,12 @@ class TelegramNotifier:
         order_id: str = "", result: str = "", **_: Any
     ) -> bool:
         return self.send(build_orphan_order_alert(symbol, side, price, order_id, result))
+
+    def send_auto_resume(self, resumed: list, failed: list, downtime_sec: float = 0) -> bool:
+        return self.send(build_auto_resume(resumed, failed, downtime_sec))
+
+    def send_auto_resume_held(self, targets: list, reason: str = "") -> bool:
+        return self.send(build_auto_resume_held(targets, reason))
 
     def send_partial_fill(
         self, symbol: str, side: str = "buy", qty: float = 0,

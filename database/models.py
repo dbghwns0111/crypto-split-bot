@@ -115,6 +115,16 @@ def create_tables(conn: sqlite3.Connection) -> None:
     except Exception:
         pass
 
+    # 기존 DB 마이그레이션: desired_running 컬럼 — "사용자가 켜둔 상태" (자동 재가동 판단용).
+    # is_running 은 프로세스 종료 시 False 로 기록되므로 서버 재시작 후에는 "사용자가 껐는지,
+    # 서버가 꺼졌는지" 구분할 수 없다. 처음 추가할 때는 현재 is_running 값으로 채운다.
+    try:
+        conn.execute("ALTER TABLE bot_state ADD COLUMN desired_running INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE bot_state SET desired_running = is_running")
+        conn.commit()
+    except Exception:
+        pass
+
     # 기존 DB 마이그레이션: is_catchup 컬럼이 없으면 추가
     try:
         conn.execute("ALTER TABLE orders ADD COLUMN is_catchup INTEGER NOT NULL DEFAULT 0")

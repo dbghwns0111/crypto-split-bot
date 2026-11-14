@@ -409,6 +409,37 @@ def build_orphan_order_alert(symbol: str, side: str, price: float,
     )
 
 
+def _fmt_duration(sec: float) -> str:
+    sec = int(max(0, sec or 0))
+    if sec < 60:
+        return f"{sec}초"
+    if sec < 3600:
+        return f"{sec // 60}분"
+    return f"{sec // 3600}시간 {sec % 3600 // 60}분"
+
+
+def build_auto_resume(resumed: list, failed: list, downtime_sec: float) -> str:
+    """서버 재기동 후 자동 재가동 결과."""
+    pairs = [("중단 시간", _fmt_duration(downtime_sec)),
+             ("재가동", ", ".join(resumed) or "-")]
+    if failed:
+        pairs.append(("실패", ", ".join(failed)))
+    return card(
+        "🔄 자동매매 자동 재가동",
+        rows(pairs),
+        foot="서버가 다시 켜져 사용자가 켜두었던 종목을 이전 상태 그대로 이어서 가동했습니다.",
+    )
+
+
+def build_auto_resume_held(targets: list, reason: str) -> str:
+    """자동 재가동을 하지 않은 이유 — 사람이 확인 후 직접 가동."""
+    return card(
+        "⏸️ 자동 재가동 보류",
+        rows([("대상", ", ".join(targets) or "-")]),
+        foot=f"{reason}\n확인 후 웹 [전체 가동] 또는 /resumeall 로 시작하세요.",
+    )
+
+
 def build_partial_fill_alert(
     symbol: str, side: str, qty_filled: float, price: float,
     leftover: float = 0.0,

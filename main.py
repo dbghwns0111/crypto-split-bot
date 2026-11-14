@@ -72,7 +72,8 @@ def graceful_shutdown(
     _log.info("종료 처리 시작")
 
     try:
-        stopped = bot_manager.stop_all()
+        # 사용자가 켜둔 상태는 유지(다음 기동 때 자동 재가동), 전체제어 OFF 종목도 빠짐없이 중지
+        stopped = bot_manager.shutdown_all()
         if stopped:
             _log.info("봇 중지: %s", stopped)
     except Exception as exc:
@@ -88,6 +89,12 @@ def graceful_shutdown(
             cmd_handler.stop()
         except Exception as exc:
             _log.error("명령어 핸들러 종료 실패: %s", exc)
+
+    try:
+        from auto_resume import touch_heartbeat
+        touch_heartbeat()   # 정상 종료 시각 — 곧 다시 뜨면 "짧은 중단"으로 자동 재가동
+    except Exception:
+        pass
 
     close_connection()
     _log.info("종료 완료")
@@ -182,12 +189,21 @@ def main() -> None:
     signal.signal(signal.SIGINT,  _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
+    # 자동 재가동 판단 재료 — 스케줄러가 생존 표식을 갱신하기 "전에" 읽어야 한다
+    import auto_resume
+    downtime       = auto_resume.downtime_seconds()
+    skip_requested = auto_resume.consume_skip_marker()
+    auto_resume.touch_heartbeat()
+
     # 텔레그램 스케줄러 + 명령어 핸들러 자동 시작
     sched.start()
     _log.info("알림 스케줄러 시작")
     if cmd_handler:
         cmd_handler.start()
         _log.info("텔레그램 명령어 핸들러 시작")
+
+    # 사용자가 켜둔 종목 자동 재가동 (조건 미충족 시 보류 알림) — 인터넷 대기 중에도 웹은 바로 뜨게 별도 스레드
+    auto_resume.start_in_background(bot_manager, exchange, notifier, cfg, downtime, skip_requested)
 
     # 웹 서버 실행 (메인 스레드 블록)
     web_cfg = cfg.get("web", {})

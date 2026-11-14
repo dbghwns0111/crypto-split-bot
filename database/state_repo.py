@@ -67,6 +67,26 @@ def set_running(symbol: str, is_running: bool) -> None:
     _conn().commit()
 
 
+def set_desired_running(symbol: str, desired: bool) -> None:
+    """사용자가 켜둔 상태(자동 재가동 대상 여부)를 기록한다.
+
+    사용자의 시작/중지/초기화에서만 바꾼다. 프로세스 종료(서버 재시작·정전)로는 바꾸지 않는다.
+    """
+    _conn().execute(
+        "UPDATE bot_state SET desired_running = ?, updated_at = ? WHERE symbol = ?",
+        (int(desired), now_kst_str(), symbol),
+    )
+    _conn().commit()
+
+
+def get_desired_running_symbols() -> list[str]:
+    """사용자가 켜둔(자동 재가동 대상) 종목 목록."""
+    rows = _conn().execute(
+        "SELECT symbol FROM bot_state WHERE desired_running = 1 ORDER BY symbol"
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
 def set_circuit_breaker(
     symbol: str,
     active: bool,
