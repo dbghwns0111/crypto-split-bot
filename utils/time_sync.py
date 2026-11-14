@@ -9,10 +9,12 @@
 이 모듈의 결과는 DB 기록 시각·스케줄러 정확도에만 영향을 준다.
 """
 
+import os
 import socket
 import struct
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 from utils.logger import get_logger
@@ -110,16 +112,41 @@ def _sync_windows() -> bool:
     return False
 
 
+_MAX_SKEW_SEC = 5.0  # 이 이상 어긋나면 "동기화 안 됨"으로 본다
+
+
+def _check_via_ntp() -> bool:
+    """NTP 서버 시각과 OS 시계를 직접 비교한다 (timedatectl 이 없는 Docker 컨테이너용).
+
+    컨테이너는 호스트 커널의 시계를 그대로 쓰므로, 호스트가 timesyncd로 맞추고 있으면
+    여기서도 오차가 거의 0이다. 시계를 바꾸지는 않는다(컨테이너엔 권한도 없다).
+    """
+    for server in _NTP_SERVERS:
+        ntp_ts = _get_ntp_offset(server)
+        if ntp_ts is None:
+            continue
+        skew = time.time() - ntp_ts   # NTP 응답은 초 단위 정수라 ±1초 오차는 정상
+        if abs(skew) <= _MAX_SKEW_SEC:
+            _log.info("시스템 시계 정상 (NTP %s 대비 %+.1f초)", server, skew)
+            return True
+        _log.error("시스템 시계 오차 %+.1f초 (NTP %s) — 호스트 timesyncd 확인 필요", skew, server)
+        return False
+    _log.error("NTP 서버 응답 없음 — 시계 상태 확인 불가")
+    return False
+
+
 def _check_linux() -> bool:
     """Linux 시계가 NTP로 동기화된 상태인지 확인한다 (설정 변경 없음)."""
+    if os.environ.get("CRYPTOSPLIT_IN_DOCKER"):
+        return _check_via_ntp()
     try:
         r = subprocess.run(
             ["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
             capture_output=True, text=True, timeout=10,
         )
     except FileNotFoundError:
-        _log.error("timedatectl 없음 — 시계 동기화 상태 확인 불가")
-        return False
+        _log.info("timedatectl 없음 — NTP 직접 비교로 확인")
+        return _check_via_ntp()
     except subprocess.TimeoutExpired:
         _log.error("timedatectl 타임아웃 — 시계 동기화 상태 확인 불가")
         return False

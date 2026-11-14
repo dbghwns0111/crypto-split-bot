@@ -1,0 +1,54 @@
+# 운영: ~/crypto-split-bot 에서  docker compose up -d --build
+# 단축 명령: cs-up / cs-restart / cs-stop / cs-log / cs-rebuild  (scripts/cs_aliases.sh)
+#
+# 컨테이너가 떠도 자동매매는 "중지" 상태로 대기한다(자동 시작 금지 원칙).
+# 매매 가동은 웹 홈 [전체 가동] 또는 텔레그램 /resumeall.
+name: cryptosplit
+
+services:
+  bot:
+    build:
+      context: .
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    image: cryptosplit:latest
+    container_name: cryptosplit
+
+    # host 네트워크:
+    #  - 웹 서버가 지금처럼 호스트 5000 포트를 쓰고, ufw 규칙(tailscale0 에서만 허용)이 그대로 적용된다.
+    #    (ports: 로 게시하면 Docker가 iptables 를 직접 열어 ufw 를 우회 → 집 LAN 전체에 노출됨)
+    #  - 접속자 IP가 실제 Tailscale IP로 보여 IP 화이트리스트(100.64.0.0/10)가 그대로 동작한다.
+    network_mode: host
+
+    # 프로젝트 폴더 통째 마운트 — 코드·.env·config/settings.yaml·data/·logs/ 를 호스트와 공유.
+    # data/ 경로가 그대로라 asset-dashboard 의 읽기 전용 마운트(/cryptosplit)도 영향 없다.
+    # data/cryptosplit.lock(단일 인스턴스 잠금)도 호스트와 공유되므로, 혹시 systemd 서비스와
+    # 동시에 떠도 두 번째 프로세스는 즉시 종료된다(텔레그램 이중 폴링·이중 주문 방지).
+    volumes:
+      - ./:/app
+
+    environment:
+      - TZ=Asia/Seoul
+
+    # 비정상 종료 시 재시작 + 부팅 시 자동 기동(docker 서비스가 enable 상태이므로).
+    # 직접 cs-stop 한 경우엔 재부팅해도 다시 뜨지 않는다.
+    restart: unless-stopped
+
+    # docker stop 기본 대기는 10초 → 봇 중지 + 미체결 주문 "취소 확정"에 부족하다.
+    # main.py 가 SIGTERM 을 받아 graceful_shutdown 을 끝낼 시간을 준다(systemd 시절 60초와 동일).
+    stop_signal: SIGTERM
+    stop_grace_period: 60s
+
+    mem_limit: 512m
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/login', timeout=5).status==200 else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

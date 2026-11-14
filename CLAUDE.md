@@ -109,8 +109,10 @@ main.py 실행
 - DB: SQLite (WAL 모드, 자동 백업)
 - 알림: 텔레그램 Bot API (큐 기반 비동기, rate-limit 처리)
 - 스케줄러: APScheduler (BackgroundScheduler)
-- 실행환경: **집 홈서버 미니PC (Ubuntu Linux, 호스트명 `home-server`, Python 3.14 `.venv`)**
-  에서 systemd 서비스(`cryptosplit.service`)로 24시간 상시 구동 (2026-11-08 이전).
+- 실행환경: **집 홈서버 미니PC (Ubuntu Linux, 호스트명 `home-server`)**에서 **Docker 컨테이너**
+  (`docker-compose.yml`, 컨테이너명 `cryptosplit`, 이미지 `python:3.14-slim` 기반)로 24시간 상시 구동한다.
+  2026-11-15에 systemd 서비스(`cryptosplit.service`, `.venv`)에서 전환했다. systemd 방식은
+  `install_service.sh`로 되돌릴 수 있는 예비 수단으로 남겨 두었다 (2026-11-08 홈서버 이전).
   이전에는 Windows Server 2012 R2 클라우드PC("몽클라우드" 임대)에서 돌았다 —
   아래 문서 중 "클라우드PC"/Windows 관련 서술은 그 시절 배경 기록이다.
 - 개발환경: 미니PC에서 직접 수정 → GitHub 커밋/push (다른 PC에서 수정했다면 미니PC에서 pull)
@@ -122,8 +124,12 @@ crypto-split-bot/
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
-├── install_service.sh         # systemd 서비스 설치 (sudo, .venv 생성 포함)
+├── Dockerfile                 # 실행 환경 이미지 (파이썬+의존성만, 코드는 바인드 마운트)
+├── docker-compose.yml         # 운영 컨테이너 정의 (host 네트워크, 프로젝트 폴더 마운트)
+├── .dockerignore
+├── install_service.sh         # (예비) systemd 서비스 설치 (sudo, .venv 생성 포함)
 ├── uninstall_service.sh       # systemd 서비스 제거 (sudo)
+├── scripts/docker_host_setup.sh  # Docker 호스트 1회 설정 (live-restore, needrestart 제외)
 ├── scripts/cs_aliases.sh      # 운영 단축 명령어 (~/.bash_aliases 에서 source, 목록: `cs`)
 ├── CLAUDE.md
 ├── main.py                    # 진입점
@@ -354,6 +360,27 @@ system:
 - 정각 가동 현황 리포트 (running 봇만 표시, 기본 매시간(0시 제외) — 설정 탭에서
   간격(시간) 조정 및 사용 여부(토글) 설정 가능)
 - 일일 결산 리포트 (00:00, 전날 기준)
+
+## Docker 실행 구조 — 2026-11-15
+- **이미지 = 실행 환경만**(python:3.14-slim + tzdata + requirements). 코드는 이미지에 굽지 않는다.
+  `docker-compose.yml`이 프로젝트 폴더 전체를 `/app`에 바인드 마운트한다. 이유는 두 가지다.
+  ① 코드를 고친 뒤 `cs-restart`만 하면 반영된다(재빌드 불필요). ② 웹 설정 탭이 `.env`를
+  python-dotenv `set_key`(임시파일 → rename)로 다시 쓰는데, 파일 하나만 마운트하면 rename이 EBUSY로
+  실패한다. 폴더 통째 마운트로 이를 피한다. **파일 단위 마운트로 바꾸지 말 것.**
+- `network_mode: host`: 웹이 지금처럼 호스트 5000 포트를 쓰고, ufw(tailscale0에서만 허용)가 그대로 적용된다.
+  접속자 IP도 실제 Tailscale IP로 보여 화이트리스트가 동작한다. **`ports:` 게시로 바꾸지 말 것** —
+  Docker가 iptables를 직접 열어 ufw를 우회하므로 집 LAN 전체에 노출된다.
+- `stop_grace_period: 60s`: docker 기본 10초로는 봇 중지 + 미체결 "취소 확정"이 끝나지 않는다.
+- `restart: unless-stopped`: 비정상 종료 시 재시작하고, 부팅 시 자동으로 뜬다. 자동매매는 여전히 수동 시작이다.
+- UID/GID 1000(호스트 사용자)으로 실행해 `data/`·`logs/`·설정 파일 소유자가 바뀌지 않는다.
+- 단일 인스턴스 잠금 `data/cryptosplit.lock`은 호스트와 공유된다. systemd 서비스와 컨테이너가 동시에
+  떠도 두 번째는 즉시 종료된다(실제로 확인함).
+- 컨테이너엔 `timedatectl`이 없다. `CRYPTOSPLIT_IN_DOCKER=1`이면 `time_sync._check_via_ntp()`가 NTP 시각과
+  직접 비교한다(오차 5초 이내면 정상). 시계 자체는 호스트 커널 것이라 호스트 timesyncd가 맞춘다.
+- `scripts/docker_host_setup.sh`(sudo, 1회)가 Docker `live-restore`를 켜고 needrestart에서 docker·containerd를
+  뺀다. Docker 데몬이 재시작돼도 컨테이너가 재시작되지 않게 하기 위함이다(06:15 정지 사고와 같은 문제).
+- `requirements.txt`가 바뀌면 `cs-rebuild`(= `docker compose up -d --build`).
+- asset-dashboard(별도 프로젝트)가 `~/crypto-split-bot/data`를 읽기 전용으로 마운트한다. **data/ 경로를 옮기지 말 것.**
 
 ## 외부 생존 감시 (healthchecks.io) — 2026-11-08
 홈서버라 정전·인터넷 장애·프로세스 사망이 나면 봇이 스스로 알릴 수 없다. 그래서
@@ -715,16 +742,16 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 | 단계 | 언제 | 미니PC에서 할 일 | 전략 재가동 |
 |---|---|---|---|
 | **① 새로고침만** | 정적 파일만 변경: `web/static/**`(js/css/이미지/manifest) | 브라우저 새로고침 | **불필요** (봇 계속 가동) |
-| **② 서비스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `cs-restart` (= `sudo systemctl restart cryptosplit`) | **필요** — 재시작 시 전 종목 중지 상태로 올라옴(자동 시작 금지 원칙). 텔레그램 `/resumeall` 또는 웹 홈 [전체 가동]으로 DB 상태 그대로 이어서 시작 |
-| **③ 서비스 재설치** | `install_service.sh` 유닛 생성 로직 변경, 프로젝트 폴더 이동, Python 버전 변경(→ `.venv` 삭제 후 재생성) | `sudo ./install_service.sh` (재실행하면 유닛 덮어쓰고 재시작) | **필요** (②와 동일) |
+| **② 서비스 재시작** | `.py` 파일, `web/templates/*.html`(운영 모드는 템플릿 캐시), `config/settings.default.yaml`·설정 로딩 구조 변경 | `cs-restart` (= `docker compose restart`) | **필요** — 재시작 시 전 종목 중지 상태로 올라옴(자동 시작 금지 원칙). 텔레그램 `/resumeall` 또는 웹 홈 [전체 가동]으로 DB 상태 그대로 이어서 시작 |
+| **③ 이미지 재빌드** | `requirements.txt`, `Dockerfile`, `docker-compose.yml` 변경, Python 버전 변경 | `cs-rebuild` (= `docker compose up -d --build`) | **필요** (②와 동일) |
 
-- `requirements.txt`가 바뀌면 ② 전에 `.venv/bin/pip install -r requirements.txt`도 안내할 것.
-- `python main.py`를 수동으로 따로 실행하는 것은 **선택지가 아니다** — 서비스 프로세스가 살아
+- `requirements.txt`가 바뀌면 ③ `cs-rebuild`로 안내할 것. 호스트 `.venv`는 테스트 실행용으로만 쓴다(운영은 컨테이너).
+- `python main.py`를 수동으로 따로 실행하는 것은 **선택지가 아니다** — 컨테이너(또는 서비스) 프로세스가 살아
   있으면 단일 인스턴스 잠금(`utils/single_instance.py`, `data/cryptosplit.lock`) 때문에 새
   실행이 즉시 종료되고 옛 코드가 계속 돈다.
 - 상태/로그: `cs-status`, `cs-log`, `cs-trade`, `cs-err` (`scripts/cs_aliases.sh`, 사용자에게 안내할 때도 이 단축 명령을 쓴다).
 - 테스트 로그는 `tests/conftest.py`가 `CRYPTOSPLIT_LOG_DIR`로 임시 폴더에 보낸다. 운영 `logs/`에 테스트의 가짜 오류가 섞이지 않게 하기 위함이다.
-  `systemctl stop`은 SIGTERM → `graceful_shutdown`(봇 중지+미체결 취소)을 거친다(최대 60초).
+  `cs-stop`(docker stop)은 SIGTERM → `graceful_shutdown`(봇 중지+미체결 취소)을 거친다(최대 60초).
 - 가능하면 ② 이상이 필요한 변경과 ①로 충분한 변경을 커밋 단위로 나눠, 프론트만 고친
   경우 전략 재가동 없이 반영할 수 있게 한다.
 
