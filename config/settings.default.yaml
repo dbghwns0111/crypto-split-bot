@@ -76,3 +76,4 @@ system:
   offsite_backup_enabled: true  # 매일 DB 압축본을 텔레그램 채팅으로 전송(외부 보관)
   offsite_backup_hour: 4        # 전송 시각 (KST)
   offsite_backup_minute: 30
+  orphan_check_interval_min: 10 # 빗썸에 남은 봇 주문 점검 주기 (분, 수동 주문은 건드리지 않음)

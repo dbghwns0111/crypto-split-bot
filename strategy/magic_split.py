@@ -84,6 +84,7 @@ class MagicSplit:
         self._max_round_notified = False
         # 잔고 부족 알림 중복 방지 (잔고 회복 시 자동 리셋)
         self._balance_warned = False
+        self._sell_balance_warned = False  # 매도용 코인 부족 알림 (매도 주문 성공 시 리셋)
         # 자동 시작가 트레일링(래칫) 마지막 판단 시각
         self._last_rebase_check = 0.0
 
@@ -178,6 +179,11 @@ class MagicSplit:
     @property
     def is_thread_alive(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
+
+    @property
+    def pending_order_ids(self) -> set:
+        """지금 추적 중인 미체결 주문 번호 (남은 주문 점검용, 읽기 전용)."""
+        return {p["order_id"] for p in (self._pending_buy, self._pending_sell) if p}
 
     @property
     def is_resume(self) -> bool:
@@ -473,6 +479,15 @@ class MagicSplit:
         feasible, reason = check_sell_feasible(self._exchange, self._symbol, quantity)
         if not feasible:
             _log.warning("매도 불가 (%s): %s", self._symbol, reason)
+            # 수동 매도 주문이 코인을 묶어두면 봇 매도가 조용히 멈추므로 1회 알린다
+            if "잔고 부족" in reason and not self._sell_balance_warned:
+                self._sell_balance_warned = True
+                try:
+                    available = self._exchange.get_balance(self._symbol)
+                except Exception:
+                    available = 0.0
+                self._notify("sell_blocked", currency=self._symbol,
+                             needed=quantity, available=available)
             return
         try:
             result = self._exchange.sell_limit(self._ticker, price, quantity)
@@ -482,6 +497,7 @@ class MagicSplit:
                 return
             self._pending_sell = {"order_id": oid, "placed_at": time.monotonic(),
                                   "order_price": price, "quantity": quantity}
+            self._sell_balance_warned = False
             save_order(self._symbol, oid, "sell", price, quantity,
                        round(price * quantity, 2), self._current_round)
             _log.info("매도 주문 전송: %s 가격=%d 수량=%s", self._symbol, price, quantity)

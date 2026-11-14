@@ -162,6 +162,14 @@ class NotificationScheduler:
                 misfire_grace_time=3600,
             )
 
+        self._scheduler.add_job(
+            self._job_orphan_orders,
+            CronTrigger(minute=f"*/{max(1, int(sys_cfg.get('orphan_check_interval_min', 10)))}"),
+            id="orphan_orders",
+            replace_existing=True,
+            misfire_grace_time=120,
+        )
+
         if self._hc_url:
             hc_interval = max(1, int(self._cfg.get("system", {}).get("healthcheck_interval_min", 1)))
             self._scheduler.add_job(
@@ -292,6 +300,35 @@ class NotificationScheduler:
             except Exception:
                 pass
             return False
+
+    def _job_orphan_orders(self) -> None:
+        """빗썸 미체결 목록과 봇 기록을 대조해 남은 봇 주문을 정리한다 (수동 주문 제외).
+
+        취소 확정 로직(order/canceller.cancel_confirmed)이 놓치는 경우를 대비한 안전장치.
+        시작/중지가 진행 중인 종목은 건너뛴다.
+        """
+        from order.canceller import clean_orphan_orders
+
+        locks = getattr(self._bot_manager, "_locks", {}) or {}
+        for sym, bot in self._bot_manager.bots.items():
+            lock = locks.get(sym)
+            if lock is not None and not lock.acquire(blocking=False):
+                continue
+            try:
+                results = clean_orphan_orders(
+                    sym, bot.ticker, self._exchange,
+                    is_tracked=lambda oid, b=bot: oid in b.pending_order_ids,
+                    bot_running=bot.is_running,
+                )
+                for r in results:
+                    self._notifier.send_orphan_order(
+                        sym, side=r["side"], price=r["price"],
+                        order_id=r["order_id"], result=r["result"])
+            except Exception as exc:
+                _log.error("남은 주문 점검 실패 (%s): %s", sym, exc)
+            finally:
+                if lock is not None:
+                    lock.release()
 
     def _job_healthcheck(self) -> None:
         """외부 생존 감시 ping — 신호가 끊기면 healthchecks.io가 알린다.

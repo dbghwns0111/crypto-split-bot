@@ -383,6 +383,32 @@ def build_low_balance_alert(symbol: str, krw_balance: float,
     )
 
 
+def build_sell_blocked_alert(symbol: str, currency: str, needed: float,
+                             available: float) -> str:
+    """매도 트리거 도달했지만 주문 가능 코인 부족 — 매도 보류 알림.
+
+    수동 매도 주문이 코인을 묶어두었거나, 봇이 산 코인을 수동으로 판 경우에 난다.
+    """
+    return card(
+        f"🛑 {symbol} 코인 부족 — 매도 보류",
+        rows([("필요 수량", qty(needed)), ("주문 가능", qty(available))]),
+        foot=(f"매도 조건이 됐지만 주문 가능한 {currency}가 부족합니다.\n"
+              "수동 매도 주문이 코인을 묶고 있는지 확인하세요.\n"
+              "잔고가 회복되면 재시작 없이 자동 재개됩니다."),
+    )
+
+
+def build_orphan_order_alert(symbol: str, side: str, price: float,
+                             order_id: str, result: str) -> str:
+    """봇 기록과 어긋난 채 빗썸에 남아 있던 봇 주문 정리 결과 알림."""
+    side_kr = "매수" if side == "buy" else "매도"
+    return card(
+        f"🔧 {symbol} 남은 봇 주문 정리",
+        rows([("구분", side_kr), ("주문가", krw(price))]),
+        foot=f"{result}\n주문번호: {order_id}",
+    )
+
+
 def build_partial_fill_alert(
     symbol: str, side: str, qty_filled: float, price: float,
     leftover: float = 0.0,

@@ -28,6 +28,8 @@ from notification.message_builder import (
     build_db_backup_alert,
     build_hourly_status,
     build_low_balance_alert,
+    build_orphan_order_alert,
+    build_sell_blocked_alert,
     build_max_round,
     build_order_cancelled,
     build_partial_fill_alert,
@@ -234,6 +236,18 @@ class TelegramNotifier:
         self, symbol: str, krw: float = 0, order_amount: float = 0, **_: Any
     ) -> bool:
         return self.send(build_low_balance_alert(symbol, krw, order_amount))
+
+    def send_sell_blocked(
+        self, symbol: str, currency: str = "", needed: float = 0,
+        available: float = 0, **_: Any
+    ) -> bool:
+        return self.send(build_sell_blocked_alert(symbol, currency or symbol, needed, available))
+
+    def send_orphan_order(
+        self, symbol: str, side: str = "", price: float = 0,
+        order_id: str = "", result: str = "", **_: Any
+    ) -> bool:
+        return self.send(build_orphan_order_alert(symbol, side, price, order_id, result))
 
     def send_partial_fill(
         self, symbol: str, side: str = "buy", qty: float = 0,

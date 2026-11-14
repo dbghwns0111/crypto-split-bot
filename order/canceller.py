@@ -10,9 +10,9 @@
 """
 
 import time
-from typing import Optional
+from typing import Callable, Optional
 
-from database.order_repo import get_open_orders, update_order
+from database.order_repo import get_open_orders, get_order, update_order
 from exchange.base import ExchangeBase
 from utils.logger import get_logger
 from utils.time_utils import elapsed_seconds, parse_kst
@@ -137,3 +137,67 @@ def _cancel_one(order_id: str, exchange: ExchangeBase) -> bool:
     _log.warning("취소 전 체결 발생(status=%s, 체결수량=%s) — DB open 유지, 다음 시작 시 정산: %s",
                  info["status"], filled_qty, order_id)
     return False
+
+
+def clean_orphan_orders(
+    symbol: str,
+    ticker: str,
+    exchange: ExchangeBase,
+    is_tracked: Callable[[str], bool],
+    bot_running: bool,
+) -> list[dict]:
+    """빗썸에 살아 있지만 봇이 추적하지 않는 "봇 주문"을 찾아 취소한다 (이중 안전장치).
+
+    대상 — 빗썸 미체결이면서 봇 DB에 있는 주문 중:
+      · DB 상태가 open 이 아닌 것(취소/체결로 기록됐는데 실제론 살아 있음)
+      · DB open 이지만 가동 중인 봇이 추적하지 않는 것
+    DB에 없는 주문은 수동 주문으로 보고 절대 건드리지 않는다.
+    봇이 중지 상태인 종목의 DB open 주문은 다음 시작 시 _reconcile_open_orders 가
+    처리하므로 건드리지 않는다.
+
+    봇 루프와의 경합을 피하려고 취소 직전에 거래소 상태·DB·추적 여부를 다시 확인한다
+    (봇은 주문 직후 추적을 먼저 걸고 DB에 저장하므로, DB에 open 으로 보이는 주문은
+    이미 추적 중이다).
+
+    Returns:
+        [{order_id, side, price, result, outcome}] — outcome: cancelled/filled/unresolved
+    """
+    results: list[dict] = []
+    for o in exchange.get_open_orders(ticker):
+        oid = o.get("order_id")
+        if not oid or is_tracked(oid):
+            continue
+        row = get_order(oid)
+        if row is None or row["symbol"] != symbol:
+            continue  # 수동 주문
+        if row["status"] == "open" and not bot_running:
+            continue  # 다음 시작 시 정산
+
+        # ── 경합 방지 재확인 ──
+        try:
+            info = exchange.get_order_status(oid)
+        except Exception as exc:
+            _log.warning("남은 주문 재확인 실패 (%s): %s", oid, exc)
+            continue
+        if info.get("status") != "open" or is_tracked(oid):
+            continue
+        row = get_order(oid)
+        if row is None or (row["status"] == "open" and not bot_running):
+            continue
+
+        _log.warning("봇이 추적하지 않는 봇 주문 발견 — 취소: %s %s %s (DB=%s)",
+                     symbol, row["side"], oid, row["status"])
+        final = cancel_confirmed(exchange, oid)
+        if final is None:
+            outcome, result = "unresolved", "취소가 확인되지 않았습니다. 빗썸 앱에서 직접 확인하세요."
+        elif final["status"] == "cancelled" and float(final.get("filled_quantity") or 0) <= 0:
+            outcome, result = "cancelled", "빗썸에 남아 있던 주문을 취소했습니다."
+            if row["status"] == "open":
+                update_order(oid, "cancelled")
+        else:
+            outcome = "filled"
+            result = (f"취소 전에 체결됐습니다(체결 {float(final.get('filled_quantity') or 0):g}). "
+                      "봇 차수·손익에 반영되지 않은 체결이니 확인하세요.")
+        results.append({"order_id": oid, "side": row["side"], "price": float(row["price"]),
+                        "result": result, "outcome": outcome})
+    return results
