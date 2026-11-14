@@ -14,7 +14,7 @@ echo "[1/2] 서비스 중지 (봇 중지 + 미체결 주문 취소 후 종료)..
 systemctl disable --now "$SERVICE" 2>/dev/null || true
 
 echo "[2/2] 유닛 파일 제거..."
-rm -f "$UNIT"
+rm -f "$UNIT" /etc/needrestart/conf.d/cryptosplit.conf
 systemctl daemon-reload
 systemctl reset-failed "$SERVICE" 2>/dev/null || true
 echo "완료 — 서비스가 제거되었습니다."

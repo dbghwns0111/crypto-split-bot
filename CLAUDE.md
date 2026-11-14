@@ -802,6 +802,13 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
 - 빗썸 취소는 비동기라 응답 `state`가 `wait`인 것이 정상이다. 예전 로그의 "주문 취소: → 실패"
   2만여 건은 실패가 아니었다. 지금은 "접수(state=wait)"로 기록된다.
 
+### 자동 보안 업데이트가 서비스를 재시작하지 못하게 (2026-11-14)
+Ubuntu의 unattended-upgrades가 libc를 갱신한 뒤 needrestart가 `cryptosplit.service`를 자동으로
+재시작했다. 자동 시작 금지 원칙 때문에 전 종목이 중지 상태로 올라왔고, 06:15~06:55 동안 매매가 멈췄다.
+`install_service.sh`가 `/etc/needrestart/conf.d/cryptosplit.conf`(`override_rc ... = 0`)로 이 서비스를
+자동 재시작 대상에서 뺀다. 갱신된 라이브러리는 다음 수동 `cs-restart` 때 반영된다.
+봇 자동 재가동으로 해결하지 말 것 — 자동 시작 금지 원칙과 충돌한다.
+
 ### 알려진 이슈
 - `pytest tests/`를 실행하면 이전부터 있던 사전 실패가 나온다 — Windows 환경에서 **47~48개**, 미니PC(Ubuntu, Python 3.14 venv)에서 **45개**(2026-11-08 기준)
   (test_stage1/2/3/5/8/9/11.py, 코드 드리프트로 인한 낡은 assertion 추정).

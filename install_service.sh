@@ -59,6 +59,8 @@ cat > "$UNIT" <<UNIT_EOF
 Description=CryptoSplit 자동매매 봇 (웹 대시보드 + 텔레그램)
 Wants=network-online.target
 After=network-online.target time-sync.target
+# 재시작 횟수 제한 해제 (이 키는 [Unit] 소속 — [Service]에 두면 무시됨)
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -70,15 +72,27 @@ Environment=PYTHONUNBUFFERED=1
 # 정상 종료 시 main.py 가 봇 중지 + 미체결 주문 취소를 수행할 시간
 KillSignal=SIGTERM
 TimeoutStopSec=60
-# 비정상 종료 시 60초 후 재시작 (간격 내 무한 재시도)
+# 비정상 종료 시 60초 후 재시작
 Restart=on-failure
 RestartSec=60
-StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target
 UNIT_EOF
 echo "      완료"
+
+# 자동 보안 업데이트(unattended-upgrades → needrestart)가 libc·python 등을 갱신한 뒤
+# 이 서비스를 마음대로 재시작하지 못하게 한다. 재시작되면 자동매매 금지 원칙상 전 종목이
+# 중지 상태로 올라와 사람이 다시 가동할 때까지 매매가 멈춘다(2026-11-14 06:15 실제 40분 정지).
+# 새 라이브러리는 다음 수동 재시작(cs-restart) 때 반영된다.
+if [[ -d /etc/needrestart ]]; then
+    mkdir -p /etc/needrestart/conf.d
+    cat > /etc/needrestart/conf.d/cryptosplit.conf <<'NR_EOF'
+# CryptoSplit: 자동 업데이트 후 서비스 자동 재시작 금지 (install_service.sh 가 생성)
+$nrconf{override_rc}{qr(^cryptosplit\.service$)} = 0;
+NR_EOF
+    echo "      needrestart 자동 재시작 제외 등록"
+fi
 
 # ── 3. 등록 + 시작 ────────────────────────────────────────
 echo "[3/3] 서비스 등록 및 시작..."
