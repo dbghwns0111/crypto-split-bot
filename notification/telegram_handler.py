@@ -18,6 +18,25 @@ _POLL_TIMEOUT = 30     # long-polling 대기 (초)
 _HTTP_TIMEOUT = 35     # requests 타임아웃 (_POLL_TIMEOUT 보다 여유 있게)
 _ERR_SLEEP    = 5      # 오류 발생 후 재시도 대기 (초)
 
+# 채팅 입력창 왼쪽 "메뉴" 버튼에 뜨는 명령어 목록 (Bot API setMyCommands).
+# _dispatch 와 /help 문구를 바꾸면 여기도 함께 갱신할 것. 이름은 소문자·숫자·_ 만, 설명은 짧게.
+# 종목이 필요한 명령은 메뉴에서 누르면 인자 없이 전송되고, 핸들러가 사용법을 안내한다.
+BOT_COMMANDS: list[tuple[str, str]] = [
+    ("status",    "차수·트리거·손익 현황"),
+    ("balance",   "잔고 + 코인 평가금액"),
+    ("pnl",       "오늘 실현손익 요약"),
+    ("report",    "오늘 결산 즉시 전송"),
+    ("resumeall", "중지된 봇 전체 재시작 (상태 복원)"),
+    ("stopall",   "전체 봇 중지 + 미체결 취소"),
+    ("resume",    "종목 재시작 — 예: /resume ETH"),
+    ("stop",      "종목 중지 + 미체결 취소 — 예: /stop ETH"),
+    ("start",     "종목 새로 시작(초기화) — 예: /start ETH"),
+    ("set",       "설정 변경 — 예: /set BTC trigger_krw 300000"),
+    ("on",        "전체 명령 대상에 포함 — 예: /on BTC"),
+    ("off",       "전체 명령에서 제외 — 예: /off BTC"),
+    ("help",      "명령어 목록"),
+]
+
 
 class TelegramCommandHandler:
     """텔레그램 채팅 명령어를 수신하여 BotManager를 제어한다.
@@ -59,9 +78,37 @@ class TelegramCommandHandler:
 
     # ── 폴링 루프 ─────────────────────────────────────────────────────────────
 
+    def register_commands(self) -> bool:
+        """채팅 입력창 메뉴에 명령어 목록을 등록한다(setMyCommands). 성공 시 True.
+
+        봇 단위 설정이라 한 번 등록하면 유지되지만, 목록을 바꿔도 바로 반영되도록 기동마다 다시 보낸다.
+        """
+        try:
+            resp = requests.post(
+                _BASE_URL.format(token=self._token) + "/setMyCommands",
+                json={"commands": [{"command": c, "description": d} for c, d in BOT_COMMANDS]},
+                timeout=10,
+            )
+            ok = resp.status_code == 200 and resp.json().get("ok", False)
+            if ok:
+                _log.info("텔레그램 명령어 메뉴 등록 (%d개)", len(BOT_COMMANDS))
+            else:
+                _log.warning("텔레그램 명령어 메뉴 등록 실패: HTTP %s %.200s",
+                             resp.status_code, resp.text)
+            return ok
+        except Exception as exc:
+            _log.warning("텔레그램 명령어 메뉴 등록 오류: %s", exc)
+            return False
+
     def _run(self) -> None:
         offset = 0
+        # 기동 직후 인터넷이 아직 안 될 수 있어 폴링 루프 안에서 성공할 때까지 재시도(최대 10회)
+        menu_tries = 0
+        menu_done = False
         while not self._stop.is_set():
+            if not menu_done and menu_tries < 10:
+                menu_tries += 1
+                menu_done = self.register_commands()
             try:
                 updates = self._get_updates(offset)
                 for update in updates:

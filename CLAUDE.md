@@ -473,6 +473,9 @@ gzip 압축한 뒤(8MB → 약 1.5MB) `TelegramNotifier.send_document()`로 봇 
 `telegram_handler.py`가 자기만의 구분선·라벨 간격을 따로 갖고 있었다.
 
 ## 텔레그램 명령어
+채팅 입력창의 **메뉴 버튼**에 아래 목록이 뜬다. `telegram_handler.py::BOT_COMMANDS`를 기동 때마다
+`setMyCommands`로 등록한다. 명령을 추가·변경하면 `_dispatch`, `/help` 문구, `BOT_COMMANDS`를 함께 갱신할 것.
+종목이 필요한 명령은 메뉴에서 누르면 인자 없이 전송되고, 핸들러가 "심볼을 지정하세요" 사용법을 안내한다.
 ```
 /help          — 명령어 목록
 /status        — 차수·트리거·손익 상세 현황
