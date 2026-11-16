@@ -102,7 +102,7 @@ def test_to_kst_converts():
     (750_123,   750_100),     # 500K 이상 → 100 단위
     (150_075,   150_100),     # 100K 이상 → 50 단위
     (15_007,    15_010),      # 10K 이상 → 10 단위
-    (1_353,     1_355),       # 1K 이상 → 5 단위
+    (1_353,     1_353),       # 10K 미만 → 1 단위 (빗썸 실제 호가: USDT ~1,500원도 1원 단위)
     (500,       500),         # 1K 미만 → 1 단위
 ])
 def test_round_price(price, expected):
@@ -207,7 +207,7 @@ def test_calc_pnl_loss():
 def test_calc_pnl_keys():
     from utils.math_utils import calc_pnl
     result = calc_pnl(1000, 1100, 1.0)
-    assert set(result.keys()) == {"gross", "fee", "net"}
+    assert set(result.keys()) == {"gross", "fee", "net", "points"}
 
 
 # ── math_utils: calc_quantity ────────────────────────────────────────────────

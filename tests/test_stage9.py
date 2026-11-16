@@ -126,17 +126,16 @@ class TestBuildOrderCancelled:
         msg = build_order_cancelled("ETH", "abcdefghij", "ask", 3_000_000, 305)
         assert "매도" in msg
 
-    def test_long_order_id_truncated(self):
+    # 2026-09 카드 포맷 개편 이후 주문번호(UUID)는 사용자에게 의미가 없어 표시하지 않는다.
+    def test_order_id_not_shown(self):
         long_id = "a" * 36
         msg = build_order_cancelled("ETH", long_id, "buy", 3_000_000, 305)
         assert long_id not in msg
-        assert "..." in msg
 
-    def test_short_order_id_not_truncated(self):
-        short_id = "abc123"
-        msg = build_order_cancelled("ETH", short_id, "buy", 3_000_000, 305)
-        assert "abc123" in msg
-        assert "..." not in msg
+    def test_shows_price_and_elapsed(self):
+        msg = build_order_cancelled("ETH", "abc123", "buy", 3_000_000, 305)
+        assert "3,000,000" in msg
+        assert "305초" in msg
 
     def test_elapsed_seconds(self):
         msg = build_order_cancelled("ETH", "x" * 10, "buy", 3_000_000, 305)
@@ -215,18 +214,19 @@ class TestBuildHourlyStatus:
         msg = build_hourly_status(10, [self._make_stopped("ETH")])
         assert "중지됨" in msg
 
-    def test_last_line_uses_end_bracket(self):
+    # 2026-09 카드 포맷 개편: 트리 기호(├ └) 대신 <pre> 고정폭 표 — 종목당 한 줄
+    def test_one_table_row_per_symbol(self):
         statuses = [self._make_running("ETH"), self._make_running("USDT", 1_385, 1, 3_200, 8)]
         msg = build_hourly_status(10, statuses)
+        assert "<pre>" in msg and "</pre>" in msg
         lines = msg.splitlines()
-        assert lines[-1].startswith("└")
+        assert any(l.startswith("ETH") and "3/50차" in l for l in lines)
+        assert any(l.startswith("USDT") and "1/50차" in l for l in lines)
 
-    def test_non_last_line_uses_branch(self):
+    def test_summary_line_counts_running(self):
         statuses = [self._make_running("ETH"), self._make_running("USDT", 1_385, 1, 3_200, 8)]
         msg = build_hourly_status(10, statuses)
-        lines = msg.splitlines()
-        # 헤더 제외 첫 번째 서브라인은 ├ 로 시작
-        assert lines[1].startswith("├")
+        assert msg.splitlines()[1].startswith("2/2 종목 실행중")
 
     def test_empty_statuses(self):
         msg = build_hourly_status(10, [])
@@ -331,10 +331,12 @@ class TestTelegramNotifierSend:
             with patch("notification.telegram.time.sleep"):
                 assert notifier.send("hello") is True
 
+    # send() 는 큐에 넣고 바로 리턴한다(백그라운드 스레드가 전송). 실제 HTTP 전송·재시도는
+    # _send_with_retry() 이므로 아래 테스트는 그 경로를 직접 검증한다.
     def test_send_calls_correct_url(self, notifier):
         with patch("notification.telegram.requests.post", return_value=self._ok_response()) as mock_post:
             with patch("notification.telegram.time.sleep"):
-                notifier.send("hi")
+                notifier._send_with_retry("hi")
                 url = mock_post.call_args[0][0]
                 assert "fake_token" in url
                 assert "sendMessage" in url
@@ -342,14 +344,14 @@ class TestTelegramNotifierSend:
     def test_send_includes_chat_id(self, notifier):
         with patch("notification.telegram.requests.post", return_value=self._ok_response()) as mock_post:
             with patch("notification.telegram.time.sleep"):
-                notifier.send("hi")
+                notifier._send_with_retry("hi")
                 payload = mock_post.call_args[1]["json"]
                 assert payload["chat_id"] == "12345"
 
     def test_send_includes_text(self, notifier):
         with patch("notification.telegram.requests.post", return_value=self._ok_response()) as mock_post:
             with patch("notification.telegram.time.sleep"):
-                notifier.send("hello world")
+                notifier._send_with_retry("hello world")
                 payload = mock_post.call_args[1]["json"]
                 assert payload["text"] == "hello world"
 
@@ -357,14 +359,14 @@ class TestTelegramNotifierSend:
         responses = [self._fail_response(500), self._fail_response(500), self._ok_response()]
         with patch("notification.telegram.requests.post", side_effect=responses) as mock_post:
             with patch("notification.telegram.time.sleep"):
-                result = notifier.send("test")
+                result = notifier._send_with_retry("test")
                 assert result is True
                 assert mock_post.call_count == 3
 
     def test_all_retries_fail_returns_false(self, notifier):
         with patch("notification.telegram.requests.post", return_value=self._fail_response()):
             with patch("notification.telegram.time.sleep"):
-                assert notifier.send("fail") is False
+                assert notifier._send_with_retry("fail") is False
 
     def test_retry_on_request_exception(self, notifier):
         responses = [
@@ -374,14 +376,14 @@ class TestTelegramNotifierSend:
         ]
         with patch("notification.telegram.requests.post", side_effect=responses) as mock_post:
             with patch("notification.telegram.time.sleep"):
-                result = notifier.send("test")
+                result = notifier._send_with_retry("test")
                 assert result is True
                 assert mock_post.call_count == 3
 
     def test_max_3_attempts(self, notifier):
         with patch("notification.telegram.requests.post", side_effect=requests.ConnectionError()) as mock_post:
             with patch("notification.telegram.time.sleep"):
-                notifier.send("fail")
+                notifier._send_with_retry("fail")
                 assert mock_post.call_count == 3
 
 
@@ -577,7 +579,10 @@ class TestSchedulerCallbacks:
     def test_job_daily_calls_send_daily_report(self):
         sched, notifier, _ = self._make_sched()
         add_trade_pnl("ETH", 5_000, 500)
-        with patch("notification.scheduler.today_kst_str", return_value="2026-01-15"):
+        # 00시 결산은 "전날" 기준이다 — 1/16 00:00 실행이면 1/15 리포트
+        from datetime import datetime
+        from utils.time_utils import KST
+        with patch("notification.scheduler.now_kst", return_value=datetime(2026, 1, 16, 0, 0, tzinfo=KST)):
             with patch("notification.scheduler.take_snapshot", return_value={"KRW": 500_000, "ETH": 0.1}):
                 sched._job_daily_report()
         notifier.send_daily_report.assert_called_once()

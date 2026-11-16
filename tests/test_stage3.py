@@ -190,7 +190,7 @@ def test_decrement_round_floor_zero():
 
 def test_add_trade_pnl_insert():
     from database.pnl_repo import add_trade_pnl, get_daily_pnl
-    add_trade_pnl("ETH", 1000.0, 50.0, "2024-01-01")
+    add_trade_pnl("ETH", 1000.0, 50.0, date="2024-01-01")
     pnl = get_daily_pnl("ETH", "2024-01-01")
     assert pnl is not None
     assert pnl["realized_pnl"] == pytest.approx(1000.0)
@@ -200,8 +200,8 @@ def test_add_trade_pnl_insert():
 
 def test_add_trade_pnl_accumulate():
     from database.pnl_repo import add_trade_pnl, get_daily_pnl
-    add_trade_pnl("ETH", 1000.0, 50.0, "2024-01-01")
-    add_trade_pnl("ETH",  500.0, 25.0, "2024-01-01")
+    add_trade_pnl("ETH", 1000.0, 50.0, date="2024-01-01")
+    add_trade_pnl("ETH",  500.0, 25.0, date="2024-01-01")
     pnl = get_daily_pnl("ETH", "2024-01-01")
     assert pnl["realized_pnl"] == pytest.approx(1500.0)
     assert pnl["trade_count"] == 2
@@ -215,8 +215,8 @@ def test_get_daily_pnl_not_found():
 
 def test_get_daily_summary():
     from database.pnl_repo import add_trade_pnl, get_daily_summary
-    add_trade_pnl("ETH",  2000.0, 100.0, "2024-01-02")
-    add_trade_pnl("USDT", 500.0,   25.0, "2024-01-02")
+    add_trade_pnl("ETH",  2000.0, 100.0, date="2024-01-02")
+    add_trade_pnl("USDT", 500.0,   25.0, date="2024-01-02")
     summary = get_daily_summary("2024-01-02")
     assert len(summary) == 2
     symbols = {s["symbol"] for s in summary}
@@ -225,17 +225,17 @@ def test_get_daily_summary():
 
 def test_get_period_pnl():
     from database.pnl_repo import add_trade_pnl, get_period_pnl
-    add_trade_pnl("ETH", 100.0, 5.0, "2024-01-01")
-    add_trade_pnl("ETH", 200.0, 10.0, "2024-01-02")
-    add_trade_pnl("ETH", 300.0, 15.0, "2024-01-03")
+    add_trade_pnl("ETH", 100.0, 5.0, date="2024-01-01")
+    add_trade_pnl("ETH", 200.0, 10.0, date="2024-01-02")
+    add_trade_pnl("ETH", 300.0, 15.0, date="2024-01-03")
     rows = get_period_pnl("ETH", "2024-01-01", "2024-01-02")
     assert len(rows) == 2
 
 
 def test_pnl_symbol_isolation():
     from database.pnl_repo import add_trade_pnl, get_daily_pnl
-    add_trade_pnl("ETH",  1000.0, 50.0, "2024-01-01")
-    add_trade_pnl("USDT",  200.0, 10.0, "2024-01-01")
+    add_trade_pnl("ETH",  1000.0, 50.0, date="2024-01-01")
+    add_trade_pnl("USDT",  200.0, 10.0, date="2024-01-01")
     eth_pnl  = get_daily_pnl("ETH",  "2024-01-01")
     usdt_pnl = get_daily_pnl("USDT", "2024-01-01")
     assert eth_pnl["realized_pnl"]  == pytest.approx(1000.0)

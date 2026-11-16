@@ -70,9 +70,10 @@ class TestBuildComponents:
         result = m.build_components(cfg or _mock_cfg())
         return result, mock_exchange, mock_bm, mock_notifier, mock_sched, mock_app
 
-    def test_returns_five_components(self, monkeypatch):
+    def test_returns_six_components(self, monkeypatch):
+        # (exchange, bot_manager, notifier, scheduler, app, cmd_handler)
         result, *_ = self._patch_and_build(monkeypatch)
-        assert len(result) == 5
+        assert len(result) == 6
 
     def test_exchange_instance_returned(self, monkeypatch):
         (exchange, *_), mock_exchange, *_ = self._patch_and_build(monkeypatch)
@@ -109,7 +110,7 @@ class TestBuildComponents:
         assert received["chat_id"] == "my_chat"
 
     def test_flask_app_returned(self, monkeypatch):
-        (*_, app), *_, mock_app = self._patch_and_build(monkeypatch)
+        (*_, app, _cmd), *_, mock_app = self._patch_and_build(monkeypatch)
         assert app is mock_app
 
 
@@ -171,19 +172,34 @@ class TestMain:
         cfg        = _mock_cfg(port=cfg_port)
 
         import main as m
+        import auto_resume
+        from utils import ntp_clock
         monkeypatch.setattr(m, "get_config",       lambda *a, **kw: cfg)
         monkeypatch.setattr(m, "db_configure",     lambda *a, **kw: None)
         monkeypatch.setattr(m, "get_connection",   lambda *a, **kw: MagicMock())
         monkeypatch.setattr(m, "create_tables",    lambda *a, **kw: None)
         monkeypatch.setattr(m, "build_components",
-                            lambda *a, **kw: (MagicMock(), mock_bm, MagicMock(), mock_sched, mock_app))
+                            lambda *a, **kw: (MagicMock(), mock_bm, MagicMock(), mock_sched,
+                                              mock_app, MagicMock()))
+        # 실제 운영 프로세스(컨테이너)가 잠금을 쥐고 있어도 테스트가 돌도록, 그리고
+        # 테스트가 실제 백업·시계 확인·NTP 패치·시그널 핸들러·자동 재가동을 건드리지 않도록 막는다
+        monkeypatch.setattr(m, "acquire_single_instance_lock", lambda: True)
+        monkeypatch.setattr(m, "check_integrity",  lambda *a, **kw: True)
+        monkeypatch.setattr(m, "backup_database",  lambda *a, **kw: None)
+        monkeypatch.setattr(m, "sync_os_time",     lambda *a, **kw: None)
+        monkeypatch.setattr(m.signal, "signal",    lambda *a, **kw: None)
+        monkeypatch.setattr(ntp_clock, "start",    lambda *a, **kw: None)
+        self.resume_call = MagicMock()
+        monkeypatch.setattr(auto_resume, "start_in_background", self.resume_call)
 
         m.main()
         return mock_bm, mock_sched, mock_app
 
     def test_bots_not_auto_started(self, monkeypatch):
+        # main 이 봇을 직접 켜지 않는다 — 재가동은 auto_resume 이 조건을 따져서만 한다
         mock_bm, *_ = self._run(monkeypatch)
         mock_bm.start.assert_not_called()
+        self.resume_call.assert_called_once()
 
     def test_scheduler_auto_started(self, monkeypatch):
         _, mock_sched, _ = self._run(monkeypatch)

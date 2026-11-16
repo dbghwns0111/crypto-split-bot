@@ -60,6 +60,7 @@ def mock_exchange():
                                          "filled_quantity": 0, "price": 3_000_000.0}
     ex.cancel_order.return_value = True
     ex.get_ohlcv.return_value = []
+    ex.get_balance.return_value = 10_000_000.0   # 주문 전 잔고 확인(check_krw_balance)용
     return ex
 
 
@@ -312,6 +313,8 @@ def test_set_start_price_applies_immediately_at_round_zero(base_cfg, mock_exchan
     from database.state_repo import set_start_price
     upsert_state("ETH", reference_price=0.0, current_round=0)
     set_start_price("ETH", 3_000_000.0)
+    # 현재가가 시작가 이하이면 복구 시 첫 매수(캐치업)가 나가 1차가 되므로, 시작가 위로 둔다
+    mock_exchange.get_current_price.return_value = 3_050_000.0
     bot = MagicSplit("ETH", mock_exchange, base_cfg)
     bot._restore_state()
     applied = bot.set_start_price(3_100_000.0)
@@ -343,7 +346,8 @@ def test_on_buy_filled_updates_state(base_cfg, mock_exchange):
     upsert_state("ETH", reference_price=3_000_000.0, current_round=0)
     bot = MagicSplit("ETH", mock_exchange, base_cfg)
     bot._restore_state()
-    bot._on_buy_filled(2_985_000.0, 0.0167)
+    # (체결가, 주문가, 수량) — 기준가는 체결가가 아니라 주문가로 잡는다(체결가 드리프트 방지)
+    bot._on_buy_filled(2_984_000.0, 2_985_000.0, 0.0167)
     assert bot.current_round == 1
     assert bot.reference_price == pytest.approx(2_985_000.0)
 
@@ -360,7 +364,8 @@ def test_on_sell_filled_decrements_round(base_cfg, mock_exchange):
     bot._restore_state()
     bot._on_sell_filled(3_003_000.0, 0.0167)
     assert bot.current_round == 0
-    assert bot.reference_price == pytest.approx(3_003_000.0)
+    # 0차 복귀 → 기준가 0 (다음 tick에서 start_price로 재초기화)
+    assert bot.reference_price == pytest.approx(0.0)
 
 
 def test_tick_no_buy_when_circuit_breaker_active(base_cfg, mock_exchange):
@@ -380,15 +385,23 @@ def test_timeout_cancels_pending_buy(base_cfg, mock_exchange):
     from strategy.magic_split import MagicSplit
     from database.order_repo import save_order
     upsert_state("ETH", reference_price=3_000_000.0, current_round=0)
-    save_order("ETH", "buy-t1", "buy", 2_985_000, 0.0167, 49850.0, 1)
 
     bot = MagicSplit("ETH", mock_exchange, base_cfg)
     bot._restore_state()
+    # 복구(_restore_state) 이후에 넣어야 시작 시 미체결 정산(_reconcile_open_orders)에 걸리지 않는다
+    save_order("ETH", "buy-t1", "buy", 2_985_000, 0.0167, 49850.0, 1)
     # 타임아웃이 이미 지난 것처럼 설정
     bot._pending_buy = {
         "order_id": "buy-t1",
         "placed_at": time.monotonic() - 400,  # 400초 전 (timeout=300)
     }
+    # 취소 요청 후 거래소 조회에서 'cancelled'가 확인돼야 확정(cancel_confirmed)
+    # 호출 순서: 타임아웃 사전 조회(open) → cancel_confirmed 1회차(open → 취소 요청) → 2회차(cancelled)
+    mock_exchange.get_order_status.side_effect = [
+        {"status": "open", "filled_quantity": 0},
+        {"status": "open", "filled_quantity": 0},
+        {"status": "cancelled", "filled_quantity": 0},
+    ] + [{"status": "cancelled", "filled_quantity": 0}] * 5
     bot._handle_timeouts()
     mock_exchange.cancel_order.assert_called_once_with("buy-t1")
     assert bot._pending_buy is None

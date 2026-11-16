@@ -63,6 +63,12 @@ def mock_exchange():
     ex = MagicMock()
     ex.get_balance.return_value = 5_000_000.0
     ex.cancel_order.return_value = True
+    # 취소는 거래소 조회로 'cancelled'가 확인돼야 확정된다(order/canceller.py::cancel_confirmed).
+    # 실제 거래소처럼 취소 요청 전에는 open, 요청 후에는 cancelled 로 응답한다.
+    cancelled = set()
+    ex.cancel_order.side_effect = lambda oid: cancelled.add(oid) or True
+    ex.get_order_status.side_effect = lambda oid: {
+        "status": "cancelled" if oid in cancelled else "open", "filled_quantity": 0}
     return ex
 
 
@@ -75,7 +81,7 @@ def _make_mock_bot(symbol: str, ticker: str) -> MagicMock:
     bot.symbol = symbol
     bot.ticker = ticker
 
-    def do_start():
+    def do_start(**kwargs):   # BotManager 가 start(virtual_catchup=...) 로 호출한다
         bot.is_running = True
 
     def do_stop():

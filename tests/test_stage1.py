@@ -45,9 +45,11 @@ def test_pairs_eth_present():
     cfg = load_config()
     assert "ETH" in cfg["pairs"]
     eth = cfg["pairs"]["ETH"]
-    assert eth["capital"] == 2500000
-    assert eth["order_amount"] == 50000
-    assert eth["max_rounds"] == 50
+    # 실제 운영 settings.yaml 을 읽으므로 값은 사용자가 바꿀 수 있다 — 형식만 검증한다.
+    assert eth["ticker"] == "KRW-ETH"
+    assert eth["capital"] > 0
+    assert eth["order_amount"] > 0
+    assert isinstance(eth["max_rounds"], int) and eth["max_rounds"] > 0
 
 
 def test_pairs_usdt_present():

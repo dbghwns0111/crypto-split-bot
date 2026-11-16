@@ -876,14 +876,13 @@ Ubuntu의 unattended-upgrades가 libc를 갱신한 뒤 needrestart가 `cryptospl
 자동 재시작 대상에서 뺀다. 갱신된 라이브러리는 다음 수동 `cs-restart` 때 반영된다.
 
 
-### 알려진 이슈
-- `pytest tests/`를 실행하면 이전부터 있던 사전 실패가 나온다 — Windows 환경에서 **47~48개**, 미니PC(Ubuntu, Python 3.14 venv)에서 **45개**(2026-11-08 기준)
-  (test_stage1/2/3/5/8/9/11.py, 코드 드리프트로 인한 낡은 assertion 추정).
-  `test_stage5.py`는 실행마다 5개 또는 6개로 오가는 flaky 상태 — 새 실패가 이
-  범위 안이면 회귀가 아니라 기존 이슈일 가능성이 큼.
-  - 2026-09-19 텔레그램 포맷 개편 때 54 → 47로 줄었다(포맷이 의도적으로 바뀐
-    단언 7건을 새 포맷에 맞게 갱신). 남은 test_stage9 실패 12건 중 다수는
-    `send()`가 큐 기반 **비동기**로 바뀐 뒤에도 테스트가 동기 전송을 가정하고
-    `mock_post.call_args`를 바로 읽어서 나는 것이다 — 포맷과 무관.
-  - `test_stage4.py` 2건은 로컬 anaconda 환경의 numpy/pandas ABI 불일치라
-    코드와 무관하다.
+### 테스트
+- `pytest tests/`는 **전부 통과해야 정상**이다(2026-11-16, 457개). 예전엔 45개 사전 실패를 기준선으로
+  삼았지만, 낡은 단언을 현재 동작에 맞게 정리했다 — 이제 실패가 하나라도 나오면 회귀로 볼 것.
+- 테스트가 운영 환경을 건드리지 않게 지킬 것:
+  - `tests/conftest.py`: 설정 파일 쓰기 차단, 로그·자동 재가동 표식 파일을 임시 폴더로, 취소 확인 대기 제거.
+  - `main()`을 부르는 테스트(test_stage11)는 단일 인스턴스 잠금·백업·시계 확인·NTP 패치·시그널 등록·
+    자동 재가동을 모두 모의(mock)로 막는다. 운영 컨테이너가 잠금을 쥐고 있어도 테스트가 돌아야 한다.
+  - 거래소 mock은 취소 요청 전에는 `open`, 후에는 `cancelled`로 답해야 한다(`cancel_confirmed`가 확인함).
+- `test_stage1.py`는 실제 `config/settings.yaml`을 읽으므로 값이 아니라 형식만 검증한다.
+- 로컬 anaconda 환경에서는 `test_stage4.py`가 numpy/pandas ABI 불일치로 실패할 수 있다(코드와 무관, `.venv` 사용).
