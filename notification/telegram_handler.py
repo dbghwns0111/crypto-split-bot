@@ -16,7 +16,11 @@ _log = get_logger("notification.telegram_handler")
 _BASE_URL     = "https://api.telegram.org/bot{token}"
 _POLL_TIMEOUT = 30     # long-polling 대기 (초)
 _HTTP_TIMEOUT = 35     # requests 타임아웃 (_POLL_TIMEOUT 보다 여유 있게)
-_ERR_SLEEP    = 5      # 오류 발생 후 재시도 대기 (초)
+_ERR_SLEEP    = 5      # 오류 발생 후 첫 재시도 대기 (초) — 연속 실패 시 2배씩, 최대 _ERR_SLEEP_MAX
+_ERR_SLEEP_MAX = 60
+# 폴링 끊김은 대부분 몇 초 안에 스스로 복구된다(ConnectionReset, 502, 타임아웃). 그런 일시 끊김까지
+# ERROR로 남기면 cs-err 에서 진짜 오류가 묻히므로, 이 시간(초) 넘게 계속 실패할 때만 ERROR로 남긴다.
+_ERR_ESCALATE_SEC = 300
 
 # 채팅 입력창 왼쪽 "메뉴" 버튼에 뜨는 명령어 목록 (Bot API setMyCommands).
 # _dispatch 와 /help 문구를 바꾸면 여기도 함께 갱신할 것. 이름은 소문자·숫자·_ 만, 설명은 짧게.
@@ -105,18 +109,44 @@ class TelegramCommandHandler:
         # 기동 직후 인터넷이 아직 안 될 수 있어 폴링 루프 안에서 성공할 때까지 재시도(최대 10회)
         menu_tries = 0
         menu_done = False
+        fail_count, fail_since, escalated = 0, 0.0, False
         while not self._stop.is_set():
             if not menu_done and menu_tries < 10:
                 menu_tries += 1
                 menu_done = self.register_commands()
             try:
                 updates = self._get_updates(offset)
+            except Exception as exc:
+                fail_count, fail_since, escalated = self._on_poll_error(
+                    exc, fail_count, fail_since, escalated)
+                self._stop.wait(min(_ERR_SLEEP * 2 ** (fail_count - 1), _ERR_SLEEP_MAX))
+                continue
+            if fail_count:
+                log = _log.info if escalated else _log.debug
+                log("폴링 복구 (연속 실패 %d회, %.0f초)", fail_count, time.monotonic() - fail_since)
+                fail_count, fail_since, escalated = 0, 0.0, False
+            try:
                 for update in updates:
                     offset = update["update_id"] + 1
                     self._handle_update(update)
             except Exception as exc:
-                _log.error("폴링 오류: %s", exc)
-                time.sleep(_ERR_SLEEP)
+                _log.error("명령어 처리 오류: %s", exc)
+
+    @staticmethod
+    def _on_poll_error(exc, fail_count: int, fail_since: float, escalated: bool):
+        """폴링 실패 기록. 일시 끊김은 WARNING, _ERR_ESCALATE_SEC 넘게 계속되면 ERROR 1회."""
+        now = time.monotonic()
+        if fail_count == 0:
+            fail_since = now
+        fail_count += 1
+        elapsed = now - fail_since
+        if not escalated and elapsed >= _ERR_ESCALATE_SEC:
+            _log.error("폴링 오류 %.0f초째 지속 (연속 %d회) — 인터넷/텔레그램 장애 의심: %s",
+                       elapsed, fail_count, exc)
+            escalated = True
+        else:
+            _log.warning("폴링 오류 (연속 %d회): %s", fail_count, exc)
+        return fail_count, fail_since, escalated
 
     def _get_updates(self, offset: int) -> list[dict]:
         url  = f"{_BASE_URL.format(token=self._token)}/getUpdates"

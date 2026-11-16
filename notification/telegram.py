@@ -140,10 +140,11 @@ class TelegramNotifier:
                 _log.warning("텔레그램 파일 전송 실패 (HTTP %d, 시도 %d/%d): %.200s",
                              resp.status_code, attempt + 1, _MAX_RETRY, resp.text)
             except requests.RequestException as exc:
-                _log.error("텔레그램 파일 전송 오류 (시도 %d/%d): %s",
+                _log.warning("텔레그램 파일 전송 오류 (시도 %d/%d): %s",
                            attempt + 1, _MAX_RETRY, exc)
             if attempt < _MAX_RETRY - 1:
                 time.sleep(2 ** attempt)
+        _log.error("텔레그램 파일 전송 최종 실패 (%d회 소진): %s", _MAX_RETRY, path)
         return False
 
     # ── 편의 메서드 ───────────────────────────────────────────────────────────
@@ -335,7 +336,8 @@ class TelegramNotifier:
                     resp.status_code, attempt + 1, _MAX_RETRY,
                 )
             except requests.RequestException as exc:
-                _log.error(
+                # 재시도로 대부분 복구되므로 WARNING. 3회 모두 실패하면 아래에서 ERROR.
+                _log.warning(
                     "텔레그램 요청 오류 (시도 %d/%d): %s",
                     attempt + 1, _MAX_RETRY, exc,
                 )
