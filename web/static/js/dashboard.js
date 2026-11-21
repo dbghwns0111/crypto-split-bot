@@ -123,10 +123,64 @@ let _pnlAll    = [];
 let _fillsPage = 1;
 let _pnlPage   = 1;
 
+// ── 화면 테마 (자동/라이트/다크) ──────────────────────────────────────────────
+// 선택값은 이 기기의 localStorage('cs-theme')에만 둔다. 첫 페인트 전 적용은
+// base.html <head>의 인라인 스크립트가 하고, 여기서는 토글 UI와 변경만 다룬다.
+
+function _themeChoice() {
+    try {
+        const t = localStorage.getItem('cs-theme');
+        return (t === 'light' || t === 'dark') ? t : 'auto';
+    } catch (_) { return 'auto'; }
+}
+
+function _isDarkTheme(choice) {
+    return choice === 'dark' ||
+        (choice !== 'light' && !!window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+}
+
+function _applyTheme(choice, recolor = true) {
+    const root = document.documentElement;
+    if (choice === 'light' || choice === 'dark') root.setAttribute('data-theme', choice);
+    else root.removeAttribute('data-theme');
+    document.getElementById('theme-color-meta')
+        ?.setAttribute('content', _isDarkTheme(choice) ? '#1B1710' : '#FFF3D3');
+    document.querySelectorAll('#theme-toggle .cs-mode-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.themeChoice === choice));
+    if (recolor) _recolorCharts();
+}
+
+// 차트는 그릴 때 읽은 색을 계속 쓰므로, 테마가 바뀌면 지우고 다시 그린다.
+function _recolorCharts() {
+    [_pnlChart, _pnlHourlyChart, _assetsHistoryChart].forEach(c => c?.destroy());
+    _pnlChart = _pnlHourlyChart = _assetsHistoryChart = null;
+    _fetchActivePage(true);
+}
+
+function _initTheme() {
+    if (typeof Chart !== 'undefined') {
+        Chart.defaults.font.family = "'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif";
+    }
+    _applyTheme(_themeChoice(), false);
+    document.getElementById('theme-toggle')?.addEventListener('click', e => {
+        const btn = e.target.closest('[data-theme-choice]');
+        if (!btn) return;
+        const choice = btn.dataset.themeChoice;
+        try {
+            if (choice === 'auto') localStorage.removeItem('cs-theme');
+            else localStorage.setItem('cs-theme', choice);
+        } catch (_) {}
+        _applyTheme(choice);
+    });
+    window.matchMedia?.('(prefers-color-scheme: dark)')
+        .addEventListener?.('change', () => { if (_themeChoice() === 'auto') _applyTheme('auto'); });
+}
+
 // ── 초기화 ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    _initTheme();
 
     // 심볼 목록 읽기
     const symEl = document.getElementById('cs-symbols');
@@ -468,7 +522,15 @@ function _renderHomeSummary() {
         const symbols = _stratData?.symbols || [];
         const todayTotal = symbols.reduce((sum, x) => sum + (x.today_net_pnl || 0), 0);
         pnlEl.textContent = `${_sign(todayTotal)}${Math.round(todayTotal).toLocaleString()}원`;
-        pnlEl.className = `cs-home-summary-value ${_colorClass(todayTotal)}`;
+        pnlEl.className = `cs-hero-pnl ${_colorClass(todayTotal)}`;
+    }
+
+    const runEl = document.getElementById('home-running-count');
+    if (runEl && _stratData) {
+        const n = (_stratData.symbols || []).filter(x => x.running).length;
+        runEl.textContent = n > 0 ? `${n}종목 가동 중` : '가동 중인 종목 없음';
+        const dot = runEl.previousElementSibling;
+        if (dot) dot.style.background = n > 0 ? '' : 'var(--cs-muted)';
     }
 }
 
@@ -631,16 +693,16 @@ function _renderPnlChart(data) {
     if (!canvas || typeof Chart === 'undefined' || !data) return;
 
     const css        = getComputedStyle(document.documentElement);
-    const green      = (css.getPropertyValue('--cs-green') || '#00A870').trim();
-    const red        = (css.getPropertyValue('--cs-red')   || '#F04452').trim();
-    const accent     = (css.getPropertyValue('--cs-accent')|| '#3182F6').trim();
+    const profit     = (css.getPropertyValue('--cs-profit')|| '#DA3439').trim();
+    const loss       = (css.getPropertyValue('--cs-loss')  || '#2B64E0').trim();
+    const accent     = (css.getPropertyValue('--cs-gold')  || '#F2A900').trim();
     const muted      = (css.getPropertyValue('--cs-muted') || '#6B7684').trim();
     const border     = (css.getPropertyValue('--cs-border')|| '#E5E8EB').trim();
 
     const labels     = (data.labels || []).map(d => d.slice(5));  // MM-DD
     const totals     = data.total || [];
     const cumulative = data.cumulative || [];
-    const barColors  = totals.map(v => (v >= 0 ? green : red));
+    const barColors  = totals.map(v => (v >= 0 ? profit : loss));
 
     if (_pnlChart) {
         _pnlChart.data.labels                = labels;
@@ -713,8 +775,8 @@ function _renderDistChart() {
     _setEl('dist-chart-title', _hourlyChartMode === 'weekday' ? '요일별 평균손익 분포' : '시간대별 평균손익 분포');
 
     const css    = getComputedStyle(document.documentElement);
-    const green  = (css.getPropertyValue('--cs-green')  || '#00A870').trim();
-    const red    = (css.getPropertyValue('--cs-red')    || '#F04452').trim();
+    const profit = (css.getPropertyValue('--cs-profit') || '#DA3439').trim();
+    const loss   = (css.getPropertyValue('--cs-loss')   || '#2B64E0').trim();
     const muted  = (css.getPropertyValue('--cs-muted')  || '#6B7684').trim();
     const border = (css.getPropertyValue('--cs-border') || '#E5E8EB').trim();
 
@@ -722,7 +784,7 @@ function _renderDistChart() {
         ? (data.weekdays || []).map(w => WEEKDAY_LABELS[w] ?? w)
         : (data.hours    || []).map(h => `${h}시`);
     const pnls      = data.avg_pnl || [];
-    const barColors = pnls.map(v => (v >= 0 ? green : red));
+    const barColors = pnls.map(v => (v >= 0 ? profit : loss));
 
     _distTradeCounts = data.trade_counts || [];
 
@@ -932,7 +994,7 @@ function _renderAssetHistoryChart(data) {
     if (!canvas || typeof Chart === 'undefined' || !data) return;
 
     const css    = getComputedStyle(document.documentElement);
-    const accent = (css.getPropertyValue('--cs-accent') || '#3182F6').trim();
+    const accent = (css.getPropertyValue('--cs-gold')   || '#F2A900').trim();
     const muted  = (css.getPropertyValue('--cs-muted')  || '#6B7684').trim();
     const border = (css.getPropertyValue('--cs-border') || '#E5E8EB').trim();
 
@@ -1222,7 +1284,7 @@ function _showGapModal(symbol, data, isFresh = false) {
             </div>
             <div class="cs-gap-row">
                 <span>미매수 갭</span>
-                <span class="cs-negative">${data.gap}개 차수${data.filled < data.gap ? ` (최대차수 도달로 ${data.filled}개만 처리)` : ''}</span>
+                <span class="cs-buy">${data.gap}개 차수${data.filled < data.gap ? ` (최대차수 도달로 ${data.filled}개만 처리)` : ''}</span>
             </div>
             <div class="cs-gap-row">
                 <span>차수 변화</span>
@@ -1231,7 +1293,7 @@ function _showGapModal(symbol, data, isFresh = false) {
             ${levels.length > 0 ? `
             <div class="cs-gap-row">
                 <span>가상채우기 필요 잔고</span>
-                <span class="cs-negative">${totalQtyStr} ${symbol}<small style="color:var(--cs-muted);font-weight:400"> ≈ ${totalEstKrw.toLocaleString()}원</small></span>
+                <span class="cs-buy">${totalQtyStr} ${symbol}<small style="color:var(--cs-muted);font-weight:400"> ≈ ${totalEstKrw.toLocaleString()}원</small></span>
             </div>` : ''}
         </div>
 
@@ -1575,9 +1637,10 @@ function _initStratSymTabs(symbols) {
     if (c.children.length === 0) {
         symbols.forEach(s => {
             const btn = document.createElement('button');
-            btn.className = 'cs-chip';
+            btn.className = 'cs-chip cs-chip-coin';
             btn.dataset.sym = s.symbol;
-            btn.textContent = s.symbol;
+            const meta = COIN_META[s.symbol] || { name: s.symbol, letter: s.symbol.slice(0, 3), css: '' };
+            btn.innerHTML = `${_coinIconHtml(s.symbol, meta)}<span>${s.symbol}</span>`;
             c.appendChild(btn);
         });
     }
@@ -1658,6 +1721,10 @@ function _updateStratCalc() {
 
     _setEl('strat-calc-capital', capital > 0 ? `${capital.toLocaleString()}원` : '-');
     _setEl('strat-calc-cover',   cover);
+
+    _setEl('strat-bubble-text', (rounds > 0 && amount > 0 && triggerVal > 0)
+        ? `${rounds}차로 나눠 사면 ${cover} 하락까지 매수를 이어가요. 최대 ${capital.toLocaleString()}원이 필요해요.`
+        : '주문금액, 간격, 최대 차수를 입력하면 필요한 돈을 계산해 드려요.');
 }
 
 // 화면 입력값으로 저장 payload를 만든다 (검증 실패 시 null)
@@ -1891,14 +1958,14 @@ async function _calcAndRenderPriceTable() {
             return;
         }
         tbody.innerHTML = rows.map(r => {
-            const netColor = r.net >= 0 ? 'var(--cs-green)' : 'var(--cs-red)';
+            const netColor = r.net >= 0 ? 'var(--cs-profit)' : 'var(--cs-loss)';
             const netSign  = r.net >= 0 ? '+' : '';
             return `<tr>
                 <td>${r.round}차</td>
-                <td>${Math.round(r.buy_price).toLocaleString()}원</td>
+                <td class="cs-buy">${Math.round(r.buy_price).toLocaleString()}원</td>
                 <td>${_fmtQty(r.quantity)}</td>
-                <td>${Math.round(r.sell_price).toLocaleString()}원</td>
-                <td style="color:var(--cs-red)">${r.drop_pct}%</td>
+                <td class="cs-sell">${Math.round(r.sell_price).toLocaleString()}원</td>
+                <td style="color:var(--cs-muted)">${r.drop_pct}%</td>
                 <td style="color:${netColor}">${netSign}${Math.round(r.net).toLocaleString()}</td>
             </tr>`;
         }).join('');
@@ -1924,6 +1991,13 @@ function _renderStratMonitor(symbols) {
     });
 }
 
+const MASCOT_SRC = '/static/images/icon-192.png';
+
+// 가격 차이 표시 — 원 단위(소수점 2자리까지)
+function _fmtGap(d) {
+    return `${Number(Math.abs(d).toFixed(2)).toLocaleString()}원`;
+}
+
 function _makeStratMonitorCard(sym) {
     const meta = COIN_META[sym] || { name: sym, letter: sym.slice(0, 4), css: '' };
     const card = document.createElement('div');
@@ -1932,70 +2006,54 @@ function _makeStratMonitorCard(sym) {
     card.innerHTML = `
         <div class="cs-cb-banner" id="strat-card-${sym}-cb" style="display:none"></div>
         <div class="cs-strat-card-header">
-            ${_coinIconHtml(sym, meta)}
-            <span class="cs-strat-card-title">${meta.name}(${sym})</span>
+            <div class="cs-coin-ring" id="strat-card-${sym}-ring">${_coinIconHtml(sym, meta)}</div>
+            <div class="cs-strat-card-titles">
+                <span class="cs-strat-card-title">${meta.name}</span>
+                <span class="cs-strat-card-sub" id="strat-card-${sym}-rounds">-</span>
+            </div>
             <span class="cs-badge cs-badge-stopped" id="strat-card-${sym}-badge">
                 <span id="strat-card-${sym}-badge-label">-</span>
             </span>
         </div>
-        <div class="cs-strat-card-body">
-            <div class="cs-strat-price-row">
-                <span class="cs-strat-price-label">현재가</span>
-                <span class="cs-strat-price-val" id="strat-card-${sym}-price">-</span>
+        <div class="cs-strat-price-line">
+            <span class="cs-strat-price-big" id="strat-card-${sym}-price">-</span>
+            <span class="cs-strat-pnl-val cs-neutral" id="strat-card-${sym}-pnl">-</span>
+        </div>
+        <div class="cs-trig-grid" id="strat-card-${sym}-trig-grid">
+            <div class="cs-trig cs-trig-buy">
+                <span class="cs-trig-title" id="strat-card-${sym}-buy-title">매수 트리거</span>
+                <span class="cs-trig-price" id="strat-card-${sym}-buy-trig">-</span>
+                <div class="cs-trig-bar"><div class="cs-trig-fill" id="strat-card-${sym}-buy-near"></div></div>
             </div>
-            <div class="cs-strat-price-row">
-                <span class="cs-strat-price-label">기준가</span>
-                <span class="cs-strat-price-val" id="strat-card-${sym}-ref">-</span>
-            </div>
-            <div class="cs-strat-price-row">
-                <span class="cs-strat-price-label">시작가</span>
-                <span class="cs-strat-price-val" id="strat-card-${sym}-start">-</span>
-            </div>
-            <div class="cs-strat-price-row">
-                <span class="cs-strat-price-label" title="전체 가동/전체 중지 버튼을 눌렀을 때 이 종목도 함께 적용할지 설정합니다">전체 가동/중지 대상</span>
-                <label class="cs-switch" title="전체 가동/전체 중지 버튼을 눌렀을 때 이 종목도 함께 적용할지 설정합니다">
-                    <input type="checkbox" id="bulk-${sym}" data-symbol="${sym}">
-                    <span class="cs-switch-slider"></span>
-                </label>
+            <div class="cs-trig cs-trig-sell">
+                <span class="cs-trig-title" id="strat-card-${sym}-sell-title">매도 트리거</span>
+                <span class="cs-trig-price" id="strat-card-${sym}-sell-trig">-</span>
+                <div class="cs-trig-bar"><div class="cs-trig-fill" id="strat-card-${sym}-sell-near"></div></div>
             </div>
         </div>
-        <div class="cs-strat-progress-wrap">
-            <div class="cs-strat-progress-bar">
-                <div class="cs-strat-progress-fill" id="strat-card-${sym}-bar" style="width:0%"></div>
-            </div>
-            <span class="cs-strat-progress-label" id="strat-card-${sym}-rounds">-</span>
-        </div>
-        <div class="cs-strat-card-body cs-strat-triggers">
-            <div class="cs-strat-trigger-row">
-                <span class="cs-strat-trigger-label cs-negative">매수 트리거</span>
-                <span class="cs-strat-trigger-val cs-negative" id="strat-card-${sym}-buy-trig">-</span>
-            </div>
-            <div class="cs-strat-trigger-row">
-                <span class="cs-strat-trigger-label cs-positive">매도 트리거</span>
-                <span class="cs-strat-trigger-val cs-positive" id="strat-card-${sym}-sell-trig">-</span>
-            </div>
-        </div>
-        <div class="cs-strat-gauge-wrap" id="strat-card-${sym}-gauge-wrap" style="display:none">
-            <div class="cs-strat-gauge-track">
-                <div class="cs-strat-gauge-dot" id="strat-card-${sym}-gauge-dot" style="left:50%"></div>
-            </div>
-            <div class="cs-strat-gauge-labels">
-                <span>매수 임박</span>
-                <span>매도 임박</span>
-            </div>
+        <div class="cs-waiting" id="strat-card-${sym}-waiting" style="display:none">
+            <img class="cs-waiting-mascot" src="${MASCOT_SRC}" alt="" width="56" height="56">
+            <p class="cs-waiting-text" id="strat-card-${sym}-waiting-text"></p>
         </div>
         <div id="strat-card-${sym}-orders"></div>
-        <div class="cs-strat-card-footer">
-            <span class="cs-strat-pnl-label">오늘 손익</span>
-            <span class="cs-strat-pnl-val cs-neutral" id="strat-card-${sym}-pnl">-</span>
-            <span class="cs-strat-trades-val" id="strat-card-${sym}-trades">-</span>
+        <div class="cs-strat-meta">
+            <span>시작가 <b id="strat-card-${sym}-start">-</b></span>
+            <span>기준가 <b id="strat-card-${sym}-ref">-</b></span>
+            <span id="strat-card-${sym}-trades">-</span>
         </div>
         <div class="cs-strat-card-point" id="strat-card-${sym}-point"></div>
+        <div class="cs-bulk-toggle-row">
+            <label for="bulk-${sym}">전체 가동/중지 대상</label>
+            <label class="cs-switch" title="전체 가동/전체 중지 버튼을 눌렀을 때 이 종목도 함께 적용할지 설정합니다">
+                <input type="checkbox" id="bulk-${sym}" data-symbol="${sym}">
+                <span class="cs-switch-slider"></span>
+            </label>
+        </div>
         <div class="cs-strat-card-actions">
-            <button class="cs-btn cs-btn-success cs-btn-sm cs-btn-start-main"    data-action="start_fresh"  data-symbol="${sym}" id="strat-card-${sym}-start-btn"  style="display:none">▶ 신규 시작</button>
-            <button class="cs-btn cs-btn-secondary cs-btn-sm cs-btn-start-resume" data-action="start_resume" data-symbol="${sym}" id="strat-card-${sym}-resume-btn" style="display:none">↺ 이어서 시작</button>
-            <button class="cs-btn cs-btn-warning   cs-btn-sm"                    data-action="reset"        data-symbol="${sym}" id="strat-card-${sym}-reset-btn"  style="display:none">🗑️ 초기화</button>
-            <button class="cs-btn cs-btn-danger    cs-btn-sm"                    data-action="stop"         data-symbol="${sym}" id="strat-card-${sym}-stop-btn"   style="display:none">■ 자동매매 중지</button>
+            <button class="cs-btn cs-btn-primary cs-btn-start-main"     data-action="start_fresh"  data-symbol="${sym}" id="strat-card-${sym}-start-btn"  style="display:none">신규 시작</button>
+            <button class="cs-btn cs-btn-secondary cs-btn-start-resume" data-action="start_resume" data-symbol="${sym}" id="strat-card-${sym}-resume-btn" style="display:none">이어서 시작</button>
+            <button class="cs-btn cs-btn-warning"                       data-action="reset"        data-symbol="${sym}" id="strat-card-${sym}-reset-btn"  style="display:none">초기화</button>
+            <button class="cs-btn cs-btn-danger"                        data-action="stop"         data-symbol="${sym}" id="strat-card-${sym}-stop-btn"   style="display:none">자동매매 중지</button>
         </div>`;
     card.querySelector(`#bulk-${sym}`)?.addEventListener('change', e =>
         _toggleBulkEnabled(sym, e.target.checked));
@@ -2004,6 +2062,7 @@ function _makeStratMonitorCard(sym) {
 
 function _updateStratMonitorCard(s) {
     const sym = s.symbol;
+    const won = v => (v > 0 ? `${v.toLocaleString()}원` : '-');
 
     const cb = document.getElementById(`strat-card-${sym}-cb`);
     if (cb) {
@@ -2011,7 +2070,7 @@ function _updateStratMonitorCard(s) {
             const m = Math.floor(s.cb_seconds_left / 60), sec = s.cb_seconds_left % 60;
             const t = m > 0 ? `${m}분 ${sec}초` : `${sec}초`;
             cb.style.display = '';
-            cb.textContent = `⚡ 서킷브레이커 작동 중 — 해제까지 ${t}`;
+            cb.textContent = `서킷브레이커 작동 중, ${t} 뒤 매수를 다시 시작해요`;
         } else {
             cb.style.display = 'none';
         }
@@ -2021,39 +2080,52 @@ function _updateStratMonitorCard(s) {
     if (badge) badge.className = `cs-badge ${s.running ? 'cs-badge-running' : 'cs-badge-stopped'}`;
     _setEl(`strat-card-${sym}-badge-label`, s.running ? '가동중' : '중지');
 
-    _setEl(`strat-card-${sym}-price`, s.current_price > 0 ? `${s.current_price.toLocaleString()}원` : '-');
-    _setEl(`strat-card-${sym}-ref`,   s.reference_price > 0 ? `${s.reference_price.toLocaleString()}원` : '-');
-    _setEl(`strat-card-${sym}-start`, s.start_price > 0 ? `${s.start_price.toLocaleString()}원` : '-');
+    // 차수 링 — 현재 차수/최대 차수만큼 금색으로 채운다
+    const ring = document.getElementById(`strat-card-${sym}-ring`);
+    if (ring) {
+        const pct = s.max_rounds > 0 ? Math.min(100, s.current_round / s.max_rounds * 100) : 0;
+        ring.style.background =
+            `conic-gradient(var(--cs-gold) 0 ${pct}%, var(--cs-ring-base) ${pct}% 100%)`;
+    }
+    _setEl(`strat-card-${sym}-rounds`, `${s.current_round}차 / ${s.max_rounds}차`);
+
+    _setEl(`strat-card-${sym}-price`, won(s.current_price));
+    _setEl(`strat-card-${sym}-ref`,   won(s.reference_price));
+    _setEl(`strat-card-${sym}-start`, won(s.start_price));
 
     const bulkTg = document.getElementById(`bulk-${sym}`);
     if (bulkTg && document.activeElement !== bulkTg) {
         bulkTg.checked = s.bulk_enabled !== false;  // 기본 ON
     }
 
-    const barEl = document.getElementById(`strat-card-${sym}-bar`);
-    if (barEl) barEl.style.width = s.max_rounds > 0
-        ? `${Math.min(100, s.current_round / s.max_rounds * 100)}%` : '0%';
-    _setEl(`strat-card-${sym}-rounds`, `${s.current_round}차 / ${s.max_rounds}차`);
-
-    _setEl(`strat-card-${sym}-buy-trig`,  s.buy_trigger_price > 0
-        ? `${s.buy_trigger_price.toLocaleString()}원` : '-');
-    _setEl(`strat-card-${sym}-sell-trig`, s.sell_trigger_price > 0
-        ? `${s.sell_trigger_price.toLocaleString()}원` : '-');
-
-    const gaugeWrap = document.getElementById(`strat-card-${sym}-gauge-wrap`);
-    const gaugeDot  = document.getElementById(`strat-card-${sym}-gauge-dot`);
-    if (gaugeWrap && gaugeDot) {
-        const buy = s.buy_trigger_price, sell = s.sell_trigger_price, cur = s.current_price;
-        if (buy > 0 && sell > buy && cur > 0) {
-            const pct = Math.max(0, Math.min(100, (cur - buy) / (sell - buy) * 100));
-            gaugeDot.style.left = `${pct}%`;
-            gaugeDot.style.background =
-                pct <= 15 ? 'var(--cs-red)' : pct >= 85 ? 'var(--cs-green)' : 'var(--cs-accent)';
-            gaugeWrap.style.display = '';
-        } else {
-            gaugeWrap.style.display = 'none';
-        }
+    // 0차 대기 — 현재가가 시작가보다 높아 첫 매수를 기다리는 중이면 트리거 대신
+    // 마스코트가 첫 매수 조건을 알려준다.
+    const cur = s.current_price, buy = s.buy_trigger_price, sell = s.sell_trigger_price;
+    const waiting = s.current_round === 0 && s.start_price > 0 && cur > s.start_price;
+    const waitEl  = document.getElementById(`strat-card-${sym}-waiting`);
+    const trigEl  = document.getElementById(`strat-card-${sym}-trig-grid`);
+    if (waitEl) waitEl.style.display = waiting ? '' : 'none';
+    if (trigEl) trigEl.style.display = waiting ? 'none' : '';
+    if (waiting) {
+        const gap = _fmtGap(cur - s.start_price);
+        const start = `${s.start_price.toLocaleString()}원`;
+        _setEl(`strat-card-${sym}-waiting-text`, s.running
+            ? `현재가가 시작가보다 ${gap} 높아요. ${start}에 닿으면 첫 매수를 해요.`
+            : `현재가가 시작가보다 ${gap} 높아요. 자동매매를 켜 두면 ${start}에서 첫 매수를 해요.`);
     }
+
+    // 매수/매도 트리거 타일 — 막대는 매수가~매도가 구간에서 각 트리거에 얼마나
+    // 가까워졌는지(가까울수록 길게)를 보여준다.
+    const valid = buy > 0 && sell > buy && cur > 0;
+    const clamp = v => Math.max(0, Math.min(100, v));
+    _setEl(`strat-card-${sym}-buy-title`,  valid ? `매수까지 ${_fmtGap(Math.max(0, cur - buy))}`  : '매수 트리거');
+    _setEl(`strat-card-${sym}-sell-title`, valid ? `매도까지 ${_fmtGap(Math.max(0, sell - cur))}` : '매도 트리거');
+    _setEl(`strat-card-${sym}-buy-trig`,  won(buy));
+    _setEl(`strat-card-${sym}-sell-trig`, won(sell));
+    const buyNear  = document.getElementById(`strat-card-${sym}-buy-near`);
+    const sellNear = document.getElementById(`strat-card-${sym}-sell-near`);
+    if (buyNear)  buyNear.style.width  = valid ? `${clamp(100 - (cur - buy) / (sell - buy) * 100)}%` : '0%';
+    if (sellNear) sellNear.style.width = valid ? `${clamp(100 - (sell - cur) / (sell - buy) * 100)}%` : '0%';
 
     const ordersEl = document.getElementById(`strat-card-${sym}-orders`);
     if (ordersEl) {
@@ -2061,9 +2133,10 @@ function _updateStratMonitorCard(s) {
             const elapsed = o.elapsed_sec || 0;
             const m = Math.floor(elapsed / 60), sec = elapsed % 60;
             const t = m > 0 ? `${m}분 ${sec}초` : `${sec}초`;
+            const isBuy = o.side === 'buy';
             return `<div class="cs-pending-order">
-                <span class="cs-pending-icon">⏳</span>
-                <span class="cs-pending-text">${o.side === 'buy' ? '매수' : '매도'} 대기 ${Math.round(o.price).toLocaleString()}원</span>
+                <span class="cs-pending-dot ${isBuy ? 'is-buy' : 'is-sell'}"></span>
+                <span class="cs-pending-text">${isBuy ? '매수' : '매도'} 대기 ${Math.round(o.price).toLocaleString()}원</span>
                 <span class="cs-pending-time">${t} 경과</span>
             </div>`;
         }).join('');
@@ -2072,15 +2145,15 @@ function _updateStratMonitorCard(s) {
     const pnlEl = document.getElementById(`strat-card-${sym}-pnl`);
     if (pnlEl) {
         const p = s.today_net_pnl ?? 0;
-        pnlEl.textContent = `${_sign(p)}${Math.round(p).toLocaleString()}원`;
+        pnlEl.textContent = `오늘 ${_sign(p)}${Math.round(p).toLocaleString()}원`;
         pnlEl.className = `cs-strat-pnl-val ${_colorClass(p)}`;
     }
     const pointEl = document.getElementById(`strat-card-${sym}-point`);
     if (pointEl) {
         const pt = s.today_point ?? 0;
-        pointEl.textContent = pt > 0 ? `포인트 +${Math.round(pt).toLocaleString()}원(비현금)` : '';
+        pointEl.textContent = pt > 0 ? `오늘 포인트 +${Math.round(pt).toLocaleString()}원(비현금)` : '';
     }
-    _setEl(`strat-card-${sym}-trades`, `체결 ${s.today_trades ?? 0}회`);
+    _setEl(`strat-card-${sym}-trades`, `오늘 체결 ${s.today_trades ?? 0}회`);
 
     const startBtn  = document.getElementById(`strat-card-${sym}-start-btn`);
     const resumeBtn = document.getElementById(`strat-card-${sym}-resume-btn`);
@@ -2670,7 +2743,7 @@ function _renderTradePnl() {
             </div>
             <div class="cs-summary-row">
                 <span class="cs-summary-label">발생 수수료(참고용)</span>
-                <span class="cs-summary-value cs-pnl-negative">-${Math.round(periodFee).toLocaleString()}원</span>
+                <span class="cs-summary-value cs-cost-value">-${Math.round(periodFee).toLocaleString()}원</span>
             </div>
             <div class="cs-summary-row">
                 <span class="cs-summary-label">포인트 적립(비현금)</span>
