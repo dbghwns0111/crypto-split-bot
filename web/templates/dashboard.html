@@ -13,37 +13,31 @@
   </header>
 
   <div id="home-tab-realtime" class="cs-tab-panel active">
-    <div class="cs-home-summary" id="home-summary">
-      <div class="cs-home-summary-item">
-        <span class="cs-home-summary-label">오늘 매수금액</span>
-        <span class="cs-home-summary-value" id="home-sum-buy">-</span>
+    <section class="cs-hero" id="home-summary">
+      <img class="cs-hero-mascot" src="{{ url_for('static', filename='images/icon-192.png') }}" alt="" width="100" height="100">
+      <div class="cs-bubble">
+        <span class="cs-bubble-label">오늘 실현손익</span>
+        <span class="cs-hero-pnl cs-neutral" id="home-sum-pnl">-</span>
+        <span class="cs-bubble-sub">매수 <span id="home-sum-buy">-</span> / 매도 <span id="home-sum-sell">-</span></span>
       </div>
-      <div class="cs-home-summary-item">
-        <span class="cs-home-summary-label">오늘 매도금액</span>
-        <span class="cs-home-summary-value" id="home-sum-sell">-</span>
-      </div>
-      <div class="cs-home-summary-item">
-        <span class="cs-home-summary-label">오늘 총손익</span>
-        <span class="cs-home-summary-value cs-neutral" id="home-sum-pnl">-</span>
-      </div>
-    </div>
+    </section>
     <div class="cs-bulk-bar">
-      <span class="cs-bulk-label">전체 제어</span>
+      <span class="cs-bulk-label"><span class="cs-run-dot"></span><span id="home-running-count">-</span></span>
       <div class="cs-bulk-actions">
-        <button class="cs-btn cs-btn-success cs-btn-sm" id="bulk-start-btn">전체 가동</button>
-        <button class="cs-btn cs-btn-danger cs-btn-sm" id="bulk-stop-btn">전체 중지</button>
+        <button class="cs-btn cs-btn-ink cs-btn-sm" id="bulk-start-btn">전체 가동</button>
+        <button class="cs-btn cs-btn-secondary cs-btn-sm" id="bulk-stop-btn">전체 중지</button>
       </div>
     </div>
-    <div class="cs-bulk-hint">ON 종목만 전체 가동/중지가 적용됩니다. (개별 종목 토글)</div>
+    <div class="cs-bulk-hint">카드의 "전체 가동/중지 대상"이 켜진 종목에만 적용돼요.</div>
     <div id="market-price-list" class="cs-coin-list">
       {% for _ in range(4) %}
       <div class="cs-coin-row">
         <div class="cs-skeleton-block cs-skeleton-icon"></div>
         <div class="cs-coin-info">
-          <div class="cs-skeleton-block cs-skeleton-line" style="width:70px;"></div>
-          <div class="cs-skeleton-block cs-skeleton-line" style="width:44px; height:10px;"></div>
+          <div class="cs-skeleton-block cs-skeleton-line" style="width:80px; height:16px;"></div>
+          <div class="cs-skeleton-block cs-skeleton-line" style="width:56px; height:10px;"></div>
         </div>
-        <div class="cs-skeleton-block cs-skeleton-line" style="width:64px; height:16px;"></div>
+        <div class="cs-skeleton-block cs-skeleton-line" style="width:56px; height:26px; border-radius:999px;"></div>
       </div>
       {% endfor %}
     </div>
@@ -60,12 +54,18 @@
 
   <!-- ─── 전략 설정 ─── -->
   <div class="cs-strat-section">
-    <div class="cs-strat-section-title">전략 설정</div>
     <div class="cs-strat-sym-tabs" id="strat-sym-tabs"></div>
+
+    <section class="cs-hero cs-hero--sm">
+      <img class="cs-hero-mascot" src="{{ url_for('static', filename='images/icon-192.png') }}" alt="" width="76" height="76">
+      <div class="cs-bubble">
+        <p class="cs-bubble-text" id="strat-bubble-text">설정값을 불러오는 중이에요.</p>
+      </div>
+    </section>
 
     <div class="cs-strat-settings-card">
       <div class="cs-strat-row">
-        <span class="cs-strat-label">시작가</span>
+        <label class="cs-strat-label" for="strat-input-start-price">시작가</label>
         <div class="cs-strat-input-wrap">
           <input type="number" class="cs-strat-input" id="strat-input-start-price" step="1" min="0" placeholder="미설정">
           <span class="cs-strat-unit">원</span>
@@ -73,13 +73,13 @@
       </div>
       <div class="cs-settings-notice">0차(매수 전) 상태일 때만 저장 즉시 반영됩니다. 이미 매수가 진행된 경우 저장한 값은 다음에 전량 매도돼 0차로 돌아왔을 때 적용됩니다.</div>
       <div class="cs-strat-row">
-        <span class="cs-strat-label">1회 주문금액</span>
+        <label class="cs-strat-label" for="strat-input-amount">1회 주문금액</label>
         <div class="cs-strat-input-wrap">
           <input type="number" class="cs-strat-input" id="strat-input-amount" step="1000" min="1000">
           <span class="cs-strat-unit">원</span>
         </div>
       </div>
-      <div class="cs-strat-row">
+      <div class="cs-strat-row cs-strat-row--inline">
         <span class="cs-strat-label">트리거 방식</span>
         <div class="cs-mode-toggle" id="strat-mode-toggle">
           <button class="cs-mode-btn active" data-mode="pct">% 비율</button>
@@ -87,14 +87,14 @@
         </div>
       </div>
       <div class="cs-strat-row">
-        <span class="cs-strat-label">매수 간격</span>
+        <label class="cs-strat-label" for="strat-input-trigger">매수 간격</label>
         <div class="cs-strat-input-wrap">
           <input type="number" class="cs-strat-input" id="strat-input-trigger" step="0.1" min="0.1" max="10">
           <span class="cs-strat-unit" id="strat-trigger-unit">%</span>
         </div>
       </div>
       <div class="cs-strat-row">
-        <span class="cs-strat-label">매도 간격</span>
+        <label class="cs-strat-label" for="strat-input-trigger-sell">매도 간격</label>
         <div class="cs-strat-input-wrap">
           <input type="number" class="cs-strat-input" id="strat-input-trigger-sell" step="0.1" min="0" max="10" placeholder="매수와 동일">
           <span class="cs-strat-unit" id="strat-trigger-sell-unit">%</span>
@@ -102,13 +102,13 @@
       </div>
       <div class="cs-settings-notice">매도 간격을 비워두면 매수 간격과 동일하게 적용됩니다.</div>
       <div class="cs-strat-row">
-        <span class="cs-strat-label">최대 차수</span>
+        <label class="cs-strat-label" for="strat-input-rounds">최대 차수</label>
         <div class="cs-strat-input-wrap">
           <input type="number" class="cs-strat-input" id="strat-input-rounds" step="1" min="1" max="200">
           <span class="cs-strat-unit">차</span>
         </div>
       </div>
-      <div class="cs-strat-row">
+      <div class="cs-strat-row cs-strat-row--inline">
         <span class="cs-strat-label">자동 시작가 트레일링</span>
         <label class="cs-switch" title="0차 대기 중 가격이 시작가 위로 유지되면, 설정 탭의 판단 주기마다 조건을 확인해 시작가를 간격 1칸씩 자동으로 올립니다">
           <input type="checkbox" id="strat-input-auto-rebase">
@@ -131,11 +131,11 @@
         </div>
         <div class="cs-strat-calc-row">
           <span class="cs-strat-calc-label">1회전 예상손익</span>
-          <span class="cs-strat-calc-val cs-green" id="strat-calc-totalnet">-</span>
+          <span class="cs-strat-calc-val" id="strat-calc-totalnet">-</span>
         </div>
       </div>
       <div class="cs-strat-actions">
-        <button class="cs-btn cs-btn-primary cs-btn-sm" id="strat-save-btn">저장</button>
+        <button class="cs-btn cs-btn-primary cs-btn-sm" id="strat-save-btn">변경사항 저장</button>
         <button class="cs-btn cs-btn-secondary cs-btn-sm" id="strat-table-btn">그리드 플래너 ▼</button>
         <button class="cs-btn cs-btn-warning cs-btn-sm" id="strat-rebase-btn" style="display:none" title="중단 → 새 시작가 저장 → 초기화 → 캐치업 재시작을 한 번에 진행합니다">시작가 재조정</button>
       </div>
@@ -162,7 +162,7 @@
   <header class="cs-page-header">
     <span class="cs-page-title">손익<span class="cs-tier-badge js-tier-badge">화이트</span></span>
   </header>
-  <p class="cs-page-disclaimer">자체 계산값이며 빗썸 실제 내역과 약간 다를 수 있습니다</p>
+  <p class="cs-page-disclaimer">봇이 직접 계산한 값이라 빗썸 내역과 조금 다를 수 있어요.</p>
 
   <!-- 서브탭 -->
   <div class="cs-home-tabs" id="trades-sub-tabs">
@@ -190,7 +190,7 @@
       </div>
       <div class="cs-summary-row">
         <span class="cs-summary-label">발생 수수료(참고용)</span>
-        <span class="cs-summary-value cs-pnl-negative" id="pnl-total-fee">-</span>
+        <span class="cs-summary-value cs-cost-value" id="pnl-total-fee">-</span>
       </div>
       <div class="cs-summary-row">
         <span class="cs-summary-label">포인트 적립(비현금)</span>
@@ -388,9 +388,29 @@
 
 <!-- ═══ 설정 페이지 ══════════════════════════════════════════════════════ -->
 <section id="page-settings" class="cs-page">
-  <header class="cs-page-header">
-    <span class="cs-page-title">설정<span class="cs-tier-badge js-tier-badge">화이트</span></span>
+  <header class="cs-page-header cs-page-header--mascot">
+    <img class="cs-header-mascot" src="{{ url_for('static', filename='images/icon-192.png') }}" alt="" width="64" height="64">
+    <div class="cs-page-header-text">
+      <span class="cs-page-title">설정<span class="cs-tier-badge js-tier-badge">화이트</span></span>
+      <span class="cs-page-sub">홈서버에서 가동 중</span>
+    </div>
   </header>
+
+  <!-- ─── 화면 테마 (이 기기에만 저장) ─── -->
+  <div class="cs-settings-section">
+    <div class="cs-settings-title">화면</div>
+    <div class="cs-settings-card">
+      <div class="cs-settings-row">
+        <span class="cs-settings-label">테마</span>
+        <div class="cs-mode-toggle" id="theme-toggle" role="group" aria-label="화면 테마">
+          <button class="cs-mode-btn" data-theme-choice="auto">자동</button>
+          <button class="cs-mode-btn" data-theme-choice="light">라이트</button>
+          <button class="cs-mode-btn" data-theme-choice="dark">다크</button>
+        </div>
+      </div>
+      <div class="cs-settings-notice">자동은 휴대폰·PC의 다크 모드 설정을 따라가요. 이 기기에만 저장돼요.</div>
+    </div>
+  </div>
 
   <!-- ─── 서버 접속 정보 ─── -->
   <div class="cs-settings-server-banner">

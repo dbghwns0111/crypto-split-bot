@@ -4,7 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>CryptoSplit · 로그인</title>
-  <meta name="theme-color" content="#3182F6">
+  <meta name="theme-color" content="#FFF3D3" id="theme-color-meta">
+  <script>
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('cs-theme'); } catch (e) {}
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      var dark = t === 'dark' || (t !== 'light' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.getElementById('theme-color-meta').setAttribute('content', dark ? '#1B1710' : '#FFF3D3');
+    })();
+  </script>
   <!-- 세션 만료로 이 화면에서 홈화면 바로가기를 만들어도 같은 아이콘이 쓰이도록 -->
   <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='images/favicon-32.png') }}">
   <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='images/icon-192.png') }}">
@@ -17,49 +26,52 @@
     body {
       display: flex; align-items: center; justify-content: center;
       min-height: 100vh; margin: 0; padding: 24px;
-      background: var(--cs-outer);
+      background: var(--cs-bg);
     }
     .cs-login-card {
       width: 100%; max-width: 360px;
-      background: var(--cs-card); border: 1px solid var(--cs-border); border-radius: 16px;
-      padding: 32px 24px; box-shadow: var(--cs-shadow-lg);
+      background: var(--cs-card); border-radius: var(--cs-radius-lg);
+      padding: 28px 24px 26px; box-shadow: var(--cs-shadow-md);
     }
+    .cs-login-mascot { display: block; width: 96px; height: 96px; margin: -76px auto 6px; }
     .cs-login-title {
-      text-align: center; color: var(--cs-text); font-size: 1.4rem;
-      font-weight: 700; margin-bottom: 4px;
+      text-align: center; color: var(--cs-text);
+      font-family: var(--cs-font-display); font-size: 28px; margin-bottom: 4px;
     }
     .cs-login-sub {
-      text-align: center; color: var(--cs-muted); font-size: .85rem; margin-bottom: 24px;
+      text-align: center; color: var(--cs-muted); font-size: 14px; margin-bottom: 22px;
     }
     .cs-login-input {
-      width: 100%; box-sizing: border-box; padding: 12px 14px;
-      background: var(--cs-bg); border: 1px solid var(--cs-border); border-radius: 10px;
-      color: var(--cs-text); font-size: 1rem; margin-bottom: 14px;
-      transition: border-color 0.15s;
+      width: 100%; box-sizing: border-box; min-height: 50px; padding: 0 16px;
+      background: var(--cs-card2); border: none; border-radius: 16px;
+      color: var(--cs-text); font-size: 16px; margin-bottom: 14px;
     }
-    .cs-login-input:focus { outline: none; border-color: var(--cs-accent); }
+    .cs-login-input:focus { outline: none; box-shadow: 0 0 0 2px var(--cs-gold); }
     .cs-login-btn {
-      width: 100%; padding: 12px; border: none; border-radius: 10px;
-      background: var(--cs-accent); color: #fff; font-size: 1rem; font-weight: 600;
-      cursor: pointer; transition: filter 0.15s;
+      width: 100%; min-height: 52px; border: none; border-radius: 999px;
+      background: var(--cs-gold); color: var(--cs-on-gold); font-size: 16px; font-weight: 700;
+      cursor: pointer;
     }
-    .cs-login-btn:hover  { filter: brightness(1.1); }
-    .cs-login-btn:active { filter: brightness(0.92); }
+    .cs-login-btn:active { transform: scale(0.98); }
     .cs-login-err {
-      color: var(--cs-red); font-size: .85rem; text-align: center;
+      color: var(--cs-danger); font-size: 14px; text-align: center;
       margin-bottom: 14px; min-height: 1em;
     }
+    .cs-login-wrap { padding-top: 70px; width: 100%; max-width: 360px; }
   </style>
 </head>
 <body>
+  <div class="cs-login-wrap">
   <form class="cs-login-card" method="post" action="{{ url_for('auth.login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
-    <div class="cs-login-title">🔒 CryptoSplit</div>
-    <div class="cs-login-sub">대시보드 접근 비밀번호를 입력하세요</div>
+    <img class="cs-login-mascot" src="{{ url_for('static', filename='images/icon-192.png') }}" alt="" width="96" height="96">
+    <div class="cs-login-title">CryptoSplit</div>
+    <div class="cs-login-sub">대시보드 비밀번호를 입력해 주세요</div>
     <div class="cs-login-err">{{ error or '' }}</div>
     <input class="cs-login-input" type="password" name="password"
-           placeholder="비밀번호" autocomplete="current-password" autofocus required>
+           placeholder="비밀번호" aria-label="비밀번호" autocomplete="current-password" autofocus required>
     <button class="cs-login-btn" type="submit">로그인</button>
   </form>
+  </div>
   <script src="{{ url_for('static', filename='js/capslock.js') }}"></script>
 </body>
 </html>

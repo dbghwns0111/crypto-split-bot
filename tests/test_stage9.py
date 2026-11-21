@@ -69,7 +69,7 @@ class TestBuildBuyFilled:
         assert "3차" in msg
 
     def test_emoji_present(self):
-        # 매수는 웹 대시보드의 매수 트리거와 같은 빨강(.cs-negative)
+        # 매수는 웹 대시보드의 매수 트리거와 같은 빨강(.cs-buy)
         msg = build_buy_filled("ETH", 3_245_000, 0.015, 3)
         assert ICON_BUY in msg
 
@@ -94,7 +94,7 @@ class TestBuildSellFilled:
         assert "+0" in msg
 
     def test_emoji_present(self):
-        # 매도는 웹 대시보드의 매도 트리거와 같은 초록(.cs-positive)
+        # 매도는 웹 대시보드의 매도 트리거와 같은 파랑(.cs-sell)
         msg = build_sell_filled("ETH", 3_000_000, 0.01, 1)
         assert ICON_SELL in msg
 

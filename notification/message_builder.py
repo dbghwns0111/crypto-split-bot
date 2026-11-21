@@ -9,14 +9,16 @@
 2. **<pre> 안에는 이모지를 넣지 않는다.** 이모지 폭이 플랫폼마다 1~2칸을
    오가서 애써 맞춘 정렬이 깨진다. 색 이모지는 제목 줄과 <pre> 바깥 평문에만.
 
-색은 웹 대시보드(web/static/css/style.css)와 같은 의미로 맞춘다:
+색은 웹 대시보드(web/static/css/style.css)와 같은 의미로 맞춘다
+(한국 증권앱 관례, 2026-11-21 개편):
 
-    매수·매수트리거 🔴 (.cs-negative)   매도·매도트리거 🟢 (.cs-positive)
-    이익 🟢 / 손실 🔴                    가동중 🔵 (.cs-badge-running) / 중지 ⚪
+    매수·매수트리거 🔴 (.cs-buy)        매도·매도트리거 🔵 (.cs-sell)
+    수익 빨강 / 손실 파랑 (.cs-positive / .cs-negative)
+    가동중 🟢 (.cs-badge-running) / 중지 ⚪
 
-즉 빨강·초록은 "방향과 손익" 전용, 파랑·회색은 "가동 상태" 전용이다. 경고류는
+즉 빨강·파랑은 "방향과 손익" 전용, 초록·회색은 "가동 상태" 전용이다. 경고류는
 색이 아니라 모양으로 구분한다(⚠️ 🛑 🚨 ⏰ 🔧). 이 규칙을 바꾸려면 웹 CSS의
-.cs-positive/.cs-negative/.cs-badge-running 도 같이 바꿔야 한다.
+--cs-buy/--cs-sell/--cs-profit/--cs-loss/--cs-run 도 같이 바꿔야 한다.
 """
 
 import html
@@ -24,9 +26,9 @@ import sys
 import unicodedata
 
 # ── 색 이모지 (웹 style.css 와 1:1 대응) ──────────────────────────────────────
-ICON_BUY     = "🔴"   # 매수 · 매수 트리거   ← .cs-negative (#F04452)
-ICON_SELL    = "🟢"   # 매도 · 매도 트리거   ← .cs-positive (#00A870)
-ICON_RUNNING = "🔵"   # 가동중               ← .cs-badge-running (#3182F6)
+ICON_BUY     = "🔴"   # 매수 · 매수 트리거   ← .cs-buy  (--cs-buy)
+ICON_SELL    = "🔵"   # 매도 · 매도 트리거   ← .cs-sell (--cs-sell)
+ICON_RUNNING = "🟢"   # 가동중               ← .cs-badge-running (--cs-run)
 ICON_STOPPED = "⚪"   # 중지                 ← .cs-badge-stopped (muted)
 
 _LABEL_W = 8    # 라벨 열 기본 폭 (표시 폭 기준, 한글 2칸)

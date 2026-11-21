@@ -5,7 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>CryptoSplit</title>
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <meta name="theme-color" content="#3182F6">
+  <meta name="theme-color" content="#FFF3D3" id="theme-color-meta">
+  <!-- 테마(자동/라이트/다크) — CSS가 그려지기 전에 적용해 새로고침 때 색이 번쩍이지
+       않게 한다. 값은 설정 탭에서 고르고 이 기기의 localStorage에만 저장된다. -->
+  <script>
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('cs-theme'); } catch (e) {}
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      var dark = t === 'dark' || (t !== 'light' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.getElementById('theme-color-meta').setAttribute('content', dark ? '#1B1710' : '#FFF3D3');
+    })();
+  </script>
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="CryptoSplit">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">

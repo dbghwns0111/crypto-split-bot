@@ -107,7 +107,8 @@ main.py 실행
 ## 기술 스택
 - 언어: Python
 - 거래소 API: python-bithumb (BithumbClient 래퍼)
-- 웹: Flask + Bootstrap 5 (라이트/토스 스타일 디자인 시스템, Pretendard 폰트, 반응형, 모바일 최적화)
+- 웹: Flask + Bootstrap 5 ("코인 친구" 디자인 시스템 — 버터 옐로 바탕·둥근 카드·금색 포인트·마스코트,
+  제목/숫자 Jua + 본문 Pretendard 로컬 번들, 라이트/다크 테마, 반응형, 모바일 최적화. 2026-11-21 개편)
 - DB: SQLite (WAL 모드, 자동 백업)
 - 알림: 텔레그램 Bot API (큐 기반 비동기, rate-limit 처리)
 - 스케줄러: APScheduler (BackgroundScheduler)
@@ -192,7 +193,8 @@ crypto-split-bot/
 │       ├── manifest.json      # PWA 매니페스트 (홈화면 바로가기 아이콘)
 │       ├── vendor/            # Bootstrap 5.3.3 로컬 번들 (CDN 의존 제거)
 │       ├── images/            # icon-192/512, icon-maskable-512,
-│       │                      # apple-touch-icon, favicon-32, logo-64
+│       │                      # apple-touch-icon, favicon-32, logo-64, coins/*.svg
+│       ├── fonts/             # pretendard/(본문), jua/(제목·숫자, KS X 1001 서브셋 + OFL)
 │       └── js/
 │           ├── dashboard.js
 │           ├── capslock.js       # 비밀번호 칸 Caps Lock 안내 (로그인/대시보드 공용)
@@ -455,17 +457,19 @@ gzip 압축한 뒤(8MB → 약 1.5MB) `TelegramNotifier.send_document()`로 봇 
 - `<pre>` 각 줄은 **표시 폭 36칸 이하**를 목표로 한다(모바일 가로 스크롤 방지).
   길이를 예측할 수 없는 자유 문장은 `<pre>`가 아니라 `foot`으로 보낸다.
 
-### 색 규칙 — 웹 `style.css`와 동일한 의미
-| 의미 | 웹 클래스 | 텔레그램 |
+### 색 규칙 — 웹 `style.css`와 동일한 의미 (2026-11-21, 한국 증권앱 관례로 변경)
+| 의미 | 웹 토큰 / 클래스 | 텔레그램 |
 |---|---|---|
-| 매수 · 매수 트리거 | `.cs-negative` `#F04452` | 🔴 `ICON_BUY` |
-| 매도 · 매도 트리거 | `.cs-positive` `#00A870` | 🟢 `ICON_SELL` |
-| 가동중 | `.cs-badge-running` `#3182F6` | 🔵 `ICON_RUNNING` |
+| 매수 · 매수 트리거 | `--cs-buy` `.cs-buy` (빨강) | 🔴 `ICON_BUY` |
+| 매도 · 매도 트리거 | `--cs-sell` `.cs-sell` (파랑) | 🔵 `ICON_SELL` |
+| 수익 / 손실 | `--cs-profit` `.cs-positive` (빨강) / `--cs-loss` `.cs-negative` (파랑) | — |
+| 가동중 | `--cs-run` `.cs-badge-running` (초록) | 🟢 `ICON_RUNNING` |
 | 중지 | `.cs-badge-stopped` muted | ⚪ `ICON_STOPPED` |
 
-**빨강·초록은 "방향과 손익" 전용, 파랑·회색은 "가동 상태" 전용**이다. 개편 전에는
-초록이 "이익"과 "실행중" 두 뜻으로 쓰여 충돌했다. 경고류(⚠️ 🛑 🚨 ⏰ 🔧)는 색이
-아니라 **모양**으로 구분한다. 이 매핑을 바꾸려면 웹 CSS도 함께 바꿀 것.
+**빨강·파랑은 "방향과 손익" 전용, 초록·회색은 "가동 상태" 전용, 금색(`--cs-gold`)은
+브랜드(주요 버튼·선택 상태·차수 링)** 이다. `_colorClass()`는 손익용(`.cs-positive`/
+`.cs-negative`)이므로 매수/매도 표시에 쓰지 말고 `.cs-buy`/`.cs-sell`을 쓸 것.
+경고류(⚠️ 🛑 🚨 ⏰ 🔧)는 색이 아니라 **모양**으로 구분한다. 이 매핑을 바꾸려면 웹 CSS도 함께 바꿀 것.
 
 ### 공용 렌더러
 `/status`(명령)와 정각 현황 알림은 **같은 `status_table()`/`trigger_lines()`를
@@ -568,6 +572,22 @@ gzip 압축한 뒤(8MB → 약 1.5MB) `TelegramNotifier.send_document()`로 봇 
   표시하지 않고 "기존 값 → 새 값"으로만 적는다). 새 설정 항목을 추가할 때는
   `dashboard.js`의 `SETTINGS_SPECS`에 한 줄만 등록하면 변경 판정·팝업 문구가
   자동으로 따라온다.
+
+### 디자인 시스템 "코인 친구" (2026-11-21)
+- 토큰은 `style.css` 맨 위 `:root`에 모여 있다. 다크는 `@media (prefers-color-scheme: dark)`
+  (`:root:not([data-theme="light"])`)와 `:root[data-theme="dark"]` 두 곳에 같은 값을 둔다 —
+  색을 바꿀 땐 두 블록을 함께 고칠 것.
+- 테마 선택(자동/라이트/다크)은 설정 탭 "화면"에서 하고 이 기기의 `localStorage('cs-theme')`에만
+  저장된다. `base.html`/`login.html` `<head>`의 인라인 스크립트가 첫 페인트 전에 `data-theme`과
+  `theme-color`를 적용하고, `dashboard.js::_initTheme()`이 토글을 다룬다. 차트는 그릴 때 읽은
+  색을 계속 쓰므로 테마가 바뀌면 `_recolorCharts()`가 지우고 다시 그린다.
+- 홈 코인 카드: 코인 로고를 두른 **차수 링**(conic-gradient), 매수/매도 트리거 타일의 막대는
+  매수가~매도가 구간에서 각 트리거에 얼마나 가까운지를 뜻한다. **0차이고 현재가 > 시작가**면
+  트리거 타일 대신 마스코트가 첫 매수 조건을 안내한다(`_updateStratMonitorCard`).
+- 마스코트(`images/icon-192.png`)는 홈 오늘 손익 말풍선, 전략 탭 계산 말풍선, 설정 헤더,
+  0차 대기 카드, 로그인 화면에 쓴다. 문구는 의인화 없이 사실만 차분한 존댓말로 쓴다.
+- Jua는 2,350자 서브셋이라 목록에 없는 한글은 Pretendard로 대체 표시된다. 글자를 늘리려면
+  원본 TTF를 pyftsubset으로 다시 만들 것(라이선스: `fonts/jua/OFL.txt`).
 
 ### 모바일 대응 (2026-09-19)
 - **당겨서 새로고침**: `#cs-main` 최상단에서 아래로 당기면 새로고침
