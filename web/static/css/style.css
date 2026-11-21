@@ -54,7 +54,7 @@
   --cs-radius-lg: 26px;   /* 큰 카드 */
   --cs-radius-md: 18px;   /* 카드 안 타일 */
   --cs-radius-sm: 12px;   /* 입력칸 */
-  --cs-nav-h:     92px;   /* 떠 있는 하단 탭바(66) + 여백 */
+  --cs-nav-space: calc(66px + 36px + env(safe-area-inset-bottom, 0px));  /* 탭바에 가리지 않을 바닥 여백 */
 
   /* 멤버십 티어 색상 (JS에서 동적으로 갱신) */
   --tier-color:      #9E9E9E;
@@ -205,8 +205,9 @@ body {
 #cs-main {
   max-width: 100%;
   margin: 0 auto;
-  height: calc(100vh - var(--cs-nav-h));
-  height: calc(100dvh - var(--cs-nav-h));
+  /* 화면 끝까지 쓰고, 떠 있는 탭바는 내용 위에 겹친다 (바닥 여백만 확보) */
+  height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
   overflow-x: hidden;
   /* 브라우저 기본 당겨서 새로고침/바운스와 충돌하지 않도록 스크롤 체이닝 차단
@@ -214,7 +215,7 @@ body {
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   background: var(--cs-bg);
-  padding-bottom: 16px;
+  padding-bottom: var(--cs-nav-space);
 }
 
 /* ── 페이지 섹션 ─────────────────────────────────────────────────────────── */
@@ -292,6 +293,16 @@ body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   z-index: 1000;
+  transition: transform 0.28s ease, opacity 0.28s ease;
+}
+/* 아래로 스크롤하는 동안 숨김 — 위로 올리면 다시 나타난다 (_initNavAutoHide) */
+.cs-bottom-nav.is-hidden {
+  transform: translateY(calc(100% + 28px));
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-bottom-nav { transition: none; }
 }
 .cs-nav-item {
   display: flex;
@@ -538,6 +549,8 @@ body {
 /* ── 홈: 코인 카드 (모니터링 + 제어) ─────────────────────────────────────── */
 .cs-strat-card {
   position: relative;
+  display: flex;
+  flex-direction: column;
   padding: 18px;
   border-radius: var(--cs-radius-lg);
   background: var(--cs-card);
@@ -585,14 +598,22 @@ body {
   line-height: 1.1;
   white-space: nowrap;
 }
+.cs-strat-pnl-col { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
 .cs-strat-pnl-val { font-size: 14px; font-weight: 700; white-space: nowrap; }
+
+/* 상태 칸 — 트리거 타일과 0차 대기 안내가 같은 높이를 차지해 카드 높이가
+   상태에 따라 바뀌지 않는다 */
+.cs-state-slot {
+  display: grid;
+  min-height: 112px;
+  margin-top: 14px;
+}
 
 /* 매수/매도 트리거 타일 — 막대는 "얼마나 가까워졌는지"(매수가~매도가 구간 기준) */
 .cs-trig-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 14px;
 }
 .cs-trig { padding: 12px; border-radius: 16px; min-width: 0; }
 .cs-trig-buy  { background: var(--cs-buy-soft); }
@@ -605,6 +626,20 @@ body {
 .cs-trig-fill { height: 100%; width: 0; border-radius: 3px; transition: width 0.4s ease; }
 .cs-trig-buy  .cs-trig-fill { background: var(--cs-buy); }
 .cs-trig-sell .cs-trig-fill { background: var(--cs-sell); }
+/* 미체결 주문 줄 — 주문이 없어도 자리를 차지한다 */
+.cs-trig-order {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--cs-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-trig-order.is-active { font-weight: 700; }
+.cs-trig-buy  .cs-trig-order.is-active { color: var(--cs-buy); }
+.cs-trig-sell .cs-trig-order.is-active { color: var(--cs-sell); }
 @media (prefers-reduced-motion: reduce) {
   .cs-trig-fill { transition: none; }
 }
@@ -614,7 +649,6 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 14px;
   padding: 12px 14px;
   border-radius: var(--cs-radius-md);
   background: var(--cs-card2);
@@ -639,18 +673,28 @@ body {
 .cs-pending-text { color: var(--cs-text); flex: 1; min-width: 0; }
 .cs-pending-time { color: var(--cs-muted); font-size: 12px; white-space: nowrap; }
 
-/* 시작가·기준가·체결 횟수 */
+/* 시작가·기준가·오늘 체결 — 고정 3칸 (값 길이와 무관하게 한 줄) */
 .cs-strat-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
+  display: grid;
+  /* 금액 두 칸은 넓게, 체결 횟수 칸은 좁게 — 폰 폭에서도 1억대 가격이 잘리지 않게 */
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.3fr) minmax(0, 0.7fr);
+  gap: 8px;
   margin-top: 12px;
-  font-size: 13px;
-  color: var(--cs-muted);
 }
-.cs-strat-meta b { color: var(--cs-text); font-weight: 600; }
-.cs-strat-card-point { margin-top: 4px; font-size: 12px; color: var(--cs-gold-text); }
-.cs-strat-card-point:empty { display: none; }
+.cs-strat-meta > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cs-strat-meta-label { font-size: 12px; color: var(--cs-muted); }
+.cs-strat-meta b {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cs-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 포인트 — 오늘 손익 아래 고정 자리 (없어도 높이 유지) */
+.cs-strat-card-point { min-height: 17px; font-size: 12px; line-height: 17px; color: var(--cs-gold-text); white-space: nowrap; }
+/* 카드 내용과 하단 토글·버튼 사이를 채워 같은 줄 카드의 버튼을 바닥에 맞춘다 */
+.cs-strat-card-spacer { flex: 1 1 auto; }
 
 .cs-bulk-toggle-row {
   display: flex;
@@ -1024,13 +1068,9 @@ body {
     transform: translateX(-50%);
     width: 480px;
   }
-  .cs-coin-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-}
-@media (min-width: 1024px) {
-  #cs-main { max-width: 960px; }
-}
-@media (min-width: 1440px) {
-  #cs-main { max-width: 1100px; }
+  .cs-bottom-nav.is-hidden { transform: translate(-50%, calc(100% + 28px)); }
+  /* 같은 줄 카드는 높이를 맞추고 버튼은 바닥에 정렬 */
+  .cs-coin-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
 }
 
 /* ── 전략 페이지 ─────────────────────────────────────────────────────────── */
@@ -1226,6 +1266,9 @@ body {
 }
 .cs-price-table td:first-child { text-align: center; color: var(--cs-muted); }
 .cs-price-table tbody tr:hover { background: var(--cs-card2); }
+/* 현재 차수 줄 — 금색 바탕으로 "지금 여기" 표시 */
+.cs-price-table tbody tr.is-current td { background: var(--cs-gold-soft); font-weight: 700; }
+.cs-price-table tbody tr.is-current td:first-child { color: var(--cs-gold-text); }
 
 /* ── 체결/실현손익 표 ────────────────────────────────────────────────────── */
 .cs-trade-table {
@@ -1783,4 +1826,252 @@ body {
 @media (max-width: 430px) {
   .cs-btn-sm { min-height: 42px; }
   .cs-chip, .cs-mode-btn, .cs-home-tab { min-height: 40px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PC 모니터 (폭 1024px 이상) — 왼쪽 사이드 메뉴 + 화면 전체를 쓰는 다단 배치.
+   폰·태블릿(1024px 미만)은 위의 모바일 레이아웃 그대로다.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+  :root { --cs-side-w: 232px; }
+
+  /* 사이드 메뉴 — 하단 알약 탭바를 왼쪽 세로 메뉴로 바꾼다 */
+  .cs-bottom-nav,
+  .cs-bottom-nav.is-hidden {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    width: var(--cs-side-w);
+    height: auto;
+    transform: none;
+    opacity: 1;
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 96px 14px 24px;
+    border-radius: 0;
+    background: var(--cs-card);
+    box-shadow: none;
+    border-right: 1px solid var(--cs-border);
+  }
+  .cs-bottom-nav::before {
+    content: 'CryptoSplit';
+    position: absolute;
+    top: 30px;
+    left: 22px;
+    padding-left: 38px;
+    font-family: var(--cs-font-display);
+    font-size: 23px;
+    line-height: 32px;
+    color: var(--cs-text);
+    background: url('../images/logo-64.png') left center / 30px 30px no-repeat;
+  }
+  .cs-nav-item {
+    justify-content: flex-start;
+    gap: 12px;
+    min-height: 50px;
+    padding: 0 16px;
+    border-radius: 16px;
+    color: var(--cs-text);
+    transition: background 0.15s;
+  }
+  .cs-nav-item:hover { background: var(--cs-card2); }
+  .cs-nav-item.active { background: var(--cs-gold); color: var(--cs-on-gold); }
+  .cs-nav-icon { display: block; width: 22px; height: 22px; }
+  .cs-nav-label,
+  .cs-nav-item.active .cs-nav-label {
+    padding: 0;
+    background: none;
+    color: inherit;
+    opacity: 1;
+    font-size: 16px;
+  }
+
+  /* 본문 — 사이드 메뉴 오른쪽 전체 */
+  #cs-main {
+    max-width: none;
+    margin-left: var(--cs-side-w);
+    padding: 12px 24px 48px;
+  }
+  /* 홈 헤더의 로고·"CryptoSplit"은 사이드 메뉴와 겹치므로 "홈"으로 바꿔 보여 준다 */
+  .cs-page-header .cs-logo-img { display: none; }
+  #page-home .cs-page-title { font-size: 0; }
+  #page-home .cs-page-title::before { content: '홈'; font-size: 26px; }
+
+  /* 홈 — 말풍선과 전체 제어를 한 줄에, 코인 카드는 화면 폭만큼 여러 칸 */
+  #home-tab-realtime.active {
+    display: grid;
+    grid-template-columns: minmax(0, 720px) minmax(0, 1fr);
+    align-items: end;
+    column-gap: 24px;
+  }
+  #home-tab-realtime .cs-hero { grid-column: 1; }
+  #home-tab-realtime .cs-bulk-bar {
+    grid-column: 2;
+    justify-content: flex-end;
+    padding-bottom: 16px;
+  }
+  #home-tab-realtime .cs-bulk-label { flex: 0 1 auto; margin-right: 8px; }
+  #home-tab-realtime .cs-bulk-hint { grid-column: 1 / -1; padding-top: 0; }
+  /* 종목이 4개라 2칸 또는 4칸으로 — 한 줄에 카드 하나만 남지 않게 */
+  #home-tab-realtime .cs-coin-list {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* ── 전략: 왼쪽 좁은 설정 폼(고정 폭) + 오른쪽 말풍선·그리드 플래너 ── */
+  #page-strategy .cs-strat-section {
+    display: grid;
+    grid-template-columns: 440px minmax(0, 1fr);
+    grid-template-areas:
+      "tabs  tabs"
+      "form  hero"
+      "form  table";
+    grid-template-rows: auto auto 1fr;
+    column-gap: 20px;
+    align-items: start;
+  }
+  #page-strategy .cs-strat-sym-tabs      { grid-area: tabs; }
+  #page-strategy .cs-hero                { grid-area: hero; padding: 6px 0 0; }
+  #page-strategy .cs-hero .cs-bubble     { margin-bottom: 14px; }
+  #page-strategy .cs-strat-settings-card { grid-area: form; margin-top: 16px; }
+  #page-strategy .cs-price-table-wrap    { grid-area: table; margin-top: 0; position: sticky; top: 12px; }
+  #page-strategy .cs-price-table-scroll  { max-height: calc(100dvh - 230px); }
+  /* 폼은 PC에서 조금 촘촘하게 */
+  #page-strategy .cs-strat-input-wrap { height: 46px; }
+  #page-strategy .cs-strat-input      { font-size: 19px; }
+  #page-strategy .cs-strat-row        { padding-top: 10px; }
+  /* 표는 넓은 칸을 쓰는 만큼 글자를 키우고 현재 차수 줄을 강조 */
+  #page-strategy .cs-price-table      { font-size: 14px; }
+  #page-strategy .cs-price-table th,
+  #page-strategy .cs-price-table td   { padding: 10px 10px; }
+  #page-strategy .cs-price-table-info { padding: 18px 20px 10px; font-size: 14px; }
+
+  /* ── 손익 요약: 핵심 숫자 한 줄 → 비교·통계 한 줄 → 큰 차트 → 분포 + 종목별 ── */
+  #trades-tab-summary.active {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-areas:
+      "summary summary summary summary summary summary"
+      "compare compare stats   stats   stats   stats"
+      "daily   daily   daily   daily   daily   daily"
+      "dist    dist    dist    coins   coins   coins";
+    align-items: stretch;
+  }
+  #trades-tab-summary > .cs-summary-section { grid-area: summary; }
+  #trades-tab-summary > .cs-compare-row     { grid-area: compare; }
+  /* 기간·코인 선택은 서브탭(요약/체결/…)과 같은 줄 오른쪽 끝에 */
+  #trades-tab-summary > .cs-sort-bar        { position: absolute; top: -44px; right: 0; padding: 0 16px; }
+  #trades-tab-summary > .cs-compare-row     { padding-right: 5px; }
+  #trades-tab-summary > .cs-stat-grid       { padding-left: 5px; }
+  #trades-tab-summary > .cs-stat-grid       { grid-area: stats; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #trades-tab-summary > .cs-chart-box:not(.cs-chart-box--sm) { grid-area: daily; height: 380px; }
+  #trades-tab-summary > .cs-chart-box--sm  { grid-area: dist; height: auto; min-height: 340px; }
+  #trades-tab-summary > .cs-symbol-list    { grid-area: coins; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; }
+  #trades-tab-summary > .cs-compare-row .cs-compare-item,
+  #trades-tab-summary > .cs-stat-grid .cs-stat-card { justify-content: center; }
+
+  /* 총계 목록을 가로 숫자 띠로 (라벨 위, 숫자 아래) */
+  #trades-tab-summary > .cs-summary-section,
+  #trades-tab-assets > .cs-asset-summary {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    padding: 6px 4px;
+  }
+  #trades-tab-summary > .cs-summary-section .cs-summary-row,
+  #trades-tab-assets > .cs-asset-summary .cs-summary-row {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+    padding: 16px 20px;
+    border-bottom: none;
+    border-right: 1px solid var(--cs-card2);
+  }
+  #trades-tab-summary > .cs-summary-section .cs-summary-row:last-child,
+  #trades-tab-assets > .cs-asset-summary .cs-summary-row:last-child { border-right: none; }
+  #trades-tab-summary > .cs-summary-section .cs-summary-label,
+  #trades-tab-assets > .cs-asset-summary .cs-summary-label { font-size: 13px; }
+  #trades-tab-summary > .cs-summary-section .cs-summary-value,
+  #trades-tab-assets > .cs-asset-summary .cs-summary-value { font-size: 24px; text-align: left; white-space: nowrap; }
+
+  /* ── 보유자산: 숫자 띠 → 전일/전주 대비 → 추이 차트(전체 폭) → 코인 카드 ── */
+  #trades-tab-assets.active {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "banner" "refresh" "summary" "compare" "chart" "coins";
+  }
+  #trades-tab-assets > .cs-info-banner      { grid-area: banner; }
+  #trades-tab-assets > .cs-refresh-row      { grid-area: refresh; }
+  #trades-tab-assets > .cs-asset-summary    { grid-area: summary; }
+  #trades-tab-assets > .cs-compare-row      { grid-area: compare; }
+  #trades-tab-assets > .cs-chart-box        { grid-area: chart; height: 340px; }
+  #trades-tab-assets > .cs-asset-coin-list  {
+    grid-area: coins;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+
+  /* ── 설정: 줄 맞춤 격자 — 같은 줄 카드는 위·아래 끝이 같고 저장 버튼은 바닥에 ── */
+  #page-settings.active {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    padding: 0 16px;
+    align-items: stretch;
+  }
+  #page-settings > .cs-page-header { grid-column: 1 / -1; order: -2; padding-left: 4px; padding-right: 4px; }
+  /* 서버 주소 띠는 제목 바로 아래 한 줄 전체 */
+  #page-settings > .cs-settings-server-banner { grid-column: 1 / -1; order: -1; margin: 0; }
+  /* 섹션 하나 = 흰 카드 하나. 제목을 카드 안 맨 위에 두고 구분선으로 나눈다 */
+  #page-settings > .cs-settings-section {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    border-radius: var(--cs-radius-lg);
+    background: var(--cs-card);
+    overflow: hidden;
+  }
+  #page-settings .cs-settings-title {
+    margin: 0;
+    padding: 18px 22px 14px;
+    border-bottom: 1px solid var(--cs-card2);
+  }
+  #page-settings .cs-settings-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 4px 22px 18px;
+    border-radius: 0;
+    background: transparent;
+  }
+  #page-settings .cs-settings-card > .cs-settings-actions:last-child,
+  #page-settings .cs-settings-card > .cs-settings-actions:nth-last-child(2) { margin-top: auto; padding-top: 14px; }
+  /* 높이가 비슷한 섹션끼리 같은 줄에 오도록 순서를 정한다 (템플릿 순서와 무관).
+     섹션 안의 고유 입력칸 id로 찾으므로 섹션 순서를 바꿔도 깨지지 않는다. */
+  #page-settings > .cs-settings-section:has(#theme-toggle)             { order: 1; }
+  #page-settings > .cs-settings-section:has(#settings-report-hour)     { order: 2; }
+  #page-settings > .cs-settings-section:has(#settings-order-timeout)   { order: 3; }
+  #page-settings > .cs-settings-section:has(#settings-web-password)    { order: 4; }
+  #page-settings > .cs-settings-section:has(#settings-access-key)      { order: 5; }
+  #page-settings > .cs-settings-section:has(#settings-tg-token)        { order: 6; }
+  #page-settings > .cs-settings-section:has(#settings-membership)      { order: 7; }
+  #page-settings > .cs-settings-section:has(#settings-hourly-enabled)  { order: 8; }
+  /* 입력칸은 라벨 가까이 적당한 폭, 저장 버튼은 카드 오른쪽 아래에 작게 */
+  #page-settings .cs-settings-input { width: 260px; }
+  #page-settings .cs-settings-input-sm { width: 84px; }
+  #page-settings .cs-settings-actions { justify-content: flex-end; }
+  #page-settings .cs-settings-actions .cs-btn { flex: 0 0 auto; min-width: 112px; min-height: 42px; font-size: 14px; }
+}
+/* 카드가 380px 이상 확보되는 폭(1920 모니터 등)에서만 4칸 */
+@media (min-width: 1800px) {
+  #home-tab-realtime .cs-coin-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  /* 아주 넓은 화면에서는 설정 섹션을 3단으로 */
+  #page-settings.active { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* 3단일 때 마지막 줄: 멤버십(1칸) + 알림·시스템 주기(2칸) */
+  #page-settings > .cs-settings-section:has(#settings-hourly-enabled) { grid-column: span 2; }
 }

@@ -176,11 +176,42 @@ function _initTheme() {
         .addEventListener?.('change', () => { if (_themeChoice() === 'auto') _applyTheme('auto'); });
 }
 
+// ── PC 모니터 레이아웃 ─────────────────────────────────────────────────────────
+// 폭 1024px 이상이면 CSS가 사이드 메뉴 + 전체 화면 배치로 바꾼다. 그때는 전략 탭
+// 오른쪽 칸이 비지 않도록 그리드 플래너를 펼쳐 둔다.
+function _initWideLayout() {
+    const mq = window.matchMedia?.('(min-width: 1024px)');
+    if (!mq) return;
+    const apply = () => { if (mq.matches && !_stratTableOpen) _togglePriceTable(); };
+    apply();
+    mq.addEventListener?.('change', apply);
+}
+
+// ── 하단 탭바: 아래로 스크롤하면 숨기고, 위로 올리면 다시 보인다 ─────────────
+// 내용은 탭바 밑으로 흘러가고(#cs-main 이 화면 끝까지), 탭바는 떠 있는 알약이다.
+function _initNavAutoHide() {
+    const main = document.getElementById('cs-main');
+    const nav  = document.querySelector('.cs-bottom-nav');
+    if (!main || !nav) return;
+    let lastY = main.scrollTop;
+    main.addEventListener('scroll', () => {
+        const y = main.scrollTop;
+        const dy = y - lastY;
+        if (Math.abs(dy) < 6) return;
+        const atBottom = y + main.clientHeight >= main.scrollHeight - 4;
+        nav.classList.toggle('is-hidden', dy > 0 && y > 80 && !atBottom);
+        lastY = y;
+    }, { passive: true });
+    nav.addEventListener('click', () => nav.classList.remove('is-hidden'));
+}
+
 // ── 초기화 ────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
     _initTheme();
+    _initWideLayout();
+    _initNavAutoHide();
 
     // 심볼 목록 읽기
     const symEl = document.getElementById('cs-symbols');
@@ -825,7 +856,9 @@ function _renderDistChart() {
             scales: {
                 x: { ticks: { color: muted, font: { size: 10 } }, grid: { display: false } },
                 y: { ticks: { color: muted, font: { size: 10 },
-                         callback: (v) => `${(v / 1000).toFixed(0)}k` },
+                         // 평균손익은 수백~수천 원 단위라 1천 단위로 반올림하면 같은 눈금이
+                         // 반복된다 — 1만 원 미만은 원 단위 그대로 보여 준다
+                         callback: (v) => (Math.abs(v) >= 10000 ? `${(v / 1000).toFixed(0)}k` : v.toLocaleString()) },
                      grid: { color: border } },
             },
         },
@@ -1896,6 +1929,7 @@ async function _doRebaseStartPrice(symbol, newPrice) {
 
 function _togglePriceTable() {
     _stratTableOpen = !_stratTableOpen;
+    if (_stratTableOpen) _plannerScrolledSym = null;   // 다시 열면 현재 차수 줄로
     const wrap = document.getElementById('strat-price-table-wrap');
     const btn  = document.getElementById('strat-table-btn');
     if (wrap) wrap.style.display = _stratTableOpen ? '' : 'none';
@@ -1904,6 +1938,7 @@ function _togglePriceTable() {
 }
 
 let _plannerTimer = null;
+let _plannerScrolledSym = null;   // 현재 차수 줄로 자동 스크롤을 마친 종목
 function _calcPlannerDebounced() {
     clearTimeout(_plannerTimer);
     _plannerTimer = setTimeout(_calcAndRenderPriceTable, 350);
@@ -1957,10 +1992,11 @@ async function _calcAndRenderPriceTable() {
             tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">시작가·주문금액·차수·트리거를 입력하세요</td></tr>';
             return;
         }
+        const curRound = (_stratData?.symbols || []).find(x => x.symbol === _stratActiveSym)?.current_round || 0;
         tbody.innerHTML = rows.map(r => {
             const netColor = r.net >= 0 ? 'var(--cs-profit)' : 'var(--cs-loss)';
             const netSign  = r.net >= 0 ? '+' : '';
-            return `<tr>
+            return `<tr${r.round === curRound ? ' class="is-current" title="현재 차수"' : ''}>
                 <td>${r.round}차</td>
                 <td class="cs-buy">${Math.round(r.buy_price).toLocaleString()}원</td>
                 <td>${_fmtQty(r.quantity)}</td>
@@ -1969,6 +2005,14 @@ async function _calcAndRenderPriceTable() {
                 <td style="color:${netColor}">${netSign}${Math.round(r.net).toLocaleString()}</td>
             </tr>`;
         }).join('');
+        // 현재 차수 줄로 한 번만 스크롤 (표를 처음 열거나 종목을 바꿨을 때) —
+        // 3초마다 다시 그려도 사용자가 보던 위치를 빼앗지 않는다
+        const curRow = tbody.querySelector('tr.is-current');
+        const scrollBox = tbody.closest('.cs-price-table-scroll');
+        if (curRow && scrollBox && _plannerScrolledSym !== _stratActiveSym) {
+            scrollBox.scrollTop = Math.max(0, curRow.offsetTop - scrollBox.clientHeight / 3);
+            _plannerScrolledSym = _stratActiveSym;
+        }
     } catch (err) {
         console.error('[CryptoSplit] planner error:', err);
         tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">계산 실패</td></tr>';
@@ -2017,31 +2061,37 @@ function _makeStratMonitorCard(sym) {
         </div>
         <div class="cs-strat-price-line">
             <span class="cs-strat-price-big" id="strat-card-${sym}-price">-</span>
-            <span class="cs-strat-pnl-val cs-neutral" id="strat-card-${sym}-pnl">-</span>
+            <span class="cs-strat-pnl-col">
+                <span class="cs-strat-pnl-val cs-neutral" id="strat-card-${sym}-pnl">-</span>
+                <span class="cs-strat-card-point" id="strat-card-${sym}-point"></span>
+            </span>
         </div>
-        <div class="cs-trig-grid" id="strat-card-${sym}-trig-grid">
-            <div class="cs-trig cs-trig-buy">
-                <span class="cs-trig-title" id="strat-card-${sym}-buy-title">매수 트리거</span>
-                <span class="cs-trig-price" id="strat-card-${sym}-buy-trig">-</span>
-                <div class="cs-trig-bar"><div class="cs-trig-fill" id="strat-card-${sym}-buy-near"></div></div>
+        <div class="cs-state-slot">
+            <div class="cs-trig-grid" id="strat-card-${sym}-trig-grid">
+                <div class="cs-trig cs-trig-buy">
+                    <span class="cs-trig-title" id="strat-card-${sym}-buy-title">매수 트리거</span>
+                    <span class="cs-trig-price" id="strat-card-${sym}-buy-trig">-</span>
+                    <div class="cs-trig-bar"><div class="cs-trig-fill" id="strat-card-${sym}-buy-near"></div></div>
+                    <span class="cs-trig-order" id="strat-card-${sym}-buy-order">대기 주문 없음</span>
+                </div>
+                <div class="cs-trig cs-trig-sell">
+                    <span class="cs-trig-title" id="strat-card-${sym}-sell-title">매도 트리거</span>
+                    <span class="cs-trig-price" id="strat-card-${sym}-sell-trig">-</span>
+                    <div class="cs-trig-bar"><div class="cs-trig-fill" id="strat-card-${sym}-sell-near"></div></div>
+                    <span class="cs-trig-order" id="strat-card-${sym}-sell-order">대기 주문 없음</span>
+                </div>
             </div>
-            <div class="cs-trig cs-trig-sell">
-                <span class="cs-trig-title" id="strat-card-${sym}-sell-title">매도 트리거</span>
-                <span class="cs-trig-price" id="strat-card-${sym}-sell-trig">-</span>
-                <div class="cs-trig-bar"><div class="cs-trig-fill" id="strat-card-${sym}-sell-near"></div></div>
+            <div class="cs-waiting" id="strat-card-${sym}-waiting" style="display:none">
+                <img class="cs-waiting-mascot" src="${MASCOT_SRC}" alt="" width="56" height="56">
+                <p class="cs-waiting-text" id="strat-card-${sym}-waiting-text"></p>
             </div>
         </div>
-        <div class="cs-waiting" id="strat-card-${sym}-waiting" style="display:none">
-            <img class="cs-waiting-mascot" src="${MASCOT_SRC}" alt="" width="56" height="56">
-            <p class="cs-waiting-text" id="strat-card-${sym}-waiting-text"></p>
-        </div>
-        <div id="strat-card-${sym}-orders"></div>
         <div class="cs-strat-meta">
-            <span>시작가 <b id="strat-card-${sym}-start">-</b></span>
-            <span>기준가 <b id="strat-card-${sym}-ref">-</b></span>
-            <span id="strat-card-${sym}-trades">-</span>
+            <div><span class="cs-strat-meta-label">시작가</span><b id="strat-card-${sym}-start">-</b></div>
+            <div><span class="cs-strat-meta-label">기준가</span><b id="strat-card-${sym}-ref">-</b></div>
+            <div><span class="cs-strat-meta-label">오늘 체결</span><b id="strat-card-${sym}-trades">-</b></div>
         </div>
-        <div class="cs-strat-card-point" id="strat-card-${sym}-point"></div>
+        <div class="cs-strat-card-spacer"></div>
         <div class="cs-bulk-toggle-row">
             <label for="bulk-${sym}">전체 가동/중지 대상</label>
             <label class="cs-switch" title="전체 가동/전체 중지 버튼을 눌렀을 때 이 종목도 함께 적용할지 설정합니다">
@@ -2127,20 +2177,26 @@ function _updateStratMonitorCard(s) {
     if (buyNear)  buyNear.style.width  = valid ? `${clamp(100 - (cur - buy) / (sell - buy) * 100)}%` : '0%';
     if (sellNear) sellNear.style.width = valid ? `${clamp(100 - (sell - cur) / (sell - buy) * 100)}%` : '0%';
 
-    const ordersEl = document.getElementById(`strat-card-${sym}-orders`);
-    if (ordersEl) {
-        ordersEl.innerHTML = (s.open_orders || []).map(o => {
-            const elapsed = o.elapsed_sec || 0;
-            const m = Math.floor(elapsed / 60), sec = elapsed % 60;
-            const t = m > 0 ? `${m}분 ${sec}초` : `${sec}초`;
-            const isBuy = o.side === 'buy';
-            return `<div class="cs-pending-order">
-                <span class="cs-pending-dot ${isBuy ? 'is-buy' : 'is-sell'}"></span>
-                <span class="cs-pending-text">${isBuy ? '매수' : '매도'} 대기 ${Math.round(o.price).toLocaleString()}원</span>
-                <span class="cs-pending-time">${t} 경과</span>
-            </div>`;
-        }).join('');
-    }
+    // 미체결 주문 — 카드 높이가 주문 유무로 바뀌지 않도록 매수/매도 타일 안의
+    // 고정 줄에 표시한다 (같은 쪽 주문이 여러 건이면 건수와 가장 오래된 경과 시간).
+    ['buy', 'sell'].forEach(side => {
+        const el = document.getElementById(`strat-card-${sym}-${side}-order`);
+        if (!el) return;
+        const list = (s.open_orders || []).filter(o => o.side === side);
+        if (list.length === 0) {
+            el.textContent = '대기 주문 없음';
+            el.classList.remove('is-active');
+            return;
+        }
+        const elapsed = Math.max(...list.map(o => o.elapsed_sec || 0));
+        const m = Math.floor(elapsed / 60), sec = elapsed % 60;
+        const t = m > 0 ? `${m}분 ${sec}초` : `${sec}초`;
+        const label = side === 'buy' ? '매수' : '매도';
+        el.textContent = list.length > 1
+            ? `${label} ${list.length}건 대기 ${t}`
+            : `${label} 대기 ${t}`;
+        el.classList.add('is-active');
+    });
 
     const pnlEl = document.getElementById(`strat-card-${sym}-pnl`);
     if (pnlEl) {
@@ -2151,9 +2207,9 @@ function _updateStratMonitorCard(s) {
     const pointEl = document.getElementById(`strat-card-${sym}-point`);
     if (pointEl) {
         const pt = s.today_point ?? 0;
-        pointEl.textContent = pt > 0 ? `오늘 포인트 +${Math.round(pt).toLocaleString()}원(비현금)` : '';
+        pointEl.textContent = pt > 0 ? `포인트 +${Math.round(pt).toLocaleString()}원` : '';
     }
-    _setEl(`strat-card-${sym}-trades`, `오늘 체결 ${s.today_trades ?? 0}회`);
+    _setEl(`strat-card-${sym}-trades`, `${s.today_trades ?? 0}회`);
 
     const startBtn  = document.getElementById(`strat-card-${sym}-start-btn`);
     const resumeBtn = document.getElementById(`strat-card-${sym}-resume-btn`);
