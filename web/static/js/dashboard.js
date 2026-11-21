@@ -1939,6 +1939,13 @@ function _togglePriceTable() {
 
 let _plannerTimer = null;
 let _plannerScrolledSym = null;   // 현재 차수 줄로 자동 스크롤을 마친 종목
+// 그리드 플래너 재계산 조건 — 전략 탭은 3초마다 다시 그리는데, 입력값·현재 차수가
+// 그대로면 표를 다시 받지 않는다(예전엔 매번 "계산 중…"으로 비웠다가 그려서 깜빡였다).
+let _plannerKey  = null;   // 마지막으로 그린 표의 계산 조건
+let _plannerSym  = null;   // 마지막으로 그린 표의 종목
+let _plannerAt   = 0;      // 마지막으로 그린 시각(ms)
+let _plannerBusy = false;  // 요청 진행 중
+const PLANNER_LIVE_REFRESH_MS = 30000;  // 시작가가 비어 현재가 기준으로 계산할 때만 주기 갱신
 function _calcPlannerDebounced() {
     clearTimeout(_plannerTimer);
     _plannerTimer = setTimeout(_calcAndRenderPriceTable, 350);
@@ -1972,7 +1979,17 @@ async function _calcAndRenderPriceTable() {
     params.set(mode === 'krw' ? 'trigger_krw' : 'trigger_pct', triggerVal);
     params.set(mode === 'krw' ? 'trigger_krw_sell' : 'trigger_pct_sell', sellVal);
 
-    tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">계산 중…</td></tr>';
+    const curRound = (_stratData?.symbols || []).find(x => x.symbol === _stratActiveSym)?.current_round || 0;
+    const key = `${params.toString()}|${curRound}`;
+    const liveStale = startPrice <= 0 && Date.now() - _plannerAt > PLANNER_LIVE_REFRESH_MS;
+    if (key === _plannerKey && !liveStale) return;   // 같은 조건이면 그대로 둔다
+    if (_plannerBusy) return;                          // 진행 중이면 다음 갱신 때 다시 확인
+    _plannerBusy = true;
+
+    // "계산 중…"은 처음 열 때와 종목을 바꿨을 때만 — 그 외에는 기존 표를 둔 채 바꿔 끼운다
+    if (_plannerSym !== _stratActiveSym || !tbody.querySelector('tr')) {
+        tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">계산 중…</td></tr>';
+    }
     try {
         const data = await _fetchJson(`${API.planner}?${params.toString()}`);
         const rows = (data && data.rows) || [];
@@ -1989,10 +2006,15 @@ async function _calcAndRenderPriceTable() {
         }
 
         if (!rows.length) {
+            _plannerKey = key;
+            _plannerSym = _stratActiveSym;
+            _plannerAt  = Date.now();
             tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">시작가·주문금액·차수·트리거를 입력하세요</td></tr>';
             return;
         }
-        const curRound = (_stratData?.symbols || []).find(x => x.symbol === _stratActiveSym)?.current_round || 0;
+        _plannerKey = key;
+        _plannerSym = _stratActiveSym;
+        _plannerAt  = Date.now();
         tbody.innerHTML = rows.map(r => {
             const netColor = r.net >= 0 ? 'var(--cs-profit)' : 'var(--cs-loss)';
             const netSign  = r.net >= 0 ? '+' : '';
@@ -2015,7 +2037,12 @@ async function _calcAndRenderPriceTable() {
         }
     } catch (err) {
         console.error('[CryptoSplit] planner error:', err);
-        tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">계산 실패</td></tr>';
+        // 이미 그려 둔 같은 종목의 표가 있으면 그대로 두고, 다음 갱신 때 다시 시도한다
+        if (_plannerSym !== _stratActiveSym || !tbody.querySelector('tr:not(:has(.cs-trade-empty))')) {
+            tbody.innerHTML = '<tr><td colspan="6" class="cs-trade-empty">계산 실패</td></tr>';
+        }
+    } finally {
+        _plannerBusy = false;
     }
 }
 
