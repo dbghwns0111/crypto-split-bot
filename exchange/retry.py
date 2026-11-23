@@ -74,6 +74,11 @@ def _recover_clock_skew() -> bool:
 
 def _is_auth_error(exc: BaseException) -> bool:
     """인증 오류(재시도해도 해결 안 됨)인지 판별한다."""
+    # 응답 형식 이상은 메시지에 응답 본문 일부가 들어가서, 가격 숫자 속 "401" 같은
+    # 우연한 문자열로 인증 오류로 오판될 수 있다 — 항상 재시도 대상으로 둔다.
+    from exchange.errors import BithumbResponseError
+    if isinstance(exc, BithumbResponseError):
+        return False
     msg = str(exc)
     return any(hint in msg for hint in _AUTH_ERROR_HINTS)
 

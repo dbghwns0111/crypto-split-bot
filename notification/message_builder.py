@@ -340,6 +340,13 @@ def build_api_error(symbol: str, error: str) -> str:
     return card(f"🚨 {symbol} API 오류", foot=str(error))
 
 
+def build_api_recovered(symbol: str, minutes: int, errors: int) -> str:
+    """API 오류 복구 알림 — 장애 알림을 보낸 뒤 정상 응답이 돌아왔을 때 1회."""
+    span = f"{minutes}분" if minutes >= 1 else "1분 미만"
+    return card(f"✅ {symbol} API 복구",
+                foot=f"{span} 동안 이어진 오류({errors}회)가 해소되어 매매를 재개했습니다.")
+
+
 def build_time_sync_alert(success: bool, reason: str = "") -> str:
     """시간 동기화 결과 알림 (주기 동기화는 실패 시에만 발송된다)."""
     if success:

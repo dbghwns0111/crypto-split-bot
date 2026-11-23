@@ -17,6 +17,7 @@ import requests
 from notification.message_builder import (
     is_card,
     build_api_error,
+    build_api_recovered,
     build_auto_rebase,
     build_clock_offset_alert,
     build_bot_restarted,
@@ -222,6 +223,9 @@ class TelegramNotifier:
 
     def send_api_error(self, symbol: str, error: str = "", **_: Any) -> bool:
         return self.send(build_api_error(symbol, error))
+
+    def send_api_recovered(self, symbol: str, minutes: int = 0, errors: int = 0, **_: Any) -> bool:
+        return self.send(build_api_recovered(symbol, minutes, errors))
 
     def send_time_sync_alert(self, success: bool, reason: str = "") -> bool:
         return self.send(build_time_sync_alert(success, reason))

@@ -362,7 +362,7 @@ system:
 - 전략 탭 설정 변경 (트리거/최대차수/주문금액/시작가, 심볼별, 변경 전→후 값 표시)
 - 설정 탭 설정 변경 (변경 전→후 값 표시. API키/텔레그램/비밀번호 등 민감정보는
   항목명만 표시하고 값은 비공개)
-- API 오류
+- API 오류 (봇 루프 연속 10회 실패 시 1회, 장애가 이어지면 1시간마다 1회) / API 복구 (오류 알림 후 정상화 시 1회)
 - 봇 워치독 자동 복구 / 복구 실패 (3분마다 점검)
 - DB 백업 실패 경고 (성공은 무알림) — 매일 04:30 외부 백업 파일(.db.gz)은 무음으로 전송
 - 시간 동기화 결과 (주기 동기화는 실패 시에만 발송)
@@ -925,6 +925,19 @@ APScheduler 발화 시각은 OS 시계 오차만큼 어긋날 수 있다(현재 
   보내고, 매도 주문에 성공하면 플래그를 리셋한다.
 - 빗썸 취소는 비동기라 응답 `state`가 `wait`인 것이 정상이다. 예전 로그의 "주문 취소: → 실패"
   2만여 건은 실패가 아니었다. 지금은 "접수(state=wait)"로 기록된다.
+
+### 빗썸 장애 시 알림 폭주 / 원인 불명 오류 — 2026-11-23
+01:00~07:30 빗썸이 HTTP 200에 평소와 다른 JSON을 보냈다(공개·비공개 API 모두, 키 만료 아님). python_bithumb은
+응답 형식을 검증하지 않아 `string indices must be integers` 같은 오류만 남았고, 봇 루프는 10회마다 알림 후
+카운터를 0으로 되돌려 종목당 1분 남짓마다 텔레그램이 쏟아졌다(999+). 되돌리지 말 것:
+- `MagicSplit._loop`: 연속 10회 실패 시 첫 알림 → 계속되면 1시간마다 재알림 → 회복 시 `send_api_recovered` 1회.
+  루프 자체는 멈추지 않고 계속 재시도한다.
+- `exchange/bithumb_client.py`: `_TimeoutRequests`가 스레드별 마지막 응답을 보관하고, 래퍼 메서드
+  (`@_explain_failures`, `cancel_order`는 `_note_failure`)가 실패하면 원본 응답(HTTP 상태·주요 헤더·본문 4000자)을
+  **`logs/exchange.bad_response.log`**에 남긴다(같은 응답 반복은 10분에 1회만 전체 기록). 해석 오류
+  (TypeError/KeyError/AttributeError/IndexError/JSON)는 응답 요약을 담은 `exchange.errors.BithumbResponseError`로
+  바꿔 던진다 — 재시도 대상이며 인증 오류로 오판하지 않는다(`retry._is_auth_error`).
+- 장애가 다시 나면 `logs/exchange.bad_response.log`를 먼저 볼 것.
 
 ### 자동 보안 업데이트가 서비스를 재시작하지 못하게 (2026-11-14)
 (2026-11-15 이후로는 재시작돼도 `auto_resume.py`가 켜두었던 종목을 다시 가동하지만, 불필요한 재시작과

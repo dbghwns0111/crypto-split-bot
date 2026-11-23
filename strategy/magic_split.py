@@ -44,6 +44,16 @@ from utils.time_utils import now_kst_str
 
 _log = get_logger("strategy.magic_split")
 
+# 루프 오류 알림 — 연속 N회 실패 시 첫 알림, 이후 장애가 이어지면 이 간격으로만 재알림
+_ERROR_ALERT_AFTER = 10
+_ERROR_REMIND_SEC  = 3600
+
+
+def _short(exc: BaseException, limit: int = 300) -> str:
+    """알림용 오류 문자열 — 거래소가 HTML 페이지를 통째로 돌려줘도 길어지지 않게."""
+    text = " ".join(str(exc).split())
+    return text if len(text) <= limit else text[:limit] + "…"
+
 
 class MagicSplit:
     """매직스플릿 전략 실행기."""
@@ -281,22 +291,58 @@ class MagicSplit:
     # ── 루프 ─────────────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
-        consecutive_errors = 0
+        # 오류 알림: 연속 _ERROR_ALERT_AFTER 회에 1번, 계속되면 _ERROR_REMIND_SEC 마다 1번,
+        # 회복되면 복구 알림 1번. (예전엔 10회마다 알림을 보내고 카운터를 0으로 되돌려,
+        # 2026-11-23 빗썸 장애 6시간 반 동안 종목당 1분 남짓마다 알림이 쏟아졌다.
+        # 루프는 멈추지 않고 계속 재시도한다 — 회복되면 그대로 매매가 이어진다.)
+        streak = 0
+        outage_start = 0.0
+        alerted_at: Optional[float] = None   # None = 이번 장애는 아직 알리지 않음
         while self._running:
             try:
                 self._tick()
-                consecutive_errors = 0
             except Exception as exc:
-                consecutive_errors += 1
-                _log.error("루프 오류 (%d연속) (%s): %s", consecutive_errors, self._symbol, exc)
-                if consecutive_errors >= 10:
-                    if self._notifier:
-                        self._notifier.send_api_error(
-                            self._symbol,
-                            f"10회 연속 오류로 주문이 중단됐습니다: {exc}",
+                streak += 1
+                now = time.monotonic()
+                if streak == 1:
+                    outage_start = now
+                _log.error("루프 오류 (%d연속) (%s): %s", streak, self._symbol, exc)
+                if alerted_at is None:
+                    if streak >= _ERROR_ALERT_AFTER:
+                        self._notify_loop_error(
+                            f"{streak}회 연속 오류로 매매가 멈춰 있습니다. 계속 자동 재시도 중이며, "
+                            f"복구되면 다시 알려드립니다. (오류가 이어지면 "
+                            f"{_ERROR_REMIND_SEC // 60}분마다 한 번만 다시 알림)\n원인: {_short(exc)}"
                         )
-                    consecutive_errors = 0
+                        alerted_at = now
+                elif now - alerted_at >= _ERROR_REMIND_SEC:
+                    mins = int((now - outage_start) // 60)
+                    self._notify_loop_error(
+                        f"오류가 {mins}분째 계속되고 있습니다 (누적 {streak}회, 자동 재시도 중).\n"
+                        f"원인: {_short(exc)}"
+                    )
+                    alerted_at = now
+            else:
+                if streak:
+                    mins = int((time.monotonic() - outage_start) // 60)
+                    if alerted_at is not None:
+                        _log.info("루프 오류 복구 (%s): %d분, %d회", self._symbol, mins, streak)
+                        if self._notifier:
+                            try:
+                                self._notifier.send_api_recovered(self._symbol, mins, streak)
+                            except Exception as n_exc:
+                                _log.warning("복구 알림 실패 (%s): %s", self._symbol, n_exc)
+                    streak = 0
+                    alerted_at = None
             time.sleep(self._poll_interval)
+
+    def _notify_loop_error(self, text: str) -> None:
+        if not self._notifier:
+            return
+        try:
+            self._notifier.send_api_error(self._symbol, text)
+        except Exception as n_exc:
+            _log.warning("오류 알림 실패 (%s): %s", self._symbol, n_exc)
 
     def _tick(self) -> None:
         """단일 폴링 사이클: 현재가 조회 → 트리거 판단 → 주문."""

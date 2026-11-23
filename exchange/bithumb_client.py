@@ -1,5 +1,7 @@
 """python-bithumb(python_bithumb) 래퍼 — ExchangeBase 구현."""
 
+import functools
+import json
 import threading
 import time
 from typing import Optional
@@ -7,10 +9,13 @@ from typing import Optional
 import requests
 
 from exchange.base import ExchangeBase
+from exchange.errors import BithumbResponseError
 from exchange.retry import with_retry
 from utils.logger import get_logger
 
 _log = get_logger("exchange.bithumb")
+# 실패한 호출의 빗썸 원본 응답(상태·헤더·본문) 기록 — 점검·장애 때 무엇이 왔는지 사후 확인용.
+_bad_log = get_logger("exchange.bad_response")
 
 # 재시도 대상 예외 — 지연 import 후 확정
 _RETRY_EXC = (Exception,)
@@ -40,7 +45,11 @@ class _TimeoutRequests:
     def request(self, method, url, **kwargs):
         default = self._get_timeout if str(method).upper() == "GET" else self._write_timeout
         kwargs.setdefault("timeout", default)
-        return requests.request(method, url, **kwargs)
+        resp = requests.request(method, url, **kwargs)
+        # 호출 스레드의 마지막 응답을 남겨 둔다 — 라이브러리가 응답을 해석하다 터지면
+        # _explain_failures 가 이 원본을 기록·요약한다 (요청 헤더/JWT 는 보관하지 않음).
+        _tls.last_response = resp
+        return resp
 
     def get(self, url, **kwargs):
         return self.request("GET", url, **kwargs)
@@ -65,6 +74,100 @@ def _install_http_timeouts() -> None:
         public_api.requests = _TimeoutRequests(_PUBLIC_TIMEOUT, _PUBLIC_TIMEOUT)
     if not isinstance(private_api.requests, _TimeoutRequests):
         private_api.requests = _TimeoutRequests(_PRIVATE_GET_TIMEOUT, _PRIVATE_WRITE_TIMEOUT)
+
+
+# ── 실패 응답 기록 ────────────────────────────────────────────────────────────
+# python_bithumb 은 응답 형식을 검증하지 않는다. 빗썸이 점검·장애 중 HTTP 200 에
+# 평소와 다른 JSON 을 주면 `string indices must be integers` 같은 엉뚱한 오류만
+# 남고 실제로 무엇이 왔는지는 사라진다(2026-11-23 01:00~07:30 장애). 그래서
+# 래퍼 메서드가 실패하면 그 호출이 받은 원본 응답을 exchange.bad_response 로그에
+# 남기고, 형식 문제면 응답 요약을 담은 BithumbResponseError 로 바꿔 던진다.
+
+_tls = threading.local()
+
+# 해석 실패로 보는 예외 — 응답이 기대한 구조가 아닐 때 라이브러리/래퍼에서 나는 것들
+_PARSE_ERRORS = (TypeError, KeyError, AttributeError, IndexError,
+                 json.JSONDecodeError, requests.exceptions.JSONDecodeError)
+
+_SNIPPET_LEN   = 200    # 오류 메시지(텔레그램)에 붙이는 본문 길이
+_DUMP_BODY_LEN = 4000   # 로그 파일에 남기는 본문 길이
+_DUMP_REPEAT_SEC = 600  # 같은 응답이 반복되면 이 간격으로만 다시 전체 기록
+_DUMP_HEADERS = ("Content-Type", "Content-Length", "Date", "Server",
+                 "Retry-After", "Location", "CF-RAY")
+
+_dump_lock = threading.Lock()
+_dump_state = {"key": None, "at": 0.0, "suppressed": 0}
+
+
+def _body_text(resp) -> str:
+    try:
+        return resp.text or ""
+    except Exception as exc:  # 디코딩 실패 등
+        return f"<본문 읽기 실패: {exc}>"
+
+
+def _one_line(text: str, limit: int) -> str:
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[:limit] + "…"
+
+
+def _dump_response(func_name: str, resp, exc: BaseException) -> None:
+    """실패한 호출의 원본 응답을 기록한다. 같은 응답 반복은 10분에 한 번만 전체 기록."""
+    body = _body_text(resp)
+    req = getattr(resp, "request", None)
+    method = getattr(req, "method", "?")
+    url = getattr(resp, "url", "?")
+    key = (resp.status_code, body[:500])
+    now = time.monotonic()
+    with _dump_lock:
+        st = _dump_state
+        if st["key"] == key and now - st["at"] < _DUMP_REPEAT_SEC:
+            st["suppressed"] += 1
+            return
+        suppressed = st["suppressed"]
+        st.update(key=key, at=now, suppressed=0)
+    headers = {h: resp.headers[h] for h in _DUMP_HEADERS if h in resp.headers}
+    _bad_log.error(
+        "%s 실패 — %s: %s\n  요청: %s %s\n  HTTP %s, 헤더: %s\n  본문(%d자): %s%s",
+        func_name, type(exc).__name__, exc, method, url,
+        resp.status_code, headers, len(body), body[:_DUMP_BODY_LEN],
+        f"\n  (직전과 같은 응답 {suppressed}회는 기록 생략)" if suppressed else "",
+    )
+
+
+def _note_failure(func_name: str, exc: BaseException) -> BaseException:
+    """실패 원인을 기록하고, 응답 형식 문제면 설명이 붙은 예외를 돌려준다."""
+    if isinstance(exc, BithumbResponseError):
+        return exc
+    resp = getattr(_tls, "last_response", None)
+    if resp is None:            # 응답 자체가 없음(연결 실패·타임아웃) — 원래 메시지로 충분
+        return exc
+    try:
+        _dump_response(func_name, resp, exc)
+    except Exception as log_exc:
+        _log.warning("실패 응답 기록 중 오류: %s", log_exc)
+    if isinstance(exc, _PARSE_ERRORS):
+        snippet = _one_line(_body_text(resp), _SNIPPET_LEN)
+        return BithumbResponseError(
+            f"빗썸 응답 형식 이상(점검·장애 가능성) — HTTP {resp.status_code}, "
+            f"응답: {snippet or '(빈 본문)'} [{type(exc).__name__}: {exc}]"
+        )
+    return exc
+
+
+def _explain_failures(func):
+    """래퍼 메서드용 — 실패 시 원본 응답 기록 + 형식 이상을 알아볼 수 있는 예외로 변환."""
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        _tls.last_response = None
+        try:
+            return func(*args, **kwargs)
+        except Exception as exc:
+            new = _note_failure(func.__name__, exc)
+            if new is exc:
+                raise
+            raise new from exc
+    return wrapper
 
 
 def _import_bithumb():
@@ -109,6 +212,7 @@ class BithumbClient(ExchangeBase):
     # ── 공개 API ──────────────────────────────────────────────────────────────
 
     @with_retry(max_retries=3, base_delay=1.0)
+    @_explain_failures
     def get_current_price(self, ticker: str) -> float:
         """현재가를 반환한다."""
         price = self._pb.get_current_price(ticker)
@@ -118,6 +222,7 @@ class BithumbClient(ExchangeBase):
         self._remember_prices({ticker: price})
         return price
 
+    @_explain_failures
     def get_current_prices(self, tickers: list[str]) -> dict[str, float]:
         """여러 종목 현재가를 HTTP 1회로 조회한다 — 웹 화면용, 재시도 없이 빠르게 실패.
 
@@ -150,6 +255,7 @@ class BithumbClient(ExchangeBase):
                 self._last_prices[t] = (p, now)
 
     @with_retry(max_retries=3, base_delay=1.0)
+    @_explain_failures
     def get_ohlcv(self, ticker: str, interval: str = "minute60", count: int = 20) -> list[dict]:
         """OHLCV 캔들 데이터를 반환한다. 최신 캔들이 마지막 원소."""
         df = self._pb.get_ohlcv(ticker, interval=interval, count=count)
@@ -176,12 +282,14 @@ class BithumbClient(ExchangeBase):
     # ── 사설 API ──────────────────────────────────────────────────────────────
 
     @with_retry(max_retries=3, base_delay=1.0)
+    @_explain_failures
     def get_balance(self, currency: str) -> float:
         """currency 주문 가능 잔고(float)를 반환한다."""
         self._require_credentials()
         return float(self._private.get_balance(currency))
 
     @with_retry(max_retries=3, base_delay=1.0)
+    @_explain_failures
     def get_balances(self) -> list[dict]:
         """전체 잔고 목록을 반환한다."""
         self._require_credentials()
@@ -200,6 +308,7 @@ class BithumbClient(ExchangeBase):
     # 재시도하면 실제로는 접수된 주문에 중복 주문을 낼 위험이 있다.
     # (인증 오류는 with_retry 내부에서 여전히 즉시 raise된다)
     @with_retry(max_retries=0)
+    @_explain_failures
     def buy_limit(self, ticker: str, price: float, quantity: float) -> dict:
         """지정가 매수 주문을 실행한다."""
         raw = self._private.buy_limit_order(ticker, price=price, volume=quantity)
@@ -208,6 +317,7 @@ class BithumbClient(ExchangeBase):
         return _normalize_order(raw)
 
     @with_retry(max_retries=0)
+    @_explain_failures
     def sell_limit(self, ticker: str, price: float, quantity: float) -> dict:
         """지정가 매도 주문을 실행한다."""
         raw = self._private.sell_limit_order(ticker, price=price, volume=quantity)
@@ -216,6 +326,7 @@ class BithumbClient(ExchangeBase):
         return _normalize_order(raw)
 
     @with_retry(max_retries=3, base_delay=1.0)
+    @_explain_failures
     def get_order_status(self, order_id: str) -> dict:
         """주문 상태를 조회한다."""
         raw = self._private.get_order(order_id)
@@ -224,6 +335,7 @@ class BithumbClient(ExchangeBase):
     @with_retry(max_retries=3, base_delay=1.0)
     def cancel_order(self, order_id: str) -> bool:
         """주문을 취소한다. 성공 시 True."""
+        _tls.last_response = None
         try:
             raw = self._private.cancel_order(order_id)
             state = raw.get("state")
@@ -233,10 +345,12 @@ class BithumbClient(ExchangeBase):
                       "완료" if state == "cancel" else f"접수(state={state})")
             return state in ("cancel", "wait")
         except Exception as exc:
+            exc = _note_failure("cancel_order", exc)
             _log.warning("주문 취소 실패 (order_id=%s): %s", order_id, exc)
             return False
 
     @with_retry(max_retries=3, base_delay=1.0)
+    @_explain_failures
     def get_open_orders(self, ticker: str) -> list[dict]:
         """ticker의 미체결 주문 목록을 반환한다."""
         raw_list = self._private.get_orders(market=ticker, state="wait")
